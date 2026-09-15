@@ -1,0 +1,63 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function myProfile() {
+      return get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data;
+    }
+
+    function canManageAll() {
+      return signedIn() && myProfile().role in ['admin', 'store_manager', 'assistant_manager'];
+    }
+
+    function myEmployeeNo() {
+      return myProfile().employeeNo;
+    }
+
+    match /profiles/{userId} {
+      allow read: signedIn() && (request.auth.uid == userId || canManageAll());
+      allow create: signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.employeeNo + '@d5.local' == request.auth.token.email
+        && (
+          (request.auth.token.email == '12784@d5.local' && request.resource.data.role == 'admin')
+          || (request.auth.token.email == '1292@d5.local' && request.resource.data.role == 'store_manager')
+          || (request.auth.token.email != '12784@d5.local'
+            && request.auth.token.email != '1292@d5.local'
+            && request.resource.data.role == 'manager')
+        );
+      allow update: signedIn() && myProfile().role == 'admin';
+      allow delete: false;
+    }
+
+    match /referrals/{referralId} {
+      allow read: signedIn()
+        && (canManageAll() || resource.data.managerEmployeeNo == myEmployeeNo());
+
+      allow create: canManageAll()
+        && request.resource.data.createdBy == request.auth.uid;
+
+      allow update: canManageAll()
+        || (
+          signedIn()
+          && resource.data.managerEmployeeNo == myEmployeeNo()
+          && request.resource.data.managerEmployeeNo == myEmployeeNo()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'visitScheduledDate',
+            'status',
+            'visitState',
+            'note',
+            'memoHistory',
+            'updatedAt',
+            'updatedBy'
+          ])
+        );
+
+      allow delete: canManageAll();
+    }
+  }
+}

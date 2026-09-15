@@ -4,7 +4,9 @@ import {
   LayoutDashboard, LogOut, Menu, MoreHorizontal, Plus, Search,
   Settings, Sparkles, UserRound, UsersRound, X,
 } from 'lucide-react'
-import { isDemoMode, isSupabaseConfigured, supabase } from './lib/supabase'
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth'
+import { collection, doc, getDoc, getDocs, query as firestoreQuery, setDoc, where } from 'firebase/firestore'
+import { auth, db, isDemoMode, isFirebaseConfigured } from './lib/firebase'
 import { STATUSES, type Lead, type LeadStatus, type MemoEntry, type VisitState } from './types'
 
 type SortKey = 'customerName' | 'registeredAt' | 'partnerName' | 'manager' | 'visitDate' | 'status' | 'management' | 'updatedAt'
@@ -132,10 +134,10 @@ const managers: Staff[] = [
   }
 ]
 type AppUser = { id: string; loginId: string; name: string; role: string }
-const appUserFromSession = (user: { id?: string; email?: string; user_metadata?: Record<string, unknown> }): AppUser => ({
-  id: String(user.id || ''),
+const appUserFromSession = (user: User): AppUser => ({
+  id: user.uid,
   loginId: user.email?.split('@')[0] || '',
-  name: String(user.user_metadata?.display_name || user.email?.split('@')[0] || 'D5 사용자'),
+  name: user.displayName || user.email?.split('@')[0] || 'D5 사용자',
   role: 'manager',
 })
 const roleLabel = (role: string) => ({ admin: '관리자', store_manager: '지점장', assistant_manager: '부지점장', manager: '매니저' }[role] || role)
@@ -171,15 +173,42 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [showMetrics, setShowMetrics] = useState(false)
   const [currentUser, setCurrentUser] = useState<AppUser | null>(isDemoMode ? { id: 'demo', loginId: 'demo', name: 'D5 관리자', role: '데모 관리자' } : null)
-  const [authReady, setAuthReady] = useState(!isSupabaseConfigured)
+  const [authReady, setAuthReady] = useState(!isFirebaseConfigured)
   const [dataReady, setDataReady] = useState(isDemoMode)
   const [dataError, setDataError] = useState('')
 
   useEffect(() => {
-    if (!supabase) return
-    supabase.auth.getSession().then(({data}) => { setCurrentUser(data.session ? appUserFromSession(data.session.user) : null); setAuthReady(true) })
-    const {data} = supabase.auth.onAuthStateChange((_event,session) => setCurrentUser(session ? appUserFromSession(session.user) : null))
-    return () => data.subscription.unsubscribe()
+    if (!auth || !db) return
+    const firestoreDb = db
+    return onAuthStateChanged(auth, async firebaseUser => {
+      if (!firebaseUser) { setCurrentUser(null); setAuthReady(true); return }
+      const baseUser = appUserFromSession(firebaseUser)
+      try {
+        const profileRef = doc(firestoreDb, 'profiles', firebaseUser.uid)
+        let profileSnapshot = await getDoc(profileRef)
+        if (!profileSnapshot.exists()) {
+          const staff = managers.find(member => member.employeeNo === baseUser.loginId)
+          const isAdmin = baseUser.loginId === '12784'
+          const isStoreAdmin = baseUser.loginId === '1292'
+          await setDoc(profileRef, {
+            employeeNo: baseUser.loginId,
+            displayName: isAdmin ? 'D5 관리자' : (isStoreAdmin ? 'D5 지점 관리자' : (staff?.name || baseUser.loginId)),
+            role: isAdmin ? 'admin' : (isStoreAdmin ? 'store_manager' : 'manager'),
+            positionLabel: isAdmin ? '관리자' : (isStoreAdmin ? '지점 관리자' : '매니저'),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          })
+          profileSnapshot = await getDoc(profileRef)
+        }
+        const profile = profileSnapshot.data()
+        setCurrentUser({ ...baseUser, name: String(profile?.displayName || baseUser.name), role: String(profile?.role || 'manager') })
+      } catch (error) {
+        setDataError(error instanceof Error ? error.message : '사용자 권한을 확인하지 못했습니다.')
+        setCurrentUser(baseUser)
+      } finally {
+        setAuthReady(true)
+      }
+    })
   }, [])
 
   useEffect(() => {
@@ -188,25 +217,24 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!supabase || !currentUser) return
+    if (!db || !currentUser) return
     let activeRequest = true
     setDataReady(false); setDataError('')
-    Promise.all([
-      supabase.from('profiles').select('display_name, role').eq('id', currentUser.id).maybeSingle(),
-      supabase.from('referrals').select('*').order('updated_at', { ascending: false }),
-    ]).then(([profileResult, referralResult]) => {
+    const canReadAll = ['admin', 'store_manager', 'assistant_manager'].includes(currentUser.role)
+    const referrals = collection(db, 'referrals')
+    const request = canReadAll ? getDocs(referrals) : getDocs(firestoreQuery(referrals, where('managerEmployeeNo', '==', currentUser.loginId)))
+    request.then(snapshot => {
       if (!activeRequest) return
-      if (profileResult.error) throw profileResult.error
-      if (referralResult.error) throw referralResult.error
-      const profile = profileResult.data
-      if (profile) setCurrentUser(user => user ? {...user, name: profile.display_name, role: profile.role} : user)
-      setLeads((referralResult.data || []).map(row => ({
-        id: row.id, registeredAt: row.registered_at, customerName: row.customer_name_masked,
-        phoneLast4: row.phone_last4, gender: row.gender, visitScheduledDate: row.visit_scheduled_date || undefined,
-        partnerName: row.partner_name, billToCode: row.bill_to_code || undefined, lgeSubchannel: row.lge_subchannel || undefined,
-        manager: row.manager_name || undefined, plannerName: row.planner_name || undefined, status: normalizeStatus(row.status),
-        visitState: row.visit_state, note: row.note || undefined, memoHistory: row.memo_history || [], updatedAt: row.updated_at,
-      } as Lead)))
+      setLeads(snapshot.docs.map(item => {
+        const row = item.data()
+        return {
+          id: item.id, registeredAt: row.registeredAt, customerName: row.customerName,
+          phoneLast4: row.phoneLast4, gender: row.gender, visitScheduledDate: row.visitScheduledDate || undefined,
+          partnerName: row.partnerName, billToCode: row.billToCode || undefined, lgeSubchannel: row.lgeSubchannel || undefined,
+          manager: row.manager || undefined, plannerName: row.plannerName || undefined, status: normalizeStatus(row.status),
+          visitState: row.visitState, note: row.note || undefined, memoHistory: row.memoHistory || [], updatedAt: row.updatedAt,
+        } as Lead
+      }))
       setDataReady(true)
     }).catch(error => {
       if (!activeRequest) return
@@ -240,23 +268,27 @@ export default function App() {
   const sortBy = (key: SortKey) => setSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))
   const saveLead = async (lead: Lead) => {
     const sanitized = { ...lead, customerName: maskName(lead.customerName), phoneLast4: last4(lead.phoneLast4), updatedAt: new Date().toISOString() }
-    if (isSupabaseConfigured && supabase) {
+    if (isFirebaseConfigured && db && currentUser) {
       const managerEmployeeNo = managers.find(manager => manager.name === sanitized.manager)?.employeeNo || null
-      const payload = {
-        id: sanitized.id, registered_at: sanitized.registeredAt, customer_name_masked: sanitized.customerName,
-        phone_last4: sanitized.phoneLast4, gender: sanitized.gender, visit_scheduled_date: sanitized.visitScheduledDate || null,
-        partner_name: sanitized.partnerName,
-        bill_to_code: sanitized.billToCode || null, lge_subchannel: sanitized.lgeSubchannel || null,
-        manager_name: sanitized.manager || null, manager_employee_no: managerEmployeeNo, planner_name: sanitized.plannerName || null,
-        status: sanitized.status, visit_state: sanitized.visitState, note: sanitized.note || null, memo_history: sanitized.memoHistory || [],
+      const payload = Object.fromEntries(Object.entries({
+        registeredAt: sanitized.registeredAt, customerName: sanitized.customerName,
+        phoneLast4: sanitized.phoneLast4, gender: sanitized.gender, visitScheduledDate: sanitized.visitScheduledDate || null,
+        partnerName: sanitized.partnerName, billToCode: sanitized.billToCode || null, lgeSubchannel: sanitized.lgeSubchannel || null,
+        manager: sanitized.manager || null, managerEmployeeNo, plannerName: sanitized.plannerName || null,
+        status: sanitized.status, visitState: sanitized.visitState, note: sanitized.note || null, memoHistory: sanitized.memoHistory || [],
+        ...(creating ? { createdBy: currentUser.id, createdAt: sanitized.updatedAt } : {}),
+        updatedBy: currentUser.id, updatedAt: sanitized.updatedAt,
+      }).filter(([, value]) => value !== undefined))
+      try {
+        await setDoc(doc(db, 'referrals', sanitized.id), payload, { merge: true })
+      } catch (error) {
+        notify(`저장하지 못했습니다: ${error instanceof Error ? error.message : 'Firebase 오류'}`); return
       }
-      const { error } = await supabase.from('referrals').upsert(payload)
-      if (error) { notify(`저장하지 못했습니다: ${error.message}`); return }
     }
     setLeads(prev => prev.some(x => x.id === sanitized.id) ? prev.map(x => x.id === sanitized.id ? sanitized : x) : [sanitized, ...prev])
     setActive(null); setCreating(false); setOpenMemoOnDrawer(false); notify('고객 정보가 저장되었습니다')
   }
-  if (!isSupabaseConfigured && !isDemoMode) return <SetupRequired/>
+  if (!isFirebaseConfigured && !isDemoMode) return <SetupRequired/>
   if (!authReady || (currentUser && !dataReady)) return <div className="loading-screen"><div className="brand-mark">D5</div><p>안전하게 연결하는 중...</p></div>
   if (!currentUser) return <LoginScreen/>
 
@@ -264,7 +296,7 @@ export default function App() {
 
     <main>
       <section className="content">
-        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>좋은 인연을, 놓치지 않도록.</h1><p>제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.</p></div><div className="heading-actions"><button className="btn secondary metrics-toggle" onClick={() => setShowMetrics(v => !v)} aria-expanded={showMetrics}><LayoutDashboard size={17}/>{showMetrics ? '관리지표 숨기기' : '관리지표 보기'}<ChevronDown className={showMetrics ? 'rotated' : ''} size={14}/></button>{canManageAll&&<button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button>}{isSupabaseConfigured&&<button className="btn secondary" onClick={()=>supabase?.auth.signOut()}><LogOut size={16}/>로그아웃</button>}</div></div>
+        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>좋은 인연을, 놓치지 않도록.</h1><p>제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.</p></div><div className="heading-actions"><button className="btn secondary metrics-toggle" onClick={() => setShowMetrics(v => !v)} aria-expanded={showMetrics}><LayoutDashboard size={17}/>{showMetrics ? '관리지표 숨기기' : '관리지표 보기'}<ChevronDown className={showMetrics ? 'rotated' : ''} size={14}/></button>{canManageAll&&<button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button>}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
 
         {dataError&&<div className="data-alert"><CircleHelp size={18}/><div><strong>데이터를 불러오지 못했습니다.</strong><span>{dataError}</span></div><button onClick={()=>window.location.reload()}>다시 시도</button></div>}
 
@@ -301,11 +333,9 @@ function Metric({label,value,note,icon,tone}:{label:string,value:number,note:str
 
 function ManagementSummary({lead,onOpen}:{lead:Lead,onOpen:()=>void}) {
   const entries = memoEntriesFor(lead)
-  const latest = entries.at(-1)
   const visible = entries.slice(-2)
   const firstRound = entries.length - visible.length + 1
-  const planned = lead.visitScheduledDate ? `관리 예정 · ${formatDate(lead.visitScheduledDate).slice(5)}` : '관리 일정 미정'
-  return <div className="management-cell"><div className="management-summary"><strong>{planned}</strong><span>{latest ? `최근 관리 ${formatDate(latest.date)} · ${entries.length}회차` : '관리 기록 없음'}</span></div><div className="management-actions">{visible.map((entry,index)=><button type="button" className="management-chip" key={entry.id} onClick={event=>{event.stopPropagation();onOpen()}}><span>✓ {firstRound+index}회차 · 관리</span><small>{formatDate(entry.date)}</small></button>)}<button type="button" className="management-add" onClick={event=>{event.stopPropagation();onOpen()}}>+ 관리 기록 추가</button></div></div>
+  return <div className="management-cell"><div className="management-actions">{visible.map((entry,index)=><button type="button" className="management-chip" key={entry.id} onClick={event=>{event.stopPropagation();onOpen()}}><span>✓ {firstRound+index}회차 · 관리</span><small>{formatDate(entry.date)}</small></button>)}<button type="button" className="management-add" onClick={event=>{event.stopPropagation();onOpen()}}>+ 관리 기록 추가</button></div></div>
 }
 
 function LeadDrawer({lead,creating,canManageAll,openMemoInitially,onClose,onSave}:{lead:Lead,creating:boolean,canManageAll:boolean,openMemoInitially:boolean,onClose:()=>void,onSave:(l:Lead)=>void}) {
@@ -348,7 +378,7 @@ function MemoModal({lead,manager,entries,onChange,onClose}:{lead:Lead,manager:st
 }
 
 function SetupRequired() {
-  return <div className="login-screen"><div className="login-card setup-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">DEPLOYMENT SETUP</p><h1>운영 연결이 필요합니다</h1><p className="login-copy">고객정보 보호를 위해 데이터베이스가 연결되지 않은 배포에서는 화면을 열지 않습니다.</p><div className="setup-steps"><span>1</span><p>Vercel에 Supabase URL과 anon key를 등록하세요.</p><span>2</span><p>환경변수 등록 후 다시 배포하세요.</p></div></div></div>
+  return <div className="login-screen"><div className="login-card setup-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">DEPLOYMENT SETUP</p><h1>운영 연결이 필요합니다</h1><p className="login-copy">고객정보 보호를 위해 데이터베이스가 연결되지 않은 배포에서는 화면을 열지 않습니다.</p><div className="setup-steps"><span>1</span><p>Vercel에 Firebase 웹 앱 환경변수를 등록하세요.</p><span>2</span><p>환경변수 등록 후 다시 배포하세요.</p></div></div></div>
 }
 
 function LoginScreen() {
@@ -358,11 +388,11 @@ function LoginScreen() {
   const [busy,setBusy]=useState(false)
   const login=async(e:React.FormEvent)=>{
     e.preventDefault(); setError(''); setBusy(true)
-    if(!supabase){setError('Supabase 연결이 필요합니다.');setBusy(false);return}
-    const result=await supabase.auth.signInWithPassword({email: loginId+'@d5.local',password})
-    if(result.error)setError('접속번호 또는 비밀번호를 확인해주세요.')
+    if(!auth){setError('Firebase 연결이 필요합니다.');setBusy(false);return}
+    try { await signInWithEmailAndPassword(auth, loginId+'@d5.local',password) }
+    catch { setError('접속번호 또는 비밀번호를 확인해주세요.') }
     setBusy(false)
   }
-  return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">SECURE WORKSPACE</p><h1>D5 제휴고객 관리</h1><p className="login-copy">승인된 관리자와 매니저만 접속할 수 있습니다.</p><form onSubmit={login}><label>접속번호<input inputMode="numeric" required value={loginId} onChange={e=>setLoginId(e.target.value.replace(/\D/g,''))} placeholder="사번 또는 관리번호"/></label><label>비밀번호<input type="password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="비밀번호"/></label>{error&&<p className="login-error">{error}</p>}<button className="btn primary" disabled={busy}>{busy?'접속 중...':'로그인'}</button></form><div className="login-safe"><Sparkles size={15}/> Supabase 보안 인증</div></div></div>
+  return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">SECURE WORKSPACE</p><h1>D5 제휴고객 관리</h1><p className="login-copy">승인된 관리자와 매니저만 접속할 수 있습니다.</p><form onSubmit={login}><label>접속번호<input inputMode="numeric" required value={loginId} onChange={e=>setLoginId(e.target.value.replace(/\D/g,''))} placeholder="사번 또는 관리번호"/></label><label>비밀번호<input type="password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="비밀번호"/></label>{error&&<p className="login-error">{error}</p>}<button className="btn primary" disabled={busy}>{busy?'접속 중...':'로그인'}</button></form><div className="login-safe"><Sparkles size={15}/> Firebase 보안 인증</div></div></div>
 }
 
