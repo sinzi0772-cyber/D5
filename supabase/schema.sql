@@ -18,7 +18,7 @@ end $$;
 do $$ begin
   create type public.visit_state as enum ('미정','예정','방문','미방문','일정취소');
 exception when duplicate_object then null;
-end $;
+end $$;
 alter type public.visit_state add value if not exists '일정취소';
 
 create table if not exists public.profiles (
