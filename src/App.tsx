@@ -165,6 +165,8 @@ export default function App() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<'전체' | LeadStatus>('전체')
+  const [managerFilter, setManagerFilter] = useState('전체 담당자')
+  const [visitFilter, setVisitFilter] = useState<'전체' | VisitState>('전체')
   const [sort, setSort] = useState<{key: SortKey; direction: 'asc' | 'desc'}>({ key: 'updatedAt', direction: 'desc' })
   const [partnerFilter, setPartnerFilter] = useState('전체 제휴업체')
   const [active, setActive] = useState<Lead | null>(null)
@@ -245,18 +247,23 @@ export default function App() {
   }, [currentUser?.id])
 
   const partners = useMemo(() => [...new Set(leads.map(l => l.partnerName))].filter(Boolean), [leads])
+  const managerNames = useMemo(() => [...new Set([...managers.filter(m => m.role === '매니저').map(m => m.name), ...leads.flatMap(l => l.manager ? [l.manager] : [])])], [leads])
   const filtered = useMemo(() => {
     const result = leads.filter(l => {
       const term = query.toLowerCase()
       const hit = !term || [l.customerName, l.phoneLast4, l.partnerName, l.manager].some(v => v?.toLowerCase().includes(term))
-      return hit && (statusFilter === '전체' || l.status === statusFilter) && (partnerFilter === '전체 제휴업체' || l.partnerName === partnerFilter)
+      return hit
+        && (statusFilter === '전체' || l.status === statusFilter)
+        && (partnerFilter === '전체 제휴업체' || l.partnerName === partnerFilter)
+        && (managerFilter === '전체 담당자' || (managerFilter === '미배정' ? !l.manager : l.manager === managerFilter))
+        && (visitFilter === '전체' || l.visitState === visitFilter)
     })
     const value = (lead: Lead) => {
       const values: Record<SortKey, string> = { customerName: lead.customerName, registeredAt: lead.registeredAt, partnerName: lead.partnerName, manager: lead.manager || '', visitDate: lead.visitScheduledDate || '', status: lead.status, management: memoEntriesFor(lead).at(-1)?.date || '', updatedAt: lead.updatedAt }
       return values[sort.key]
     }
     return result.sort((a, b) => value(a).localeCompare(value(b), 'ko', { numeric: true }) * (sort.direction === 'asc' ? 1 : -1))
-  }, [leads, query, statusFilter, partnerFilter, sort])
+  }, [leads, query, statusFilter, partnerFilter, managerFilter, visitFilter, sort])
   const newCount = leads.filter(l => l.status === '관리중').length
   const visits = leads.filter(l => l.visitState === '방문').length
   const planned = leads.filter(l => l.visitState === '예정').length
@@ -308,10 +315,15 @@ export default function App() {
         </div>}
 
         <div className="panel">
-          <div className="panel-head"><div><h2>고객 접수 현황</h2><span>고객 정보를 확인하고 관리하세요</span></div></div>
-          <div className="filters"><div className="search"><Search size={17}/><input placeholder="고객명, 뒷자리, 업체, 담당자 검색" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button onClick={() => setQuery('')}><X size={15}/></button>}</div><select value={partnerFilter} onChange={e => setPartnerFilter(e.target.value)}><option>전체 제휴업체</option>{partners.map(p => <option key={p}>{p}</option>)}</select><select value={statusFilter} onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}><option>전체</option>{STATUSES.map(s => <option key={s}>{s}</option>)}</select></div>
-          <div className="status-tabs"><button className={statusFilter === '전체' ? 'active' : ''} onClick={() => setStatusFilter('전체')}>전체 <b>{leads.length}</b></button>{STATUSES.map(s => <button key={s} className={statusFilter === s ? 'active' : ''} onClick={() => setStatusFilter(s)}>{s} <b>{leads.filter(l => l.status === s).length}</b></button>)}</div>
-          <div className="table-wrap"><table><thead><tr><th><SortHeader label="고객" column="customerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="등록일" column="registeredAt" sort={sort} onSort={sortBy}/></th><th><SortHeader label="제휴업체" column="partnerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="담당 매니저" column="manager" sort={sort} onSort={sortBy}/></th><th><SortHeader label="방문 일정" column="visitDate" sort={sort} onSort={sortBy}/></th><th><SortHeader label="현재 상태" column="status" sort={sort} onSort={sortBy}/></th><th><SortHeader label="관리 내용" column="management" sort={sort} onSort={sortBy}/></th><th/></tr></thead><tbody>{filtered.map(l => <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{l.customerName.slice(0,1)}</span><div><strong>{l.customerName}</strong><small>•••• {l.phoneLast4}</small></div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong><small>{l.plannerName && `플래너 ${l.plannerName}` || '직접 등록'}</small></div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${statusTone[l.status]}`}><i/>{l.status}</span></td><td><ManagementSummary lead={l} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>)}</tbody></table>{filtered.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
+          <div className="panel-head"><div><h2>고객 접수 현황</h2><span>고객 정보를 확인하고 관리하세요</span></div><div className="panel-search search"><Search size={17}/><input aria-label="고객 검색" placeholder="고객명 또는 휴대폰 뒷자리 검색" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}><X size={15}/></button>}</div></div>
+          <div className="filters">
+            <label className="filter-field"><span>제휴업체</span><select aria-label="제휴업체 필터" value={partnerFilter} onChange={e => setPartnerFilter(e.target.value)}><option>전체 제휴업체</option>{partners.map(p => <option key={p}>{p}</option>)}</select></label>
+            <label className="filter-field"><span>담당 매니저</span><select aria-label="담당 매니저 필터" value={managerFilter} onChange={e => setManagerFilter(e.target.value)}><option>전체 담당자</option><option>미배정</option>{managerNames.map(name => <option key={name}>{name}</option>)}</select></label>
+            <label className="filter-field"><span>현재 상태</span><select aria-label="현재 상태 필터" value={statusFilter} onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}><option>전체</option>{STATUSES.map(status => <option key={status}>{status}</option>)}</select></label>
+            <label className="filter-field"><span>방문 여부</span><select aria-label="방문 여부 필터" value={visitFilter} onChange={e => setVisitFilter(e.target.value as typeof visitFilter)}><option>전체</option><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label>
+          </div>
+          <div className="filter-summary"><div className="active-filters">{!query && partnerFilter === '전체 제휴업체' && managerFilter === '전체 담당자' && statusFilter === '전체' && visitFilter === '전체' && <span className="filter-hint">전체 고객을 표시하고 있습니다</span>}{query && <button onClick={() => setQuery('')}>검색: {query}<X size={12}/></button>}{partnerFilter !== '전체 제휴업체' && <button onClick={() => setPartnerFilter('전체 제휴업체')}>{partnerFilter}<X size={12}/></button>}{managerFilter !== '전체 담당자' && <button onClick={() => setManagerFilter('전체 담당자')}>{managerFilter}<X size={12}/></button>}{statusFilter !== '전체' && <button onClick={() => setStatusFilter('전체')}>{statusFilter}<X size={12}/></button>}{visitFilter !== '전체' && <button onClick={() => setVisitFilter('전체')}>{visitFilter}<X size={12}/></button>}</div><div className="filter-result"><strong>{filtered.length}</strong>건{(query || partnerFilter !== '전체 제휴업체' || managerFilter !== '전체 담당자' || statusFilter !== '전체' || visitFilter !== '전체') && <button onClick={() => { setQuery(''); setPartnerFilter('전체 제휴업체'); setManagerFilter('전체 담당자'); setStatusFilter('전체'); setVisitFilter('전체') }}>전체 초기화</button>}</div></div>
+          <div className="table-wrap"><table><thead><tr><th><SortHeader label="고객" column="customerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="등록일" column="registeredAt" sort={sort} onSort={sortBy}/></th><th><SortHeader label="제휴업체" column="partnerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="담당 매니저" column="manager" sort={sort} onSort={sortBy}/></th><th><SortHeader label="방문 일정" column="visitDate" sort={sort} onSort={sortBy}/></th><th><SortHeader label="현재 상태" column="status" sort={sort} onSort={sortBy}/></th><th><SortHeader label="관리 내용" column="management" sort={sort} onSort={sortBy}/></th><th/></tr></thead><tbody>{filtered.map(l => <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{l.customerName.slice(0,1)}</span><div><strong>{l.customerName}</strong><small>•••• {l.phoneLast4}</small></div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${statusTone[l.status]}`}><i/>{l.status}</span></td><td><ManagementSummary lead={l} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>)}</tbody></table>{filtered.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
           <div className="panel-foot"><span>총 {filtered.length}건 표시</span><span><i className="privacy-dot"/>민감정보 최소 수집 적용</span></div>
         </div>
       </section>

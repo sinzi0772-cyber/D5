@@ -19,8 +19,8 @@ service cloud.firestore {
     }
 
     match /profiles/{userId} {
-      allow read: signedIn() && (request.auth.uid == userId || canManageAll());
-      allow create: signedIn()
+      allow read: if signedIn() && (request.auth.uid == userId || canManageAll());
+      allow create: if signedIn()
         && request.auth.uid == userId
         && request.resource.data.employeeNo + '@d5.local' == request.auth.token.email
         && (
@@ -30,18 +30,18 @@ service cloud.firestore {
             && request.auth.token.email != '1292@d5.local'
             && request.resource.data.role == 'manager')
         );
-      allow update: signedIn() && myProfile().role == 'admin';
-      allow delete: false;
+      allow update: if signedIn() && myProfile().role == 'admin';
+      allow delete: if false;
     }
 
     match /referrals/{referralId} {
-      allow read: signedIn()
+      allow read: if signedIn()
         && (canManageAll() || resource.data.managerEmployeeNo == myEmployeeNo());
 
-      allow create: canManageAll()
+      allow create: if canManageAll()
         && request.resource.data.createdBy == request.auth.uid;
 
-      allow update: canManageAll()
+      allow update: if canManageAll()
         || (
           signedIn()
           && resource.data.managerEmployeeNo == myEmployeeNo()
@@ -57,7 +57,7 @@ service cloud.firestore {
           ])
         );
 
-      allow delete: canManageAll();
+      allow delete: if canManageAll();
     }
   }
 }
