@@ -401,7 +401,8 @@ function LoginScreen() {
   const login=async(e:React.FormEvent)=>{
     e.preventDefault(); setError(''); setBusy(true)
     if(!auth){setError('Firebase 연결이 필요합니다.');setBusy(false);return}
-    try { await signInWithEmailAndPassword(auth, loginId+'@d5.local',password) }
+    const firebasePassword = password === loginId ? `D5${loginId}` : password
+    try { await signInWithEmailAndPassword(auth, loginId+'@d5.local',firebasePassword) }
     catch { setError('접속번호 또는 비밀번호를 확인해주세요.') }
     setBusy(false)
   }
