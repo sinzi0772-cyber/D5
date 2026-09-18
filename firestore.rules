@@ -21,7 +21,18 @@ service cloud.firestore {
     match /profiles/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || canManageAll());
       allow create: if false;
-      allow update: if signedIn() && myProfile().role == 'admin';
+      allow update: if signedIn() && (
+        myProfile().role == 'admin'
+        || (
+          request.auth.uid == userId
+          && request.resource.data.mustChangePassword == false
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'mustChangePassword',
+            'passwordChangedAt',
+            'updatedAt'
+          ])
+        )
+      );
       allow delete: if false;
     }
 

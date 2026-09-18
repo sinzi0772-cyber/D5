@@ -15,3 +15,5 @@ firebase-admin-key*.json
 /scripts/provision-staff.mjs
 
 /src/data.ts
+
+/private-output/

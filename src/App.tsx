@@ -4,7 +4,7 @@ import {
   LogOut, Menu, MoreHorizontal, Plus, Search,
   Settings, Sparkles, UserRound, UsersRound, X,
 } from 'lucide-react'
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth'
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from 'firebase/auth'
 import { collection, doc, getDoc, getDocs, query as firestoreQuery, setDoc, where } from 'firebase/firestore'
 import { auth, db, isDemoMode, isFirebaseConfigured } from './lib/firebase'
 import { STATUSES, type Lead, type LeadStatus, type MemoEntry, type VisitState } from './types'
@@ -133,12 +133,13 @@ const managers: Staff[] = [
     "role": "부지점장"
   }
 ]
-type AppUser = { id: string; loginId: string; name: string; role: string }
+type AppUser = { id: string; loginId: string; name: string; role: string; mustChangePassword: boolean }
 const appUserFromSession = (user: User): AppUser => ({
   id: user.uid,
   loginId: user.email?.split('@')[0] || '',
   name: user.displayName || user.email?.split('@')[0] || 'D5 사용자',
   role: 'manager',
+  mustChangePassword: false,
 })
 const roleLabel = (role: string) => ({ admin: '관리자', store_manager: '지점장', assistant_manager: '부지점장', manager: '매니저' }[role] || role)
 const statusTone: Record<LeadStatus, string> = { 관리중: 'indigo', 구매완료: 'green', 취소: 'gray' }
@@ -173,7 +174,7 @@ export default function App() {
   const [openMemoOnDrawer, setOpenMemoOnDrawer] = useState(false)
   const [creating, setCreating] = useState(false)
   const [toast, setToast] = useState('')
-  const [currentUser, setCurrentUser] = useState<AppUser | null>(isDemoMode ? { id: 'demo', loginId: 'demo', name: 'D5 관리자', role: '데모 관리자' } : null)
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(isDemoMode ? { id: 'demo', loginId: 'demo', name: 'D5 관리자', role: '데모 관리자', mustChangePassword: false } : null)
   const [authReady, setAuthReady] = useState(!isFirebaseConfigured)
   const [dataReady, setDataReady] = useState(isDemoMode)
   const [dataError, setDataError] = useState('')
@@ -202,7 +203,7 @@ export default function App() {
           profileSnapshot = await getDoc(profileRef)
         }
         const profile = profileSnapshot.data()
-        setCurrentUser({ ...baseUser, name: String(profile?.displayName || baseUser.name), role: String(profile?.role || 'manager') })
+        setCurrentUser({ ...baseUser, name: String(profile?.displayName || baseUser.name), role: String(profile?.role || 'manager'), mustChangePassword: Boolean(profile?.mustChangePassword) })
       } catch (error) {
         setDataError(error instanceof Error ? error.message : '사용자 권한을 확인하지 못했습니다.')
         setCurrentUser(baseUser)
@@ -214,7 +215,7 @@ export default function App() {
 
 
   useEffect(() => {
-    if (!db || !currentUser) return
+    if (!db || !currentUser || currentUser.mustChangePassword) return
     let activeRequest = true
     setDataReady(false); setDataError('')
     const canReadAll = ['admin', 'store_manager', 'assistant_manager'].includes(currentUser.role)
@@ -239,7 +240,7 @@ export default function App() {
       setDataReady(true)
     })
     return () => { activeRequest = false }
-  }, [currentUser?.id])
+  }, [currentUser?.id, currentUser?.mustChangePassword])
 
   const partners = useMemo(() => [...new Set(leads.map(l => l.partnerName))].filter(Boolean), [leads])
   const managerNames = useMemo(() => [...new Set([...managers.filter(m => m.role === '매니저').map(m => m.name), ...leads.flatMap(l => l.manager ? [l.manager] : [])])], [leads])
@@ -290,8 +291,10 @@ export default function App() {
     setActive(null); setCreating(false); setOpenMemoOnDrawer(false); notify('고객 정보가 저장되었습니다')
   }
   if (!isFirebaseConfigured && !isDemoMode) return <SetupRequired/>
-  if (!authReady || (currentUser && !dataReady)) return <div className="loading-screen"><div className="brand-mark">D5</div><p>안전하게 연결하는 중...</p></div>
+  if (!authReady) return <div className="loading-screen"><div className="brand-mark">D5</div><p>안전하게 연결하는 중...</p></div>
   if (!currentUser) return <LoginScreen/>
+  if (currentUser.mustChangePassword) return <PasswordChangeScreen onComplete={() => setCurrentUser(user => user ? { ...user, mustChangePassword: false } : user)}/>
+  if (!dataReady) return <div className="loading-screen"><div className="brand-mark">D5</div><p>안전하게 연결하는 중...</p></div>
 
   return <div className="app-shell">
 
@@ -387,6 +390,28 @@ function SetupRequired() {
   return <div className="login-screen"><div className="login-card setup-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">DEPLOYMENT SETUP</p><h1>운영 연결이 필요합니다</h1><p className="login-copy">고객정보 보호를 위해 데이터베이스가 연결되지 않은 배포에서는 화면을 열지 않습니다.</p><div className="setup-steps"><span>1</span><p>Vercel에 Firebase 웹 앱 환경변수를 등록하세요.</p><span>2</span><p>환경변수 등록 후 다시 배포하세요.</p></div></div></div>
 }
 
+function PasswordChangeScreen({onComplete}:{onComplete:()=>void}) {
+  const [password,setPassword]=useState('')
+  const [confirmPassword,setConfirmPassword]=useState('')
+  const [error,setError]=useState('')
+  const [busy,setBusy]=useState(false)
+  const save=async(e:React.FormEvent)=>{
+    e.preventDefault(); setError('')
+    if(password.length<10 || !/[A-Za-z]/.test(password) || !/\d/.test(password)){setError('영문과 숫자를 포함해 10자 이상 입력해주세요.');return}
+    if(password!==confirmPassword){setError('새 비밀번호가 서로 일치하지 않습니다.');return}
+    if(!auth?.currentUser || !db){setError('Firebase 연결을 확인해주세요.');return}
+    setBusy(true)
+    try {
+      await updatePassword(auth.currentUser,password)
+      const now=new Date().toISOString()
+      await setDoc(doc(db,'profiles',auth.currentUser.uid),{mustChangePassword:false,passwordChangedAt:now,updatedAt:now},{merge:true})
+      onComplete()
+    } catch {
+      setError('비밀번호를 변경하지 못했습니다. 다시 로그인한 후 시도해주세요.')
+    } finally { setBusy(false) }
+  }
+  return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">FIRST LOGIN</p><h1>새 비밀번호 설정</h1><p className="login-copy">초기 비밀번호를 본인만 아는 비밀번호로 변경해주세요.</p><form onSubmit={save}><label>새 비밀번호<input type="password" autoComplete="new-password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="영문·숫자 포함 10자 이상"/></label><label>새 비밀번호 확인<input type="password" autoComplete="new-password" required value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} placeholder="한 번 더 입력"/></label>{error&&<p className="login-error">{error}</p>}<button className="btn primary" disabled={busy}>{busy?'변경 중...':'비밀번호 변경'}</button><button type="button" className="btn secondary" onClick={()=>auth&&signOut(auth)}>다른 계정으로 로그인</button></form><div className="login-safe"><Sparkles size={15}/> 최초 로그인 보안 설정</div></div></div>
+}
 function LoginScreen() {
   const [loginId,setLoginId]=useState('')
   const [password,setPassword]=useState('')
