@@ -244,7 +244,8 @@ export default function App() {
 
   const partners = useMemo(() => [...new Set(leads.map(l => l.partnerName))].filter(Boolean), [leads])
   const managerNames = useMemo(() => [...new Set([...managers.filter(m => m.role === '매니저').map(m => m.name), ...leads.flatMap(l => l.manager ? [l.manager] : [])])], [leads])
-  const latestRegisteredAt = useMemo(() => leads.reduce((latest, lead) => lead.registeredAt > latest ? lead.registeredAt : latest, ''), [leads])
+  const metricLeads = useMemo(() => partnerFilter === '전체 제휴업체' ? leads : leads.filter(lead => lead.partnerName === partnerFilter), [leads, partnerFilter])
+  const latestRegisteredAt = useMemo(() => metricLeads.reduce((latest, lead) => lead.registeredAt > latest ? lead.registeredAt : latest, ''), [metricLeads])
   const filtered = useMemo(() => {
     const result = leads.filter(l => {
       const term = query.toLowerCase()
@@ -261,9 +262,9 @@ export default function App() {
     }
     return result.sort((a, b) => value(a).localeCompare(value(b), 'ko', { numeric: true }) * (sort.direction === 'asc' ? 1 : -1))
   }, [leads, query, statusFilter, partnerFilter, managerFilter, visitFilter, sort])
-  const newCount = leads.filter(l => l.status === '관리중').length
-  const completedCount = leads.filter(l => l.status === '구매완료').length
-  const canceledCount = leads.filter(l => l.status === '취소').length
+  const newCount = metricLeads.filter(l => l.status === '관리중').length
+  const completedCount = metricLeads.filter(l => l.status === '구매완료').length
+  const canceledCount = metricLeads.filter(l => l.status === '취소').length
   const canManageAll = Boolean(currentUser && ['admin', 'store_manager', 'assistant_manager', '데모 관리자'].includes(currentUser.role))
 
   const notify = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(''), 2800) }
@@ -305,14 +306,14 @@ export default function App() {
         {dataError&&<div className="data-alert"><CircleHelp size={18}/><div><strong>데이터를 불러오지 못했습니다.</strong><span>{dataError}</span></div><button onClick={()=>window.location.reload()}>다시 시도</button></div>}
 
         <div className="metrics" aria-label="고객 관리지표">
-          <Metric label="제휴업체 접수 고객" value={leads.length} note="전체 접수 고객" icon={<UsersRound/>} tone="dark"/>
+          <Metric label={partnerFilter === '전체 제휴업체' ? '제휴업체 접수 고객' : `${partnerFilter} 접수 고객`} value={metricLeads.length} note={partnerFilter === '전체 제휴업체' ? '전체 접수 고객' : '선택 제휴업체 고객'} icon={<UsersRound/>} tone="dark"/>
           <Metric label="관리중" value={newCount} note="현재 관리 고객" icon={<Clock3/>} tone="amber"/>
           <Metric label="구매완료" value={completedCount} note="구매 완료 고객" icon={<Check/>} tone="teal"/>
           <Metric label="취소" value={canceledCount} note="관리 종료 고객" icon={<X/>} tone="red"/>
         </div>
 
         <div className="panel">
-          <div className="panel-head"><div><h2>고객 접수 현황</h2><span>{latestRegisteredAt ? `데이터 기준일 ${formatDate(latestRegisteredAt)} · 총 ${leads.length}건` : '등록된 고객 데이터가 없습니다'}</span></div><div className="panel-search search"><Search size={17}/><input aria-label="고객 검색" placeholder="고객명 또는 휴대폰 뒷자리 검색" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}><X size={15}/></button>}</div></div>
+          <div className="panel-head"><div><h2>고객 접수 현황</h2><span>{latestRegisteredAt ? `데이터 기준일 ${formatDate(latestRegisteredAt)} · ${partnerFilter === '전체 제휴업체' ? '전체' : partnerFilter} ${metricLeads.length}건` : '등록된 고객 데이터가 없습니다'}</span></div><div className="panel-search search"><Search size={17}/><input aria-label="고객 검색" placeholder="고객명 또는 휴대폰 뒷자리 검색" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}><X size={15}/></button>}</div></div>
           <div className="filters">
             <label className="filter-field"><span>제휴업체</span><select aria-label="제휴업체 필터" value={partnerFilter} onChange={e => setPartnerFilter(e.target.value)}><option>전체 제휴업체</option>{partners.map(p => <option key={p}>{p}</option>)}</select></label>
             <label className="filter-field"><span>담당 매니저</span><select aria-label="담당 매니저 필터" value={managerFilter} onChange={e => setManagerFilter(e.target.value)}><option>전체 담당자</option><option>미배정</option>{managerNames.map(name => <option key={name}>{name}</option>)}</select></label>
