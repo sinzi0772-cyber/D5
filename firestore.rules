@@ -20,16 +20,7 @@ service cloud.firestore {
 
     match /profiles/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || canManageAll());
-      allow create: if signedIn()
-        && request.auth.uid == userId
-        && request.resource.data.employeeNo + '@d5.local' == request.auth.token.email
-        && (
-          (request.auth.token.email == '12784@d5.local' && request.resource.data.role == 'admin')
-          || (request.auth.token.email == '1292@d5.local' && request.resource.data.role == 'store_manager')
-          || (request.auth.token.email != '12784@d5.local'
-            && request.auth.token.email != '1292@d5.local'
-            && request.resource.data.role == 'manager')
-        );
+      allow create: if false;
       allow update: if signedIn() && myProfile().role == 'admin';
       allow delete: if false;
     }

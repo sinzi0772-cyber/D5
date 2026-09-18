@@ -212,10 +212,6 @@ export default function App() {
     })
   }, [])
 
-  useEffect(() => {
-    if (!isDemoMode) return
-    import('./data').then(({demoLeads}) => setLeads(demoLeads.map(lead => ({...lead, status: normalizeStatus(lead.status)}))))
-  }, [])
 
   useEffect(() => {
     if (!db || !currentUser) return
