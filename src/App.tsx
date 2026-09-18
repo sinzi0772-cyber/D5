@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ArrowUpRight, Building2, CalendarDays, Check, ChevronDown, CircleHelp, Clock3,
-  LayoutDashboard, LogOut, Menu, MoreHorizontal, Plus, Search,
+  ArrowUpRight, Building2, Check, CircleHelp, Clock3,
+  LogOut, Menu, MoreHorizontal, Plus, Search,
   Settings, Sparkles, UserRound, UsersRound, X,
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from 'firebase/auth'
@@ -173,7 +173,6 @@ export default function App() {
   const [openMemoOnDrawer, setOpenMemoOnDrawer] = useState(false)
   const [creating, setCreating] = useState(false)
   const [toast, setToast] = useState('')
-  const [showMetrics, setShowMetrics] = useState(false)
   const [currentUser, setCurrentUser] = useState<AppUser | null>(isDemoMode ? { id: 'demo', loginId: 'demo', name: 'D5 관리자', role: '데모 관리자' } : null)
   const [authReady, setAuthReady] = useState(!isFirebaseConfigured)
   const [dataReady, setDataReady] = useState(isDemoMode)
@@ -266,10 +265,8 @@ export default function App() {
     return result.sort((a, b) => value(a).localeCompare(value(b), 'ko', { numeric: true }) * (sort.direction === 'asc' ? 1 : -1))
   }, [leads, query, statusFilter, partnerFilter, managerFilter, visitFilter, sort])
   const newCount = leads.filter(l => l.status === '관리중').length
-  const visits = leads.filter(l => l.visitState === '방문').length
-  const planned = leads.filter(l => l.visitState === '예정').length
-  const contracts = leads.filter(l => l.status === '구매완료').length
-  const conversion = visits ? Math.round((contracts / visits) * 100) : 0
+  const completedCount = leads.filter(l => l.status === '구매완료').length
+  const canceledCount = leads.filter(l => l.status === '취소').length
   const canManageAll = Boolean(currentUser && ['admin', 'store_manager', 'assistant_manager', '데모 관리자'].includes(currentUser.role))
 
   const notify = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(''), 2800) }
@@ -304,16 +301,16 @@ export default function App() {
 
     <main>
       <section className="content">
-        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>좋은 인연을, 놓치지 않도록.</h1><p>제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.</p></div><div className="heading-actions"><button className="btn secondary metrics-toggle" onClick={() => setShowMetrics(v => !v)} aria-expanded={showMetrics}><LayoutDashboard size={17}/>{showMetrics ? '관리지표 숨기기' : '관리지표 보기'}<ChevronDown className={showMetrics ? 'rotated' : ''} size={14}/></button>{canManageAll&&<button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button>}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
+        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>좋은 인연을, 놓치지 않도록.</h1><p>제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.</p></div><div className="heading-actions">{canManageAll&&<button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button>}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
 
         {dataError&&<div className="data-alert"><CircleHelp size={18}/><div><strong>데이터를 불러오지 못했습니다.</strong><span>{dataError}</span></div><button onClick={()=>window.location.reload()}>다시 시도</button></div>}
 
-        {showMetrics && <div className="metrics">
-          <Metric label="전체 접수" value={leads.length} note="누적 소개 고객" icon={<UsersRound/>} tone="dark"/>
-          <Metric label="관리중" value={newCount} note="진행 중 고객" icon={<Clock3/>} tone="amber"/>
-          <Metric label="방문 예정" value={planned} note="일정 확정 고객" icon={<CalendarDays/>} tone="violet"/>
-          <Metric label="방문 완료" value={visits} note={`계약 전환율 ${conversion}%`} icon={<Check/>} tone="teal"/>
-        </div>}
+        <div className="metrics" aria-label="고객 관리지표">
+          <Metric label="제휴업체 접수 고객" value={leads.length} note="전체 접수 고객" icon={<UsersRound/>} tone="dark"/>
+          <Metric label="관리중" value={newCount} note="현재 관리 고객" icon={<Clock3/>} tone="amber"/>
+          <Metric label="구매완료" value={completedCount} note="구매 완료 고객" icon={<Check/>} tone="teal"/>
+          <Metric label="취소" value={canceledCount} note="관리 종료 고객" icon={<X/>} tone="red"/>
+        </div>
 
         <div className="panel">
           <div className="panel-head"><div><h2>고객 접수 현황</h2><span>{latestRegisteredAt ? `데이터 기준일 ${formatDate(latestRegisteredAt)} · 총 ${leads.length}건` : '등록된 고객 데이터가 없습니다'}</span></div><div className="panel-search search"><Search size={17}/><input aria-label="고객 검색" placeholder="고객명 또는 휴대폰 뒷자리 검색" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}><X size={15}/></button>}</div></div>
