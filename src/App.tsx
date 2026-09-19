@@ -161,6 +161,27 @@ const maskName = (value: string) => {
 const last4 = (value: string) => value.replace(/\D/g, '').slice(-4)
 const formatDate = (date?: string) => date ? date.replaceAll('-', '.') : '—'
 const partnerKey = (value: string) => value.trim().toLowerCase().replace(/주식회사|\(주\)|㈜/g, '').replace(/[\s·._-]/g, '')
+const partnerMatchScore = (candidate: string, input: string) => {
+  const candidateKey = partnerKey(candidate)
+  const inputKey = partnerKey(input)
+  if (!inputKey) return 1
+  if (candidateKey === inputKey) return 100
+  if (candidateKey.startsWith(inputKey)) return 90
+  if (candidateKey.includes(inputKey)) return 80
+  if (inputKey.includes(candidateKey)) return 70
+  const rows = Array.from({ length: inputKey.length + 1 }, (_, index) => index)
+  for (let i = 1; i <= candidateKey.length; i++) {
+    let diagonal = rows[0]
+    rows[0] = i
+    for (let j = 1; j <= inputKey.length; j++) {
+      const previous = rows[j]
+      rows[j] = Math.min(rows[j] + 1, rows[j - 1] + 1, diagonal + (candidateKey[i - 1] === inputKey[j - 1] ? 0 : 1))
+      diagonal = previous
+    }
+  }
+  const similarity = 1 - rows[inputKey.length] / Math.max(candidateKey.length, inputKey.length)
+  return similarity >= 0.5 ? Math.round(similarity * 60) : 0
+}
 const memoEntriesFor = (lead: Lead): MemoEntry[] => lead.memoHistory?.length ? lead.memoHistory : (lead.note ? [{ id: 'legacy', date: lead.updatedAt.slice(0,10), manager: lead.manager || '미배정', content: lead.note }] : [])
 
 export default function App() {
@@ -272,7 +293,6 @@ export default function App() {
   const sortBy = (key: SortKey) => setSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))
   const saveLead = async (lead: Lead) => {
     const canonicalPartner = partners.find(partner => partnerKey(partner) === partnerKey(lead.partnerName))
-    if (creating && !canonicalPartner) { notify('등록된 제휴업체 목록에서 업체명을 선택해주세요.'); return }
     const sanitized = { ...lead, partnerName: canonicalPartner || lead.partnerName.trim(), customerName: maskName(lead.customerName), phoneLast4: last4(lead.phoneLast4), updatedAt: new Date().toISOString() }
     if (isFirebaseConfigured && db && currentUser) {
       const managerEmployeeNo = managers.find(manager => manager.name === sanitized.manager)?.employeeNo || null
@@ -356,6 +376,7 @@ function LeadDrawer({lead,partners,creating,canManageAll,openMemoInitially,onClo
   const [manualManager, setManualManager] = useState(Boolean(lead.manager && !managers.some(m => m.name === lead.manager)))
   const [memoOpen, setMemoOpen] = useState(openMemoInitially)
   const update = (key: keyof Lead, value: string) => setForm(f => ({...f,[key]:value}))
+  const partnerSuggestions = useMemo(() => partners.map(partner => ({ partner, score: partnerMatchScore(partner, form.partnerName) })).filter(item => item.score > 0).sort((a,b) => b.score - a.score || a.partner.localeCompare(b.partner, 'ko')).slice(0, 12).map(item => item.partner), [partners, form.partnerName])
   const memoEntries: MemoEntry[] = form.memoHistory || (form.note ? [{ id: 'legacy', date: form.updatedAt.slice(0,10), manager: form.manager || '미배정', content: form.note }] : [])
   return <><button className="drawer-scrim" onClick={onClose}/><aside className="drawer">
     <div className="drawer-head"><div><span>{creating ? 'NEW REFERRAL' : 'CUSTOMER DETAIL'}</span><h2>{creating ? '신규 고객 등록' : `${lead.customerName} 고객`}</h2></div><button onClick={onClose}><X/></button></div>
@@ -367,7 +388,7 @@ function LeadDrawer({lead,partners,creating,canManageAll,openMemoInitially,onClo
         <label>고객명 <small>자동 마스킹</small><input required disabled={!creating} placeholder="예: 박수정 → 박*정" value={form.customerName} onChange={e=>update('customerName',e.target.value)}/></label>
         <label>휴대폰 뒷 4자리<input required disabled={!creating} inputMode="numeric" maxLength={4} pattern="[0-9]{4}" placeholder="4240" value={form.phoneLast4} onChange={e=>update('phoneLast4',last4(e.target.value))}/></label>
       </div></fieldset>
-      <fieldset><legend>제휴 정보</legend><label>BILL To Name · 제휴업체명<input required disabled={!creating} list="partner-options" autoComplete="off" placeholder="판매 로우의 제휴업체 검색" value={form.partnerName} onChange={e=>update('partnerName',e.target.value)} onBlur={e=>{const match=partners.find(partner=>partnerKey(partner)===partnerKey(e.target.value));if(match)update('partnerName',match)}}/><datalist id="partner-options">{partners.map(partner=><option key={partner} value={partner}/>)}</datalist><small>기존 판매 로우의 업체명을 선택하면 동일한 명칭으로 저장됩니다.</small></label><label>플래너명<input disabled={!creating} placeholder="선택 입력" value={form.plannerName||''} onChange={e=>update('plannerName',e.target.value)}/></label></fieldset>
+      <fieldset><legend>제휴 정보</legend><label>BILL To Name · 제휴업체명<input required disabled={!creating} list="partner-options" autoComplete="off" placeholder="판매 로우의 제휴업체 검색 또는 신규 입력" value={form.partnerName} onChange={e=>update('partnerName',e.target.value)} onBlur={e=>{const match=partners.find(partner=>partnerKey(partner)===partnerKey(e.target.value));if(match)update('partnerName',match)}}/><datalist id="partner-options">{partnerSuggestions.map(partner=><option key={partner} value={partner}/>)}</datalist><small>비슷한 기존 업체가 먼저 표시되며, 목록에 없는 업체명도 신규 저장할 수 있습니다.</small></label><label>플래너명<input disabled={!creating} placeholder="선택 입력" value={form.plannerName||''} onChange={e=>update('plannerName',e.target.value)}/></label></fieldset>
       <fieldset><legend>일정 정보</legend><label>매장방문 예정일<input type="date" value={form.visitScheduledDate||''} onChange={e=>update('visitScheduledDate',e.target.value)}/></label></fieldset>
       <fieldset><legend>진행 관리</legend><div className="form-grid"><label>담당 매니저<select disabled={!canManageAll} value={manualManager ? '__manual__' : form.manager||''} onChange={e=>{if(e.target.value==='__manual__'){setManualManager(true);update('manager','')}else{setManualManager(false);update('manager',e.target.value)}}}><option value="__manual__">직접입력</option><option value="">미배정</option>{managers.filter(m=>m.role==='매니저').map(m=><option key={m.employeeNo} value={m.name}>{m.name}</option>)}</select>{manualManager && canManageAll && <input className="manual-manager" autoFocus placeholder="담당자 이름 직접입력" value={form.manager||''} onChange={e=>update('manager',e.target.value)}/>}</label><label>현재 상태<select value={form.status} onChange={e=>update('status',e.target.value)}>{STATUSES.map(s=><option key={s}>{s}</option>)}</select></label><label>방문 여부<select value={form.visitState} onChange={e=>update('visitState',e.target.value as VisitState)}><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label></div><button type="button" className="memo-open" onClick={()=>setMemoOpen(true)}><span><Clock3 size={18}/><b>관리메모</b></span><small>{memoEntries.length ? memoEntries.length+'건의 관리 이력' : '접촉 내용과 다음 계획을 기록하세요'}</small><i>보기 →</i></button></fieldset>
       <div className="drawer-actions"><button type="button" className="btn secondary" onClick={onClose}>취소</button><button className="btn primary" type="submit"><Check size={17}/>{creating ? '고객 등록' : '변경사항 저장'}</button></div>
