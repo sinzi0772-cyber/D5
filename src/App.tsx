@@ -5,7 +5,7 @@ import {
   Settings, Sparkles, UserRound, UsersRound, X,
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from 'firebase/auth'
-import { collection, doc, getDoc, getDocs, query as firestoreQuery, setDoc, where } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, query as firestoreQuery, setDoc, where, writeBatch } from 'firebase/firestore'
 import { auth, db, isDemoMode, isFirebaseConfigured } from './lib/firebase'
 import { STATUSES, type Lead, type LeadStatus, type MemoEntry, type VisitState } from './types'
 
@@ -317,9 +317,12 @@ export default function App() {
 
   const notify = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(''), 2800) }
   const sortBy = (key: SortKey) => setSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))
-  const saveLead = async (lead: Lead) => {
+  const saveLead = async (lead: Lead, linkTargetId?: string) => {
     const canonicalPartner = partners.find(partner => partnerKey(partner) === partnerKey(lead.partnerName))
-    const sanitized = { ...lead, partnerName: canonicalPartner || lead.partnerName.trim(), customerName: maskName(lead.customerName), phoneLast4: last4(lead.phoneLast4), updatedAt: new Date().toISOString() }
+    const linkTarget = linkTargetId ? leads.find(item => item.id === linkTargetId && item.id !== lead.id) : undefined
+    if (linkTargetId && !linkTarget) { notify('연결할 기존 고객을 다시 선택해주세요.'); return }
+    const caseGroupId = linkTarget ? linkTarget.caseGroupId || `case-${linkTarget.id}` : lead.caseGroupId
+    const sanitized = { ...lead, caseGroupId, partnerName: canonicalPartner || lead.partnerName.trim(), customerName: maskName(lead.customerName), phoneLast4: last4(lead.phoneLast4), updatedAt: new Date().toISOString() }
     if (isFirebaseConfigured && db && currentUser) {
       const managerEmployeeNo = managers.find(manager => manager.name === sanitized.manager)?.employeeNo || null
       const payload = Object.fromEntries(Object.entries({
@@ -327,17 +330,28 @@ export default function App() {
         phoneLast4: sanitized.phoneLast4, gender: sanitized.gender, visitScheduledDate: sanitized.visitScheduledDate || null,
         partnerName: sanitized.partnerName, billToCode: sanitized.billToCode || null, lgeSubchannel: sanitized.lgeSubchannel || null,
         manager: sanitized.manager || null, managerEmployeeNo, plannerName: sanitized.plannerName || null,
+        ...(caseGroupId ? { caseGroupId } : {}),
         status: sanitized.status, visitState: sanitized.visitState, note: sanitized.note || null, memoHistory: sanitized.memoHistory || [],
         ...(creating ? { createdBy: currentUser.id, createdAt: sanitized.updatedAt } : {}),
         updatedBy: currentUser.id, updatedAt: sanitized.updatedAt,
       }).filter(([, value]) => value !== undefined))
       try {
-        await setDoc(doc(db, 'referrals', sanitized.id), payload, { merge: true })
+        if (linkTarget && !linkTarget.caseGroupId) {
+          const batch = writeBatch(db)
+          batch.set(doc(db, 'referrals', sanitized.id), payload, { merge: true })
+          batch.update(doc(db, 'referrals', linkTarget.id), { caseGroupId })
+          await batch.commit()
+        } else {
+          await setDoc(doc(db, 'referrals', sanitized.id), payload, { merge: true })
+        }
       } catch (error) {
         notify(`저장하지 못했습니다: ${error instanceof Error ? error.message : 'Firebase 오류'}`); return
       }
     }
-    setLeads(prev => prev.some(x => x.id === sanitized.id) ? prev.map(x => x.id === sanitized.id ? sanitized : x) : [sanitized, ...prev])
+    setLeads(prev => {
+      const withLinked = linkTarget && !linkTarget.caseGroupId ? prev.map(item => item.id === linkTarget.id ? { ...item, caseGroupId } : item) : prev
+      return withLinked.some(x => x.id === sanitized.id) ? withLinked.map(x => x.id === sanitized.id ? sanitized : x) : [sanitized, ...withLinked]
+    })
     setActive(null); setCreating(false); setOpenMemoOnDrawer(false); notify('고객 정보가 저장되었습니다')
   }
   if (!isFirebaseConfigured && !isDemoMode) return <SetupRequired/>
@@ -390,7 +404,7 @@ export default function App() {
       </section>
     </main>
 
-    {active && <LeadDrawer lead={active} linkedLeads={active.caseGroupId ? leads.filter(lead => lead.caseGroupId === active.caseGroupId) : []} onSelectLinked={setActive} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer} onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false) }} onSave={saveLead}/>}
+    {active && <LeadDrawer lead={active} linkedLeads={active.caseGroupId ? leads.filter(lead => lead.caseGroupId === active.caseGroupId) : []} allLeads={leads} onSelectLinked={setActive} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer} onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false) }} onSave={saveLead}/>}
     {toast && <div className="toast"><Check size={17}/>{toast}</div>}
   </div>
 }
@@ -411,29 +425,37 @@ function ManagementSummary({lead,onOpen}:{lead:Lead,onOpen:()=>void}) {
   return <div className="management-cell"><div className="management-actions">{visible.map((entry,index)=><button type="button" className="management-chip" key={entry.id} onClick={event=>{event.stopPropagation();onOpen()}}><span>✓ {firstRound+index}회차 · 관리</span><small>{formatDate(entry.date)}</small></button>)}<button type="button" className="management-add" onClick={event=>{event.stopPropagation();onOpen()}}>+ 관리 기록 추가</button></div></div>
 }
 
-function LeadDrawer({lead,linkedLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,onClose,onSave}:{lead:Lead,linkedLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,onClose:()=>void,onSave:(l:Lead)=>void}) {
+function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,onClose,onSave}:{lead:Lead,linkedLeads:Lead[],allLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,onClose:()=>void,onSave:(l:Lead,linkTargetId?:string)=>void}) {
   const [form, setForm] = useState(lead)
   const [manualManager, setManualManager] = useState(Boolean(lead.manager && !managers.some(m => m.name === lead.manager)))
   const [memoOpen, setMemoOpen] = useState(openMemoInitially)
+  const [linkExisting, setLinkExisting] = useState(false)
+  const [linkTargetId, setLinkTargetId] = useState('')
+  const [linkSearch, setLinkSearch] = useState('')
   useEffect(() => {
     setForm(lead)
     setManualManager(Boolean(lead.manager && !managers.some(m => m.name === lead.manager)))
     setMemoOpen(openMemoInitially)
+    setLinkExisting(false)
+    setLinkTargetId('')
+    setLinkSearch('')
   }, [lead, openMemoInitially])
   const update = (key: keyof Lead, value: string) => setForm(f => ({...f,[key]:value}))
   const partnerSuggestions = useMemo(() => partners.map(partner => ({ partner, score: partnerMatchScore(partner, form.partnerName) })).filter(item => item.score > 0).sort((a,b) => b.score - a.score || a.partner.localeCompare(b.partner, 'ko')).slice(0, 12).map(item => item.partner), [partners, form.partnerName])
+  const linkChoices = allLeads.filter(item => item.id !== lead.id && [item.customerName, item.phoneLast4, item.partnerName].some(value => value?.toLowerCase().includes(linkSearch.trim().toLowerCase()))).slice(0, 30)
   const memoEntries: MemoEntry[] = form.memoHistory || (form.note ? [{ id: 'legacy', date: form.updatedAt.slice(0,10), manager: form.manager || '미배정', content: form.note }] : [])
   return <><button className="drawer-scrim" onClick={onClose}/><aside className="drawer">
     <div className="drawer-head"><div><span>{creating ? 'NEW REFERRAL' : 'CUSTOMER DETAIL'}</span><h2>{creating ? '신규 고객 등록' : `${lead.customerName} 고객`}</h2></div><button onClick={onClose}><X/></button></div>
     {!creating && <div className="identity"><div>{lead.customerName.slice(0,1)}</div><section><strong>{lead.customerName}</strong><span>{lead.phoneLast4}</span></section><span className={`badge ${statusTone[form.status]}`}><i/>{form.status}</span></div>}
     {linkedLeads.length > 1 && <div className="linked-case"><strong>같은 접수 1건 · 고객 {linkedLeads.length}명</strong><p>고객별 상태와 관리 내용은 각각 저장됩니다.</p><div>{linkedLeads.map(member => <button type="button" className={member.id === lead.id ? 'active' : ''} key={member.id} onClick={() => onSelectLinked(member)}><span>{member.customerName} · {member.phoneLast4}</span><small>{member.status}</small></button>)}</div></div>}
-    <form onSubmit={e => {e.preventDefault(); onSave(form)}}>
+    <form onSubmit={e => {e.preventDefault(); if (linkExisting && !linkTargetId) return; onSave(form, linkExisting ? linkTargetId : undefined)}}>
       <fieldset><legend>기본 정보</legend><div className="form-grid">
         <label>등록일자<input type="date" required disabled={!creating} value={form.registeredAt} onChange={e=>update('registeredAt',e.target.value)}/></label>
         <label>성별<select disabled={!creating} value={form.gender} onChange={e=>update('gender',e.target.value)}><option>미입력</option><option>남</option><option>여</option></select></label>
         <label>고객명 <small>자동 마스킹</small><input required disabled={!creating} placeholder="예: 박수정 → 박*정" value={form.customerName} onChange={e=>update('customerName',e.target.value)}/></label>
         <label>휴대폰 뒷 4자리<input required disabled={!creating} inputMode="numeric" maxLength={4} pattern="[0-9]{4}" placeholder="4240" value={form.phoneLast4} onChange={e=>update('phoneLast4',last4(e.target.value))}/></label>
       </div></fieldset>
+      {canManageAll && (creating || !lead.caseGroupId) && <fieldset className="case-link-fieldset"><legend>같은 접수건 연결</legend><label className="case-link-check"><input type="checkbox" checked={linkExisting} onChange={e=>{setLinkExisting(e.target.checked);setLinkTargetId('')}}/><span>이 고객을 기존 접수건과 묶기</span></label><small>신랑·신부 등 같은 접수건은 목록과 접수건 수에서 1건으로 표시됩니다. 고객별 상태와 관리메모는 따로 유지됩니다.</small>{linkExisting && <div className="case-link-picker"><label>기존 고객 찾기<input placeholder="고객명·휴대폰 뒷자리·제휴업체 검색" value={linkSearch} onChange={e=>{setLinkSearch(e.target.value);setLinkTargetId('')}}/></label><label>연결할 고객<select required value={linkTargetId} onChange={e=>setLinkTargetId(e.target.value)}><option value="">고객을 선택하세요</option>{linkChoices.map(item=><option key={item.id} value={item.id}>{item.customerName} · {item.phoneLast4} · {item.partnerName}</option>)}</select></label></div>}</fieldset>}
       <fieldset><legend>제휴 정보</legend><label>BILL To Name · 제휴업체명<input required disabled={!creating} list="partner-options" autoComplete="off" placeholder="판매 로우의 제휴업체 검색 또는 신규 입력" value={form.partnerName} onChange={e=>update('partnerName',e.target.value)} onBlur={e=>{const match=partners.find(partner=>partnerKey(partner)===partnerKey(e.target.value));if(match)update('partnerName',match)}}/><datalist id="partner-options">{partnerSuggestions.map(partner=><option key={partner} value={partner}/>)}</datalist><small>비슷한 기존 업체가 먼저 표시되며, 목록에 없는 업체명도 신규 저장할 수 있습니다.</small></label><label>플래너명<input disabled={!creating} placeholder="선택 입력" value={form.plannerName||''} onChange={e=>update('plannerName',e.target.value)}/></label></fieldset>
       <fieldset><legend>일정 정보</legend><label>매장방문 예정일<input type="date" value={form.visitScheduledDate||''} onChange={e=>update('visitScheduledDate',e.target.value)}/></label></fieldset>
       <fieldset><legend>진행 관리</legend><div className="form-grid"><label>담당 매니저<select disabled={!canManageAll} value={manualManager ? '__manual__' : form.manager||''} onChange={e=>{if(e.target.value==='__manual__'){setManualManager(true);update('manager','')}else{setManualManager(false);update('manager',e.target.value)}}}><option value="__manual__">직접입력</option><option value="">미배정</option>{managers.filter(m=>m.role==='매니저').map(m=><option key={m.employeeNo} value={m.name}>{m.name}</option>)}</select>{manualManager && canManageAll && <input className="manual-manager" autoFocus placeholder="담당자 이름 직접입력" value={form.manager||''} onChange={e=>update('manager',e.target.value)}/>}</label><label>현재 상태<select value={form.status} onChange={e=>update('status',e.target.value)}>{STATUSES.map(s=><option key={s}>{s}</option>)}</select></label><label>방문 여부<select value={form.visitState} onChange={e=>update('visitState',e.target.value as VisitState)}><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label></div><button type="button" className="memo-open" onClick={()=>setMemoOpen(true)}><span><Clock3 size={18}/><b>관리메모</b></span><small>{memoEntries.length ? memoEntries.length+'건의 관리 이력' : '접촉 내용과 다음 계획을 기록하세요'}</small><i>보기 →</i></button></fieldset>
