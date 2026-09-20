@@ -1,4 +1,4 @@
-export type LeadStatus = '관리중' | '구매완료' | '취소'
+export type LeadStatus = '관리중' | '구매완료' | '상담 마감' | '취소'
 export type VisitState = '미정' | '예정' | '방문' | '미방문' | '일정취소'
 
 export interface MemoEntry {
@@ -28,4 +28,4 @@ export interface Lead {
   updatedAt: string
 }
 
-export const STATUSES: LeadStatus[] = ['관리중', '구매완료', '취소']
+export const STATUSES: LeadStatus[] = ['관리중', '구매완료', '상담 마감', '취소']

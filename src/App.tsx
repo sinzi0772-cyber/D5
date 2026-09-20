@@ -5,7 +5,7 @@ import {
   Settings, Sparkles, UserRound, UsersRound, X,
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from 'firebase/auth'
-import { collection, doc, getDoc, getDocs, query as firestoreQuery, setDoc, where, writeBatch, deleteField } from 'firebase/firestore'
+import { collection, doc, getDoc, onSnapshot, query as firestoreQuery, setDoc, where, writeBatch, deleteField } from 'firebase/firestore'
 import { auth, db, isDemoMode, isFirebaseConfigured } from './lib/firebase'
 import { STATUSES, type Lead, type LeadStatus, type MemoEntry, type VisitState } from './types'
 
@@ -142,8 +142,8 @@ const appUserFromSession = (user: User): AppUser => ({
   mustChangePassword: false,
 })
 const roleLabel = (role: string) => ({ admin: '관리자', store_manager: '지점장', assistant_manager: '부지점장', manager: '매니저' }[role] || role)
-const statusTone: Record<LeadStatus, string> = { 관리중: 'indigo', 구매완료: 'green', 취소: 'gray' }
-const normalizeStatus = (value: string): LeadStatus => value === '구매완료' || value === '계약완료' ? '구매완료' : value === '취소' || value === '종결' ? '취소' : '관리중'
+const statusTone: Record<LeadStatus, string> = { 관리중: 'indigo', 구매완료: 'green', '상담 마감': 'violet', 취소: 'gray' }
+const normalizeStatus = (value: string): LeadStatus => value === '구매완료' || value === '계약완료' ? '구매완료' : value === '상담마감' || value === '상담 마감' || value === '마감' ? '상담 마감' : value === '취소' || value === '종결' ? '취소' : '관리중'
 
 const today = new Date().toISOString().slice(0, 10)
 const blankLead = (): Lead => ({
@@ -209,6 +209,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState(!isFirebaseConfigured)
   const [dataReady, setDataReady] = useState(isDemoMode)
   const [dataError, setDataError] = useState('')
+  const [syncState, setSyncState] = useState<'connecting' | 'live' | 'offline' | 'error'>('connecting')
 
   useEffect(() => {
     if (!auth || !db) return
@@ -247,13 +248,11 @@ export default function App() {
 
   useEffect(() => {
     if (!db || !currentUser || currentUser.mustChangePassword) return
-    let activeRequest = true
-    setDataReady(false); setDataError('')
+    setDataReady(false); setDataError(''); setLeads([]); setSyncState('connecting')
     const canReadAll = ['admin', 'store_manager', 'assistant_manager'].includes(currentUser.role)
     const referrals = collection(db, 'referrals')
-    const request = canReadAll ? getDocs(referrals) : getDocs(firestoreQuery(referrals, where('managerEmployeeNo', '==', currentUser.loginId)))
-    request.then(snapshot => {
-      if (!activeRequest) return
+    const request = canReadAll ? referrals : firestoreQuery(referrals, where('managerEmployeeNo', '==', currentUser.loginId))
+    const unsubscribe = onSnapshot(request, { includeMetadataChanges: true }, snapshot => {
       setLeads(snapshot.docs.map(item => {
         const row = item.data()
         return {
@@ -264,15 +263,16 @@ export default function App() {
           visitState: row.visitState, note: row.note || undefined, memoHistory: row.memoHistory || [], updatedAt: row.updatedAt,
         } as Lead
       }))
-      setDataReady(true)
-    }).catch(error => {
-      if (!activeRequest) return
-      setDataError(error instanceof Error ? error.message : '데이터를 불러오지 못했습니다.')
+      setSyncState(snapshot.metadata.fromCache ? 'offline' : 'live')
+      setDataError(''); setDataReady(true)
+    }, error => {
+      setLeads([])
+      setSyncState('error')
+      setDataError(error instanceof Error ? error.message : '데이터를 동기화하지 못했습니다.')
       setDataReady(true)
     })
-    return () => { activeRequest = false }
-  }, [currentUser?.id, currentUser?.mustChangePassword])
-
+    return unsubscribe
+  }, [currentUser?.id, currentUser?.loginId, currentUser?.role, currentUser?.mustChangePassword])
   const partners = useMemo(() => [...new Set(leads.map(l => l.partnerName))].filter(Boolean), [leads])
   const managerNames = useMemo(() => [...new Set([...managers.filter(m => m.role === '매니저').map(m => m.name), ...leads.flatMap(l => l.manager ? [l.manager] : [])])], [leads])
   const metricLeads = useMemo(() => partnerFilter === '전체 제휴업체' ? leads : leads.filter(lead => lead.partnerName === partnerFilter), [leads, partnerFilter])
@@ -297,16 +297,18 @@ export default function App() {
   const caseCount = useMemo(() => collapseCases(metricLeads).length, [metricLeads])
   const newCount = metricLeads.filter(l => l.status === '관리중').length
   const completedCount = metricLeads.filter(l => l.status === '구매완료').length
+  const closedCount = metricLeads.filter(l => l.status === '상담 마감').length
   const canceledCount = metricLeads.filter(l => l.status === '취소').length
   const partnerStats = useMemo(() => {
-    const groups = new Map<string, { name: string; total: number; active: number; completed: number; canceled: number }>()
+    const groups = new Map<string, { name: string; total: number; active: number; completed: number; closed: number; canceled: number }>()
     const caseIds = new Set<string>()
     for (const lead of metricLeads) {
       const name = lead.partnerName?.trim() || '업체명 미입력'
-      const row = groups.get(name) || { name, total: 0, active: 0, completed: 0, canceled: 0 }
+      const row = groups.get(name) || { name, total: 0, active: 0, completed: 0, closed: 0, canceled: 0 }
       const caseId = `${name}:${lead.caseGroupId || lead.id}`
       if (!caseIds.has(caseId)) { row.total++; caseIds.add(caseId) }
       if (lead.status === '구매완료') row.completed++
+      else if (lead.status === '상담 마감') row.closed++
       else if (lead.status === '취소') row.canceled++
       else row.active++
       groups.set(name, row)
@@ -318,6 +320,14 @@ export default function App() {
   const notify = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(''), 2800) }
   const sortBy = (key: SortKey) => setSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))
   const saveLead = async (lead: Lead, linkTargetId?: string) => {
+    if (!creating) {
+      const latest = leads.find(item => item.id === lead.id)
+      if (!latest || (latest.updatedAt !== lead.updatedAt || latest.caseGroupId !== lead.caseGroupId)) {
+        notify('다른 곳에서 고객 정보가 변경되었습니다. 상세 화면을 다시 열어 확인해주세요.')
+        setActive(null)
+        return
+      }
+    }
     const canonicalPartner = partners.find(partner => partnerKey(partner) === partnerKey(lead.partnerName))
     const linkTarget = linkTargetId ? leads.find(item => item.id === linkTargetId && item.id !== lead.id) : undefined
     if (linkTargetId && !linkTarget) { notify('연결할 기존 고객을 다시 선택해주세요.'); return }
@@ -348,7 +358,7 @@ export default function App() {
         notify(`저장하지 못했습니다: ${error instanceof Error ? error.message : 'Firebase 오류'}`); return
       }
     }
-    setLeads(prev => {
+    if (!isFirebaseConfigured) setLeads(prev => {
       const withLinked = linkTarget && !linkTarget.caseGroupId ? prev.map(item => item.id === linkTarget.id ? { ...item, caseGroupId } : item) : prev
       return withLinked.some(x => x.id === sanitized.id) ? withLinked.map(x => x.id === sanitized.id ? sanitized : x) : [sanitized, ...withLinked]
     })
@@ -370,7 +380,7 @@ export default function App() {
       }
     }
     const ids = new Set(toUnlink.map(item => item.id))
-    setLeads(prev => prev.map(item => ids.has(item.id) ? { ...item, caseGroupId: undefined } : item))
+    if (!isFirebaseConfigured) setLeads(prev => prev.map(item => ids.has(item.id) ? { ...item, caseGroupId: undefined } : item))
     setActive(null); setOpenMemoOnDrawer(false); notify('접수건 연결이 해제되었습니다')
   }
   if (!isFirebaseConfigured && !isDemoMode) return <SetupRequired/>
@@ -394,13 +404,14 @@ export default function App() {
               <Metric label={partnerFilter === '전체 제휴업체' ? '제휴업체 접수 고객' : `${partnerFilter} 접수 고객`} value={caseCount} note={`고객 ${metricLeads.length}명 · 같은 접수건은 1건`} icon={<UsersRound/>} tone="dark"/>
               <Metric label="관리중" value={newCount} note="현재 관리 고객" icon={<Clock3/>} tone="amber"/>
               <Metric label="구매완료" value={completedCount} note="구매 완료 고객" icon={<Check/>} tone="teal"/>
+              <Metric label="상담 마감" value={closedCount} note="상담을 마친 고객" icon={<Clock3/>} tone="violet"/>
               <Metric label="취소" value={canceledCount} note="관리 종료 고객" icon={<X/>} tone="red"/>
             </div>
             <div className="partner-stats">
               <div className="partner-stats-heading"><strong>업체별 관리 현황</strong><span>접수는 연결 고객을 1건으로, 상태는 고객별로 집계</span></div>
               <div className="partner-stats-scroll">
-                <table className="partner-stats-table"><thead><tr><th>제휴업체</th><th>접수건</th><th>관리중 고객</th><th>구매완료 고객</th><th>취소 고객</th></tr></thead><tbody>
-                  {partnerStats.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.total}건</td><td>{row.active}건</td><td>{row.completed}건</td><td>{row.canceled}건</td></tr>)}
+                <table className="partner-stats-table"><thead><tr><th>제휴업체</th><th>접수건</th><th>관리중 고객</th><th>구매완료 고객</th><th>상담 마감 고객</th><th>취소 고객</th></tr></thead><tbody>
+                  {partnerStats.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.total}건</td><td>{row.active}건</td><td>{row.completed}건</td><td>{row.closed}건</td><td>{row.canceled}건</td></tr>)}
                 </tbody></table>
                 {partnerStats.length === 0 && <p className="partner-stats-empty">집계할 고객이 없습니다.</p>}
               </div>
@@ -409,7 +420,7 @@ export default function App() {
         </details>
 
         <div className="panel">
-          <div className="panel-head"><div><h2>고객 접수 현황</h2><span>{latestRegisteredAt ? `데이터 기준일 ${formatDate(latestRegisteredAt)} · ${partnerFilter === '전체 제휴업체' ? '전체' : partnerFilter} 접수 ${caseCount}건 · 고객 ${metricLeads.length}명` : '등록된 고객 데이터가 없습니다'}</span></div><div className="panel-search search"><Search size={17}/><input aria-label="고객 검색" placeholder="고객명 또는 휴대폰 뒷자리 검색" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}><X size={15}/></button>}</div></div>
+          <div className="panel-head"><div><h2>고객 접수 현황 <span className={`sync-badge ${syncState}`}>{isDemoMode ? '데모' : syncState === 'live' ? '실시간 동기화' : syncState === 'offline' ? '연결 대기' : syncState === 'error' ? '동기화 오류' : '연결 중'}</span></h2><span>{latestRegisteredAt ? `데이터 기준일 ${formatDate(latestRegisteredAt)} · ${partnerFilter === '전체 제휴업체' ? '전체' : partnerFilter} 접수 ${caseCount}건 · 고객 ${metricLeads.length}명` : '등록된 고객 데이터가 없습니다'}</span></div><div className="panel-search search"><Search size={17}/><input aria-label="고객 검색" placeholder="고객명 또는 휴대폰 뒷자리 검색" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}><X size={15}/></button>}</div></div>
           <div className="filters">
             <label className="filter-field"><span>제휴업체</span><select aria-label="제휴업체 필터" value={partnerFilter} onChange={e => setPartnerFilter(e.target.value)}><option>전체 제휴업체</option>{partners.map(p => <option key={p}>{p}</option>)}</select></label>
             <label className="filter-field"><span>담당 매니저</span><select aria-label="담당 매니저 필터" value={managerFilter} onChange={e => setManagerFilter(e.target.value)}><option>전체 담당자</option><option>미배정</option>{managerNames.map(name => <option key={name}>{name}</option>)}</select></label>
@@ -423,7 +434,7 @@ export default function App() {
       </section>
     </main>
 
-    {active && <LeadDrawer lead={active} linkedLeads={active.caseGroupId ? leads.filter(lead => lead.caseGroupId === active.caseGroupId) : []} allLeads={leads} onSelectLinked={setActive} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer} onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false) }} onSave={saveLead} onUnlink={unlinkCase}/>}
+    {active && <LeadDrawer lead={active} linkedLeads={active.caseGroupId ? leads.filter(lead => lead.caseGroupId === active.caseGroupId) : []} allLeads={leads} onSelectLinked={setActive} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer} onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false) }} onSave={saveLead} onUnlink={unlinkCase} remoteChanged={!creating && Boolean(leads.find(item => item.id === active.id && (item.updatedAt !== active.updatedAt || item.caseGroupId !== active.caseGroupId)))}/>}
     {toast && <div className="toast"><Check size={17}/>{toast}</div>}
   </div>
 }
@@ -444,7 +455,7 @@ function ManagementSummary({lead,onOpen}:{lead:Lead,onOpen:()=>void}) {
   return <div className="management-cell"><div className="management-actions">{visible.map((entry,index)=><button type="button" className="management-chip" key={entry.id} onClick={event=>{event.stopPropagation();onOpen()}}><span>✓ {firstRound+index}회차 · 관리</span><small>{formatDate(entry.date)}</small></button>)}<button type="button" className="management-add" onClick={event=>{event.stopPropagation();onOpen()}}>+ 관리 기록 추가</button></div></div>
 }
 
-function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,onClose,onSave,onUnlink}:{lead:Lead,linkedLeads:Lead[],allLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,onClose:()=>void,onSave:(l:Lead,linkTargetId?:string)=>void,onUnlink:(lead:Lead)=>Promise<void>}) {
+function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,onClose,onSave,onUnlink,remoteChanged}:{lead:Lead,linkedLeads:Lead[],allLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,onClose:()=>void,onSave:(l:Lead,linkTargetId?:string)=>void,onUnlink:(lead:Lead)=>Promise<void>,remoteChanged:boolean}) {
   const [form, setForm] = useState(lead)
   const [manualManager, setManualManager] = useState(Boolean(lead.manager && !managers.some(m => m.name === lead.manager)))
   const [memoOpen, setMemoOpen] = useState(openMemoInitially)
@@ -476,6 +487,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
     <div className="drawer-head"><div><span>{creating ? 'NEW REFERRAL' : 'CUSTOMER DETAIL'}</span><h2>{creating ? '신규 고객 등록' : `${lead.customerName} 고객`}</h2></div><button onClick={onClose}><X/></button></div>
     {!creating && <div className="identity"><div>{lead.customerName.slice(0,1)}</div><section><strong>{lead.customerName}</strong><span>{lead.phoneLast4}</span></section><span className={`badge ${statusTone[form.status]}`}><i/>{form.status}</span></div>}
     {linkedLeads.length > 1 && <div className="linked-case"><strong>같은 접수 1건 · 고객 {linkedLeads.length}명</strong><p>고객별 상태와 관리 내용은 각각 저장됩니다.</p><div>{linkedLeads.map(member => <button type="button" className={member.id === lead.id ? 'active' : ''} key={member.id} onClick={() => onSelectLinked(member)}><span>{member.customerName} · {member.phoneLast4}</span><small>{member.status}</small></button>)}</div>{canManageAll && <button type="button" className="unlink-case" disabled={unlinkBusy} onClick={unlinkSelected}>{unlinkBusy ? '해제 중...' : linkedLeads.length === 2 ? '두 고객 연결 해제' : '이 고객만 연결 해제'}</button>}</div>}
+    {remoteChanged && <div className="drawer-sync-warning">다른 사용자가 이 고객 정보를 변경했습니다. 화면을 닫고 다시 열어 최신 내용을 확인해주세요.</div>}
     <form onSubmit={e => {e.preventDefault(); if (linkExisting && !linkTargetId) return; onSave(form, linkExisting ? linkTargetId : undefined)}}>
       <fieldset><legend>기본 정보</legend><div className="form-grid">
         <label>등록일자<input type="date" required disabled={!creating} value={form.registeredAt} onChange={e=>update('registeredAt',e.target.value)}/></label>
@@ -487,7 +499,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
       <fieldset><legend>제휴 정보</legend><label>BILL To Name · 제휴업체명<input required disabled={!creating} list="partner-options" autoComplete="off" placeholder="판매 로우의 제휴업체 검색 또는 신규 입력" value={form.partnerName} onChange={e=>update('partnerName',e.target.value)} onBlur={e=>{const match=partners.find(partner=>partnerKey(partner)===partnerKey(e.target.value));if(match)update('partnerName',match)}}/><datalist id="partner-options">{partnerSuggestions.map(partner=><option key={partner} value={partner}/>)}</datalist><small>비슷한 기존 업체가 먼저 표시되며, 목록에 없는 업체명도 신규 저장할 수 있습니다.</small></label><label>플래너명<input disabled={!creating} placeholder="선택 입력" value={form.plannerName||''} onChange={e=>update('plannerName',e.target.value)}/></label></fieldset>
       <fieldset><legend>일정 정보</legend><label>매장방문 예정일<input type="date" value={form.visitScheduledDate||''} onChange={e=>update('visitScheduledDate',e.target.value)}/></label></fieldset>
       <fieldset><legend>진행 관리</legend><div className="form-grid"><label>담당 매니저<select disabled={!canManageAll} value={manualManager ? '__manual__' : form.manager||''} onChange={e=>{if(e.target.value==='__manual__'){setManualManager(true);update('manager','')}else{setManualManager(false);update('manager',e.target.value)}}}><option value="__manual__">직접입력</option><option value="">미배정</option>{managers.filter(m=>m.role==='매니저').map(m=><option key={m.employeeNo} value={m.name}>{m.name}</option>)}</select>{manualManager && canManageAll && <input className="manual-manager" autoFocus placeholder="담당자 이름 직접입력" value={form.manager||''} onChange={e=>update('manager',e.target.value)}/>}</label><label>현재 상태<select value={form.status} onChange={e=>update('status',e.target.value)}>{STATUSES.map(s=><option key={s}>{s}</option>)}</select></label><label>방문 여부<select value={form.visitState} onChange={e=>update('visitState',e.target.value as VisitState)}><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label></div><button type="button" className="memo-open" onClick={()=>setMemoOpen(true)}><span><Clock3 size={18}/><b>관리메모</b></span><small>{memoEntries.length ? memoEntries.length+'건의 관리 이력' : '접촉 내용과 다음 계획을 기록하세요'}</small><i>보기 →</i></button></fieldset>
-      <div className="drawer-actions"><button type="button" className="btn secondary" onClick={onClose}>취소</button><button className="btn primary" type="submit"><Check size={17}/>{creating ? '고객 등록' : '변경사항 저장'}</button></div>
+      <div className="drawer-actions"><button type="button" className="btn secondary" onClick={onClose}>취소</button><button className="btn primary" type="submit" disabled={remoteChanged}><Check size={17}/>{creating ? '고객 등록' : '변경사항 저장'}</button></div>
     </form>
   </aside>{memoOpen&&<MemoModal lead={form} manager={form.manager||'미배정'} entries={memoEntries} onChange={entries=>setForm(f=>({...f,memoHistory:entries,note:entries.at(-1)?.content||''}))} onClose={()=>setMemoOpen(false)}/>}</>
 }
