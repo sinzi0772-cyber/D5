@@ -20,6 +20,7 @@ export interface Lead {
   lgeSubchannel?: string
   manager?: string
   plannerName?: string
+  caseGroupId?: string
   status: LeadStatus
   visitState: VisitState
   note?: string

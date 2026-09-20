@@ -183,6 +183,15 @@ const partnerMatchScore = (candidate: string, input: string) => {
   return similarity >= 0.5 ? Math.round(similarity * 60) : 0
 }
 const memoEntriesFor = (lead: Lead): MemoEntry[] => lead.memoHistory?.length ? lead.memoHistory : (lead.note ? [{ id: 'legacy', date: lead.updatedAt.slice(0,10), manager: lead.manager || '미배정', content: lead.note }] : [])
+const collapseCases = (rows: Lead[]) => {
+  const seen = new Set<string>()
+  return rows.filter(lead => {
+    if (!lead.caseGroupId) return true
+    if (seen.has(lead.caseGroupId)) return false
+    seen.add(lead.caseGroupId)
+    return true
+  })
+}
 
 export default function App() {
   const [leads, setLeads] = useState<Lead[]>([])
@@ -251,7 +260,7 @@ export default function App() {
           id: item.id, registeredAt: row.registeredAt, customerName: row.customerName,
           phoneLast4: row.phoneLast4, gender: row.gender, visitScheduledDate: row.visitScheduledDate || undefined,
           partnerName: row.partnerName, billToCode: row.billToCode || undefined, lgeSubchannel: row.lgeSubchannel || undefined,
-          manager: row.manager || undefined, plannerName: row.plannerName || undefined, status: normalizeStatus(row.status),
+          manager: row.manager || undefined, plannerName: row.plannerName || undefined, caseGroupId: row.caseGroupId || undefined, status: normalizeStatus(row.status),
           visitState: row.visitState, note: row.note || undefined, memoHistory: row.memoHistory || [], updatedAt: row.updatedAt,
         } as Lead
       }))
@@ -284,15 +293,19 @@ export default function App() {
     }
     return result.sort((a, b) => value(a).localeCompare(value(b), 'ko', { numeric: true }) * (sort.direction === 'asc' ? 1 : -1))
   }, [leads, query, statusFilter, partnerFilter, managerFilter, visitFilter, sort])
+  const visibleRows = useMemo(() => collapseCases(filtered), [filtered])
+  const caseCount = useMemo(() => collapseCases(metricLeads).length, [metricLeads])
   const newCount = metricLeads.filter(l => l.status === '관리중').length
   const completedCount = metricLeads.filter(l => l.status === '구매완료').length
   const canceledCount = metricLeads.filter(l => l.status === '취소').length
   const partnerStats = useMemo(() => {
     const groups = new Map<string, { name: string; total: number; active: number; completed: number; canceled: number }>()
+    const caseIds = new Set<string>()
     for (const lead of metricLeads) {
       const name = lead.partnerName?.trim() || '업체명 미입력'
       const row = groups.get(name) || { name, total: 0, active: 0, completed: 0, canceled: 0 }
-      row.total++
+      const caseId = `${name}:${lead.caseGroupId || lead.id}`
+      if (!caseIds.has(caseId)) { row.total++; caseIds.add(caseId) }
       if (lead.status === '구매완료') row.completed++
       else if (lead.status === '취소') row.canceled++
       else row.active++
@@ -342,19 +355,19 @@ export default function App() {
         {dataError&&<div className="data-alert"><CircleHelp size={18}/><div><strong>데이터를 불러오지 못했습니다.</strong><span>{dataError}</span></div><button onClick={()=>window.location.reload()}>다시 시도</button></div>}
 
         <details className="metrics-panel">
-          <summary className="metrics-toggle"><span className="metrics-toggle-mark" aria-hidden="true"/><strong>관리지표</strong><small>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter} · 접수 {metricLeads.length}건</small></summary>
+          <summary className="metrics-toggle"><span className="metrics-toggle-mark" aria-hidden="true"/><strong>관리지표</strong><small>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter} · 접수 {caseCount}건</small></summary>
           <div className="metrics-panel-body">
             <div className="metrics" aria-label="고객 관리지표">
-              <Metric label={partnerFilter === '전체 제휴업체' ? '제휴업체 접수 고객' : `${partnerFilter} 접수 고객`} value={metricLeads.length} note={partnerFilter === '전체 제휴업체' ? '전체 접수 고객' : '선택 제휴업체 고객'} icon={<UsersRound/>} tone="dark"/>
+              <Metric label={partnerFilter === '전체 제휴업체' ? '제휴업체 접수 고객' : `${partnerFilter} 접수 고객`} value={caseCount} note={`고객 ${metricLeads.length}명 · 같은 접수건은 1건`} icon={<UsersRound/>} tone="dark"/>
               <Metric label="관리중" value={newCount} note="현재 관리 고객" icon={<Clock3/>} tone="amber"/>
               <Metric label="구매완료" value={completedCount} note="구매 완료 고객" icon={<Check/>} tone="teal"/>
               <Metric label="취소" value={canceledCount} note="관리 종료 고객" icon={<X/>} tone="red"/>
             </div>
             <div className="partner-stats">
-              <div className="partner-stats-heading"><strong>업체별 관리 현황</strong><span>현재 조회 가능한 고객 기준 · 업체별 접수/구매완료/취소</span></div>
+              <div className="partner-stats-heading"><strong>업체별 관리 현황</strong><span>접수는 연결 고객을 1건으로, 상태는 고객별로 집계</span></div>
               <div className="partner-stats-scroll">
-                <table className="partner-stats-table"><thead><tr><th>제휴업체</th><th>접수</th><th>관리중</th><th>구매완료</th><th>취소</th><th>구매 전환율</th></tr></thead><tbody>
-                  {partnerStats.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.total}건</td><td>{row.active}건</td><td>{row.completed}건</td><td>{row.canceled}건</td><td>{row.total ? Math.round(row.completed / row.total * 100) : 0}%</td></tr>)}
+                <table className="partner-stats-table"><thead><tr><th>제휴업체</th><th>접수건</th><th>관리중 고객</th><th>구매완료 고객</th><th>취소 고객</th></tr></thead><tbody>
+                  {partnerStats.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.total}건</td><td>{row.active}건</td><td>{row.completed}건</td><td>{row.canceled}건</td></tr>)}
                 </tbody></table>
                 {partnerStats.length === 0 && <p className="partner-stats-empty">집계할 고객이 없습니다.</p>}
               </div>
@@ -363,21 +376,21 @@ export default function App() {
         </details>
 
         <div className="panel">
-          <div className="panel-head"><div><h2>고객 접수 현황</h2><span>{latestRegisteredAt ? `데이터 기준일 ${formatDate(latestRegisteredAt)} · ${partnerFilter === '전체 제휴업체' ? '전체' : partnerFilter} ${metricLeads.length}건` : '등록된 고객 데이터가 없습니다'}</span></div><div className="panel-search search"><Search size={17}/><input aria-label="고객 검색" placeholder="고객명 또는 휴대폰 뒷자리 검색" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}><X size={15}/></button>}</div></div>
+          <div className="panel-head"><div><h2>고객 접수 현황</h2><span>{latestRegisteredAt ? `데이터 기준일 ${formatDate(latestRegisteredAt)} · ${partnerFilter === '전체 제휴업체' ? '전체' : partnerFilter} 접수 ${caseCount}건 · 고객 ${metricLeads.length}명` : '등록된 고객 데이터가 없습니다'}</span></div><div className="panel-search search"><Search size={17}/><input aria-label="고객 검색" placeholder="고객명 또는 휴대폰 뒷자리 검색" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}><X size={15}/></button>}</div></div>
           <div className="filters">
             <label className="filter-field"><span>제휴업체</span><select aria-label="제휴업체 필터" value={partnerFilter} onChange={e => setPartnerFilter(e.target.value)}><option>전체 제휴업체</option>{partners.map(p => <option key={p}>{p}</option>)}</select></label>
             <label className="filter-field"><span>담당 매니저</span><select aria-label="담당 매니저 필터" value={managerFilter} onChange={e => setManagerFilter(e.target.value)}><option>전체 담당자</option><option>미배정</option>{managerNames.map(name => <option key={name}>{name}</option>)}</select></label>
             <label className="filter-field"><span>현재 상태</span><select aria-label="현재 상태 필터" value={statusFilter} onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}><option>전체</option>{STATUSES.map(status => <option key={status}>{status}</option>)}</select></label>
             <label className="filter-field"><span>방문 여부</span><select aria-label="방문 여부 필터" value={visitFilter} onChange={e => setVisitFilter(e.target.value as typeof visitFilter)}><option>전체</option><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label>
           </div>
-          <div className="filter-summary"><div className="active-filters">{!query && partnerFilter === '전체 제휴업체' && managerFilter === '전체 담당자' && statusFilter === '전체' && visitFilter === '전체' && <span className="filter-hint">전체 고객을 표시하고 있습니다</span>}{query && <button onClick={() => setQuery('')}>검색: {query}<X size={12}/></button>}{partnerFilter !== '전체 제휴업체' && <button onClick={() => setPartnerFilter('전체 제휴업체')}>{partnerFilter}<X size={12}/></button>}{managerFilter !== '전체 담당자' && <button onClick={() => setManagerFilter('전체 담당자')}>{managerFilter}<X size={12}/></button>}{statusFilter !== '전체' && <button onClick={() => setStatusFilter('전체')}>{statusFilter}<X size={12}/></button>}{visitFilter !== '전체' && <button onClick={() => setVisitFilter('전체')}>{visitFilter}<X size={12}/></button>}</div><div className="filter-result"><strong>{filtered.length}</strong>건{(query || partnerFilter !== '전체 제휴업체' || managerFilter !== '전체 담당자' || statusFilter !== '전체' || visitFilter !== '전체') && <button onClick={() => { setQuery(''); setPartnerFilter('전체 제휴업체'); setManagerFilter('전체 담당자'); setStatusFilter('전체'); setVisitFilter('전체') }}>전체 초기화</button>}</div></div>
-          <div className="table-wrap"><table><thead><tr><th><SortHeader label="고객" column="customerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="등록일" column="registeredAt" sort={sort} onSort={sortBy}/></th><th><SortHeader label="제휴업체" column="partnerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="담당 매니저" column="manager" sort={sort} onSort={sortBy}/></th><th><SortHeader label="방문 일정" column="visitDate" sort={sort} onSort={sortBy}/></th><th><SortHeader label="현재 상태" column="status" sort={sort} onSort={sortBy}/></th><th><SortHeader label="관리 내용" column="management" sort={sort} onSort={sortBy}/></th><th/></tr></thead><tbody>{filtered.map(l => <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{l.customerName.slice(0,1)}</span><div><strong>{l.customerName}</strong><small>•••• {l.phoneLast4}</small></div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${statusTone[l.status]}`}><i/>{l.status}</span></td><td><ManagementSummary lead={l} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>)}</tbody></table>{filtered.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
-          <div className="panel-foot"><span>총 {filtered.length}건 표시</span><span><i className="privacy-dot"/>민감정보 최소 수집 적용</span></div>
+          <div className="filter-summary"><div className="active-filters">{!query && partnerFilter === '전체 제휴업체' && managerFilter === '전체 담당자' && statusFilter === '전체' && visitFilter === '전체' && <span className="filter-hint">전체 고객을 표시하고 있습니다</span>}{query && <button onClick={() => setQuery('')}>검색: {query}<X size={12}/></button>}{partnerFilter !== '전체 제휴업체' && <button onClick={() => setPartnerFilter('전체 제휴업체')}>{partnerFilter}<X size={12}/></button>}{managerFilter !== '전체 담당자' && <button onClick={() => setManagerFilter('전체 담당자')}>{managerFilter}<X size={12}/></button>}{statusFilter !== '전체' && <button onClick={() => setStatusFilter('전체')}>{statusFilter}<X size={12}/></button>}{visitFilter !== '전체' && <button onClick={() => setVisitFilter('전체')}>{visitFilter}<X size={12}/></button>}</div><div className="filter-result"><strong>{visibleRows.length}</strong>건 · 고객 {filtered.length}명{(query || partnerFilter !== '전체 제휴업체' || managerFilter !== '전체 담당자' || statusFilter !== '전체' || visitFilter !== '전체') && <button onClick={() => { setQuery(''); setPartnerFilter('전체 제휴업체'); setManagerFilter('전체 담당자'); setStatusFilter('전체'); setVisitFilter('전체') }}>전체 초기화</button>}</div></div>
+          <div className="table-wrap"><table><thead><tr><th><SortHeader label="고객" column="customerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="등록일" column="registeredAt" sort={sort} onSort={sortBy}/></th><th><SortHeader label="제휴업체" column="partnerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="담당 매니저" column="manager" sort={sort} onSort={sortBy}/></th><th><SortHeader label="방문 일정" column="visitDate" sort={sort} onSort={sortBy}/></th><th><SortHeader label="현재 상태" column="status" sort={sort} onSort={sortBy}/></th><th><SortHeader label="관리 내용" column="management" sort={sort} onSort={sortBy}/></th><th/></tr></thead><tbody>{visibleRows.map(l => <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{l.customerName.slice(0,1)}</span><div><strong>{l.caseGroupId ? filtered.filter(member => member.caseGroupId === l.caseGroupId).map(member => member.customerName).join(' · ') : l.customerName}</strong><small>{l.caseGroupId ? filtered.filter(member => member.caseGroupId === l.caseGroupId).map(member => member.phoneLast4).join(' / ') : `•••• ${l.phoneLast4}`}</small>{l.caseGroupId && <em className="case-badge">같은 접수 1건</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${statusTone[l.status]}`}><i/>{l.status}</span></td><td><ManagementSummary lead={l} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>)}</tbody></table>{visibleRows.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
+          <div className="panel-foot"><span>접수 {visibleRows.length}건 · 고객 {filtered.length}명 표시</span><span><i className="privacy-dot"/>민감정보 최소 수집 적용</span></div>
         </div>
       </section>
     </main>
 
-    {active && <LeadDrawer lead={active} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer} onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false) }} onSave={saveLead}/>}
+    {active && <LeadDrawer lead={active} linkedLeads={active.caseGroupId ? leads.filter(lead => lead.caseGroupId === active.caseGroupId) : []} onSelectLinked={setActive} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer} onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false) }} onSave={saveLead}/>}
     {toast && <div className="toast"><Check size={17}/>{toast}</div>}
   </div>
 }
@@ -398,16 +411,22 @@ function ManagementSummary({lead,onOpen}:{lead:Lead,onOpen:()=>void}) {
   return <div className="management-cell"><div className="management-actions">{visible.map((entry,index)=><button type="button" className="management-chip" key={entry.id} onClick={event=>{event.stopPropagation();onOpen()}}><span>✓ {firstRound+index}회차 · 관리</span><small>{formatDate(entry.date)}</small></button>)}<button type="button" className="management-add" onClick={event=>{event.stopPropagation();onOpen()}}>+ 관리 기록 추가</button></div></div>
 }
 
-function LeadDrawer({lead,partners,creating,canManageAll,openMemoInitially,onClose,onSave}:{lead:Lead,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,onClose:()=>void,onSave:(l:Lead)=>void}) {
+function LeadDrawer({lead,linkedLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,onClose,onSave}:{lead:Lead,linkedLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,onClose:()=>void,onSave:(l:Lead)=>void}) {
   const [form, setForm] = useState(lead)
   const [manualManager, setManualManager] = useState(Boolean(lead.manager && !managers.some(m => m.name === lead.manager)))
   const [memoOpen, setMemoOpen] = useState(openMemoInitially)
+  useEffect(() => {
+    setForm(lead)
+    setManualManager(Boolean(lead.manager && !managers.some(m => m.name === lead.manager)))
+    setMemoOpen(openMemoInitially)
+  }, [lead, openMemoInitially])
   const update = (key: keyof Lead, value: string) => setForm(f => ({...f,[key]:value}))
   const partnerSuggestions = useMemo(() => partners.map(partner => ({ partner, score: partnerMatchScore(partner, form.partnerName) })).filter(item => item.score > 0).sort((a,b) => b.score - a.score || a.partner.localeCompare(b.partner, 'ko')).slice(0, 12).map(item => item.partner), [partners, form.partnerName])
   const memoEntries: MemoEntry[] = form.memoHistory || (form.note ? [{ id: 'legacy', date: form.updatedAt.slice(0,10), manager: form.manager || '미배정', content: form.note }] : [])
   return <><button className="drawer-scrim" onClick={onClose}/><aside className="drawer">
     <div className="drawer-head"><div><span>{creating ? 'NEW REFERRAL' : 'CUSTOMER DETAIL'}</span><h2>{creating ? '신규 고객 등록' : `${lead.customerName} 고객`}</h2></div><button onClick={onClose}><X/></button></div>
     {!creating && <div className="identity"><div>{lead.customerName.slice(0,1)}</div><section><strong>{lead.customerName}</strong><span>{lead.phoneLast4}</span></section><span className={`badge ${statusTone[form.status]}`}><i/>{form.status}</span></div>}
+    {linkedLeads.length > 1 && <div className="linked-case"><strong>같은 접수 1건 · 고객 {linkedLeads.length}명</strong><p>고객별 상태와 관리 내용은 각각 저장됩니다.</p><div>{linkedLeads.map(member => <button type="button" className={member.id === lead.id ? 'active' : ''} key={member.id} onClick={() => onSelectLinked(member)}><span>{member.customerName} · {member.phoneLast4}</span><small>{member.status}</small></button>)}</div></div>}
     <form onSubmit={e => {e.preventDefault(); onSave(form)}}>
       <fieldset><legend>기본 정보</legend><div className="form-grid">
         <label>등록일자<input type="date" required disabled={!creating} value={form.registeredAt} onChange={e=>update('registeredAt',e.target.value)}/></label>
