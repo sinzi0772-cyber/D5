@@ -287,6 +287,19 @@ export default function App() {
   const newCount = metricLeads.filter(l => l.status === '관리중').length
   const completedCount = metricLeads.filter(l => l.status === '구매완료').length
   const canceledCount = metricLeads.filter(l => l.status === '취소').length
+  const partnerStats = useMemo(() => {
+    const groups = new Map<string, { name: string; total: number; active: number; completed: number; canceled: number }>()
+    for (const lead of metricLeads) {
+      const name = lead.partnerName?.trim() || '업체명 미입력'
+      const row = groups.get(name) || { name, total: 0, active: 0, completed: 0, canceled: 0 }
+      row.total++
+      if (lead.status === '구매완료') row.completed++
+      else if (lead.status === '취소') row.canceled++
+      else row.active++
+      groups.set(name, row)
+    }
+    return [...groups.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'ko'))
+  }, [metricLeads])
   const canManageAll = Boolean(currentUser && ['admin', 'store_manager', 'assistant_manager', '데모 관리자'].includes(currentUser.role))
 
   const notify = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(''), 2800) }
@@ -328,12 +341,26 @@ export default function App() {
 
         {dataError&&<div className="data-alert"><CircleHelp size={18}/><div><strong>데이터를 불러오지 못했습니다.</strong><span>{dataError}</span></div><button onClick={()=>window.location.reload()}>다시 시도</button></div>}
 
-        <div className="metrics" aria-label="고객 관리지표">
-          <Metric label={partnerFilter === '전체 제휴업체' ? '제휴업체 접수 고객' : `${partnerFilter} 접수 고객`} value={metricLeads.length} note={partnerFilter === '전체 제휴업체' ? '전체 접수 고객' : '선택 제휴업체 고객'} icon={<UsersRound/>} tone="dark"/>
-          <Metric label="관리중" value={newCount} note="현재 관리 고객" icon={<Clock3/>} tone="amber"/>
-          <Metric label="구매완료" value={completedCount} note="구매 완료 고객" icon={<Check/>} tone="teal"/>
-          <Metric label="취소" value={canceledCount} note="관리 종료 고객" icon={<X/>} tone="red"/>
-        </div>
+        <details className="metrics-panel">
+          <summary className="metrics-toggle"><span className="metrics-toggle-mark" aria-hidden="true"/><strong>관리지표</strong><small>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter} · 접수 {metricLeads.length}건</small></summary>
+          <div className="metrics-panel-body">
+            <div className="metrics" aria-label="고객 관리지표">
+              <Metric label={partnerFilter === '전체 제휴업체' ? '제휴업체 접수 고객' : `${partnerFilter} 접수 고객`} value={metricLeads.length} note={partnerFilter === '전체 제휴업체' ? '전체 접수 고객' : '선택 제휴업체 고객'} icon={<UsersRound/>} tone="dark"/>
+              <Metric label="관리중" value={newCount} note="현재 관리 고객" icon={<Clock3/>} tone="amber"/>
+              <Metric label="구매완료" value={completedCount} note="구매 완료 고객" icon={<Check/>} tone="teal"/>
+              <Metric label="취소" value={canceledCount} note="관리 종료 고객" icon={<X/>} tone="red"/>
+            </div>
+            <div className="partner-stats">
+              <div className="partner-stats-heading"><strong>업체별 관리 현황</strong><span>현재 조회 가능한 고객 기준 · 업체별 접수/구매완료/취소</span></div>
+              <div className="partner-stats-scroll">
+                <table className="partner-stats-table"><thead><tr><th>제휴업체</th><th>접수</th><th>관리중</th><th>구매완료</th><th>취소</th><th>구매 전환율</th></tr></thead><tbody>
+                  {partnerStats.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.total}건</td><td>{row.active}건</td><td>{row.completed}건</td><td>{row.canceled}건</td><td>{row.total ? Math.round(row.completed / row.total * 100) : 0}%</td></tr>)}
+                </tbody></table>
+                {partnerStats.length === 0 && <p className="partner-stats-empty">집계할 고객이 없습니다.</p>}
+              </div>
+            </div>
+          </div>
+        </details>
 
         <div className="panel">
           <div className="panel-head"><div><h2>고객 접수 현황</h2><span>{latestRegisteredAt ? `데이터 기준일 ${formatDate(latestRegisteredAt)} · ${partnerFilter === '전체 제휴업체' ? '전체' : partnerFilter} ${metricLeads.length}건` : '등록된 고객 데이터가 없습니다'}</span></div><div className="panel-search search"><Search size={17}/><input aria-label="고객 검색" placeholder="고객명 또는 휴대폰 뒷자리 검색" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}><X size={15}/></button>}</div></div>
