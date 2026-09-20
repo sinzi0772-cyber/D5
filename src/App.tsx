@@ -5,7 +5,7 @@ import {
   Settings, Sparkles, UserRound, UsersRound, X,
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from 'firebase/auth'
-import { collection, doc, getDoc, getDocs, query as firestoreQuery, setDoc, where, writeBatch } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, query as firestoreQuery, setDoc, where, writeBatch, deleteField } from 'firebase/firestore'
 import { auth, db, isDemoMode, isFirebaseConfigured } from './lib/firebase'
 import { STATUSES, type Lead, type LeadStatus, type MemoEntry, type VisitState } from './types'
 
@@ -354,6 +354,25 @@ export default function App() {
     })
     setActive(null); setCreating(false); setOpenMemoOnDrawer(false); notify('고객 정보가 저장되었습니다')
   }
+  const unlinkCase = async (lead: Lead) => {
+    if (!lead.caseGroupId || !canManageAll) return
+    const members = leads.filter(item => item.caseGroupId === lead.caseGroupId)
+    if (members.length < 2) return
+    const toUnlink = members.length === 2 ? members : [lead]
+    if (isFirebaseConfigured && db) {
+      try {
+        const batch = writeBatch(db)
+        for (const item of toUnlink) batch.update(doc(db, 'referrals', item.id), { caseGroupId: deleteField() })
+        await batch.commit()
+      } catch (error) {
+        notify(`연결을 해제하지 못했습니다: ${error instanceof Error ? error.message : 'Firebase 오류'}`)
+        return
+      }
+    }
+    const ids = new Set(toUnlink.map(item => item.id))
+    setLeads(prev => prev.map(item => ids.has(item.id) ? { ...item, caseGroupId: undefined } : item))
+    setActive(null); setOpenMemoOnDrawer(false); notify('접수건 연결이 해제되었습니다')
+  }
   if (!isFirebaseConfigured && !isDemoMode) return <SetupRequired/>
   if (!authReady) return <div className="loading-screen"><div className="brand-mark">D5</div><p>안전하게 연결하는 중...</p></div>
   if (!currentUser) return <LoginScreen/>
@@ -404,7 +423,7 @@ export default function App() {
       </section>
     </main>
 
-    {active && <LeadDrawer lead={active} linkedLeads={active.caseGroupId ? leads.filter(lead => lead.caseGroupId === active.caseGroupId) : []} allLeads={leads} onSelectLinked={setActive} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer} onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false) }} onSave={saveLead}/>}
+    {active && <LeadDrawer lead={active} linkedLeads={active.caseGroupId ? leads.filter(lead => lead.caseGroupId === active.caseGroupId) : []} allLeads={leads} onSelectLinked={setActive} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer} onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false) }} onSave={saveLead} onUnlink={unlinkCase}/>}
     {toast && <div className="toast"><Check size={17}/>{toast}</div>}
   </div>
 }
@@ -425,13 +444,14 @@ function ManagementSummary({lead,onOpen}:{lead:Lead,onOpen:()=>void}) {
   return <div className="management-cell"><div className="management-actions">{visible.map((entry,index)=><button type="button" className="management-chip" key={entry.id} onClick={event=>{event.stopPropagation();onOpen()}}><span>✓ {firstRound+index}회차 · 관리</span><small>{formatDate(entry.date)}</small></button>)}<button type="button" className="management-add" onClick={event=>{event.stopPropagation();onOpen()}}>+ 관리 기록 추가</button></div></div>
 }
 
-function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,onClose,onSave}:{lead:Lead,linkedLeads:Lead[],allLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,onClose:()=>void,onSave:(l:Lead,linkTargetId?:string)=>void}) {
+function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,onClose,onSave,onUnlink}:{lead:Lead,linkedLeads:Lead[],allLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,onClose:()=>void,onSave:(l:Lead,linkTargetId?:string)=>void,onUnlink:(lead:Lead)=>Promise<void>}) {
   const [form, setForm] = useState(lead)
   const [manualManager, setManualManager] = useState(Boolean(lead.manager && !managers.some(m => m.name === lead.manager)))
   const [memoOpen, setMemoOpen] = useState(openMemoInitially)
   const [linkExisting, setLinkExisting] = useState(false)
   const [linkTargetId, setLinkTargetId] = useState('')
   const [linkSearch, setLinkSearch] = useState('')
+  const [unlinkBusy, setUnlinkBusy] = useState(false)
   useEffect(() => {
     setForm(lead)
     setManualManager(Boolean(lead.manager && !managers.some(m => m.name === lead.manager)))
@@ -439,15 +459,23 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
     setLinkExisting(false)
     setLinkTargetId('')
     setLinkSearch('')
+    setUnlinkBusy(false)
   }, [lead, openMemoInitially])
   const update = (key: keyof Lead, value: string) => setForm(f => ({...f,[key]:value}))
   const partnerSuggestions = useMemo(() => partners.map(partner => ({ partner, score: partnerMatchScore(partner, form.partnerName) })).filter(item => item.score > 0).sort((a,b) => b.score - a.score || a.partner.localeCompare(b.partner, 'ko')).slice(0, 12).map(item => item.partner), [partners, form.partnerName])
   const linkChoices = allLeads.filter(item => item.id !== lead.id && [item.customerName, item.phoneLast4, item.partnerName].some(value => value?.toLowerCase().includes(linkSearch.trim().toLowerCase()))).slice(0, 30)
+  const unlinkSelected = async () => {
+    const scope = linkedLeads.length === 2 ? '두 고객의 연결을 해제' : `${lead.customerName} 고객만 이 접수건에서 분리`
+    if (!window.confirm(`${scope}할까요? 고객별 담당자·상태·관리메모는 유지됩니다. 저장하지 않은 화면 수정사항은 사라집니다.`)) return
+    setUnlinkBusy(true)
+    await onUnlink(lead)
+    setUnlinkBusy(false)
+  }
   const memoEntries: MemoEntry[] = form.memoHistory || (form.note ? [{ id: 'legacy', date: form.updatedAt.slice(0,10), manager: form.manager || '미배정', content: form.note }] : [])
   return <><button className="drawer-scrim" onClick={onClose}/><aside className="drawer">
     <div className="drawer-head"><div><span>{creating ? 'NEW REFERRAL' : 'CUSTOMER DETAIL'}</span><h2>{creating ? '신규 고객 등록' : `${lead.customerName} 고객`}</h2></div><button onClick={onClose}><X/></button></div>
     {!creating && <div className="identity"><div>{lead.customerName.slice(0,1)}</div><section><strong>{lead.customerName}</strong><span>{lead.phoneLast4}</span></section><span className={`badge ${statusTone[form.status]}`}><i/>{form.status}</span></div>}
-    {linkedLeads.length > 1 && <div className="linked-case"><strong>같은 접수 1건 · 고객 {linkedLeads.length}명</strong><p>고객별 상태와 관리 내용은 각각 저장됩니다.</p><div>{linkedLeads.map(member => <button type="button" className={member.id === lead.id ? 'active' : ''} key={member.id} onClick={() => onSelectLinked(member)}><span>{member.customerName} · {member.phoneLast4}</span><small>{member.status}</small></button>)}</div></div>}
+    {linkedLeads.length > 1 && <div className="linked-case"><strong>같은 접수 1건 · 고객 {linkedLeads.length}명</strong><p>고객별 상태와 관리 내용은 각각 저장됩니다.</p><div>{linkedLeads.map(member => <button type="button" className={member.id === lead.id ? 'active' : ''} key={member.id} onClick={() => onSelectLinked(member)}><span>{member.customerName} · {member.phoneLast4}</span><small>{member.status}</small></button>)}</div>{canManageAll && <button type="button" className="unlink-case" disabled={unlinkBusy} onClick={unlinkSelected}>{unlinkBusy ? '해제 중...' : linkedLeads.length === 2 ? '두 고객 연결 해제' : '이 고객만 연결 해제'}</button>}</div>}
     <form onSubmit={e => {e.preventDefault(); if (linkExisting && !linkTargetId) return; onSave(form, linkExisting ? linkTargetId : undefined)}}>
       <fieldset><legend>기본 정보</legend><div className="form-grid">
         <label>등록일자<input type="date" required disabled={!creating} value={form.registeredAt} onChange={e=>update('registeredAt',e.target.value)}/></label>
