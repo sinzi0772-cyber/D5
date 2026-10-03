@@ -31,9 +31,11 @@
 .linked-case .unlink-case{margin-top:11px;border:1px solid #eac5c5;background:#fff;color:#ad3945;border-radius:7px;padding:8px 10px;font-size:10px;font-weight:700}.linked-case .unlink-case:hover{background:#fff1f2}.linked-case .unlink-case:disabled{opacity:.55;cursor:wait}
 
 .metrics-panel-body .metrics{grid-template-columns:repeat(5,minmax(0,1fr))}
-.partner-stats-table{min-width:750px}
+.partner-stats-table{min-width:980px}
 .partner-stats-table td:nth-child(5){color:#7159a6;font-weight:700}
 .partner-stats-table td:nth-child(6){color:#b25a63;font-weight:700}
+.partner-stats-table td:nth-child(7),.partner-stats-table td:nth-child(8){font-weight:700;white-space:nowrap}
+.partner-stats-table td:nth-child(8){color:#08705e}
 .drawer-sync-warning{margin:15px 24px 0;padding:11px 12px;border:1px solid #eecb9e;border-radius:8px;background:#fff8ee;color:#885c24;font-size:10px;line-height:1.5}
 @media(max-width:1100px){.metrics-panel-body .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:440px){.metrics-panel-body .metrics{grid-template-columns:1fr}}
@@ -117,3 +119,21 @@
   .partner-stats-table{min-width:0!important}
   .insight-metric,.usage-metric,.usage-insight,.partner-stats-details{break-inside:avoid}
 }
+
+/* Purchase amount and expected partner rebate */
+.rebate-overview{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:7px;margin:0 0 10px}
+.rebate-overview>span{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border:1px solid #d9e7e2;border-radius:8px;background:#f8fcfa}
+.rebate-overview small{color:#687b78;font-size:8px;font-weight:700}
+.rebate-overview strong{color:#08705e;font-size:12px;white-space:nowrap}
+.purchase-summary{display:flex;min-width:130px;flex-direction:column;gap:4px}
+.purchase-summary strong{color:#2a3938;font-size:9px;white-space:nowrap}
+.purchase-summary small{color:#16816c;font-size:8px;font-weight:700;white-space:nowrap}
+.purchase-summary small.ineligible{color:#a36f32}
+.purchase-empty{color:#a2a8ad}
+.rebate-preview{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:10px;margin-top:12px;padding:11px 13px;border:1px solid #cfe5dc;border-radius:9px;background:#eef8f4}
+.rebate-preview>span{color:#52706a;font-size:9px;font-weight:700}
+.rebate-preview>strong{color:#08705e;font-size:17px}
+.rebate-preview>small{color:#70847f;font-size:9px;text-align:right}
+.rebate-preview.ineligible{border-color:#eadcc7;background:#fff9ef}
+.rebate-preview.ineligible>strong,.rebate-preview.ineligible>small{color:#99692f}
+@media(max-width:700px){.rebate-overview{grid-template-columns:1fr}.rebate-preview{grid-template-columns:1fr;gap:4px}.rebate-preview>small{text-align:left}}

@@ -72,10 +72,21 @@ service cloud.firestore {
           signedIn()
           && resource.data.managerEmployeeNo == myEmployeeNo()
           && request.resource.data.managerEmployeeNo == myEmployeeNo()
+          && (
+            !request.resource.data.keys().hasAny(['purchaseType'])
+            || request.resource.data.purchaseType in ['미선택', '일시불', '구독']
+          )
+          && (
+            !request.resource.data.keys().hasAny(['purchaseAmount'])
+            || request.resource.data.purchaseAmount == null
+            || (request.resource.data.purchaseAmount is number && request.resource.data.purchaseAmount >= 0)
+          )
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'visitScheduledDate',
             'status',
             'visitState',
+            'purchaseType',
+            'purchaseAmount',
             'note',
             'memoHistory',
             'updatedAt',

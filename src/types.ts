@@ -1,5 +1,6 @@
 export type LeadStatus = '관리중' | '구매완료' | '상담 마감' | '취소'
 export type VisitState = '미정' | '예정' | '방문' | '미방문' | '일정취소'
+export type PurchaseType = '미선택' | '일시불' | '구독'
 
 export interface MemoEntry {
   id: string
@@ -23,6 +24,8 @@ export interface Lead {
   caseGroupId?: string
   status: LeadStatus
   visitState: VisitState
+  purchaseType?: PurchaseType
+  purchaseAmount?: number
   note?: string
   memoHistory?: MemoEntry[]
   updatedAt: string
