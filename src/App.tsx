@@ -11,6 +11,7 @@ import { septemberAppointments } from './data/septemberAppointments'
 import { STATUSES, type AppointmentType, type Lead, type LeadStatus, type MemoEntry, type PurchaseType, type VisitState } from './types'
 
 type SortKey = 'customerName' | 'registeredAt' | 'partnerName' | 'manager' | 'visitDate' | 'status' | 'management' | 'updatedAt'
+type ManagerSortKey = 'name' | 'assigned' | 'active' | 'completed' | 'closed' | 'canceled' | 'memoCount' | 'conversion'
 type Staff = { employeeNo: string; name: string; role: '매니저' | '지점장' | '부지점장' }
 const managers: Staff[] = [
   {
@@ -222,6 +223,7 @@ export default function App() {
   const [managerFilter, setManagerFilter] = useState('전체 담당자')
   const [visitFilter, setVisitFilter] = useState<'전체' | VisitState>('전체')
   const [sort, setSort] = useState<{key: SortKey; direction: 'asc' | 'desc'}>({ key: 'updatedAt', direction: 'desc' })
+  const [managerSort, setManagerSort] = useState<{key: ManagerSortKey; direction: 'asc' | 'desc'}>({ key: 'assigned', direction: 'desc' })
   const [partnerFilter, setPartnerFilter] = useState('전체 제휴업체')
   const [active, setActive] = useState<Lead | null>(null)
   const [openMemoOnDrawer, setOpenMemoOnDrawer] = useState(false)
@@ -510,12 +512,20 @@ export default function App() {
       const name = entry.manager?.trim()
       if (name && name !== '미배정') getRow(name).memoCount++
     }
-    return [...groups.values()].sort((a, b) => b.assigned - a.assigned || b.completed - a.completed || a.name.localeCompare(b.name, 'ko'))
-  }, [metricLeads])
+    const rows = [...groups.values()]
+    const direction = managerSort.direction === 'asc' ? 1 : -1
+    return rows.sort((a, b) => {
+      if (managerSort.key === 'name') return a.name.localeCompare(b.name, 'ko') * direction
+      const aValue = managerSort.key === 'conversion' ? (a.assigned ? a.completed / a.assigned : 0) : a[managerSort.key]
+      const bValue = managerSort.key === 'conversion' ? (b.assigned ? b.completed / b.assigned : 0) : b[managerSort.key]
+      return (aValue - bValue) * direction || a.name.localeCompare(b.name, 'ko')
+    })
+  }, [metricLeads, managerSort])
   const canManageAll = Boolean(currentUser && ['admin', 'store_manager', 'assistant_manager', '데모 관리자'].includes(currentUser.role))
 
   const notify = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(''), 2800) }
   const sortBy = (key: SortKey) => setSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))
+  const sortManagersBy = (key: ManagerSortKey) => setManagerSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))
   const saveLead = async (lead: Lead, linkTargetId?: string) => {
     if (!creating) {
       const latest = leads.find(item => item.id === lead.id)
@@ -623,7 +633,7 @@ export default function App() {
             </div>
             <details className="manager-stats-details">
               <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>담당자별 관리 성과</strong><span>{managerStats.length}명 · 배정·성공·종료 기록 보기</span></summary>
-              <div className="manager-stats-scroll"><table className="manager-stats-table"><thead><tr><th>담당자</th><th>배정 고객</th><th>관리중</th><th>구매성공</th><th>상담마감</th><th>취소</th><th>관리기록</th><th>구매 전환율</th></tr></thead><tbody>{managerStats.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.assigned}건</td><td>{row.active}건</td><td>{row.completed}건</td><td>{row.closed}건</td><td>{row.canceled}건</td><td>{row.memoCount}건</td><td>{row.assigned ? Math.round(row.completed / row.assigned * 100) : 0}%</td></tr>)}</tbody></table>{managerStats.length === 0 && <p className="manager-stats-empty">배정된 담당자가 없습니다.</p>}</div>
+              <div className="manager-stats-scroll"><table className="manager-stats-table"><thead><tr><th><ManagerSortHeader label="담당자" column="name" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="배정 고객" column="assigned" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="관리중" column="active" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="구매성공" column="completed" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="상담마감" column="closed" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="취소" column="canceled" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="관리기록" column="memoCount" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="구매 전환율" column="conversion" sort={managerSort} onSort={sortManagersBy}/></th></tr></thead><tbody>{managerStats.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.assigned}건</td><td>{row.active}건</td><td>{row.completed}건</td><td>{row.closed}건</td><td>{row.canceled}건</td><td>{row.memoCount}건</td><td>{row.assigned ? Math.round(row.completed / row.assigned * 100) : 0}%</td></tr>)}</tbody></table>{managerStats.length === 0 && <p className="manager-stats-empty">배정된 담당자가 없습니다.</p>}</div>
             </details>
             {currentUser && <section className="usage-insight">
               <div className="usage-insight-title"><div><span>SITE ACCESS INSIGHT</span><h3>직원 접속 기록</h3></div><p>승인된 직원의 실제 로그인 기록만 보여줍니다.</p></div>
@@ -678,6 +688,10 @@ export default function App() {
 function SortHeader({label,column,sort,onSort}:{label:string,column:SortKey,sort:{key:SortKey;direction:'asc'|'desc'},onSort:(key:SortKey)=>void}) {
   const active = sort.key === column
   return <button className={`sort-header ${active ? 'active' : ''}`} onClick={() => onSort(column)} aria-label={`${label} ${active && sort.direction === 'asc' ? '내림차순' : '오름차순'} 정렬`}>{label}<span>{active ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button>
+}
+function ManagerSortHeader({label,column,sort,onSort}:{label:string,column:ManagerSortKey,sort:{key:ManagerSortKey;direction:'asc'|'desc'},onSort:(key:ManagerSortKey)=>void}) {
+  const active = sort.key === column
+  return <button type="button" className={`sort-header ${active ? 'active' : ''}`} onClick={() => onSort(column)} aria-label={`${label} ${active && sort.direction === 'asc' ? '내림차순' : '오름차순'} 정렬`}>{label}<span>{active ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button>
 }
 
 function InsightMetric({label,value,unit,note}:{label:string,value:number,unit:string,note:string}) {
