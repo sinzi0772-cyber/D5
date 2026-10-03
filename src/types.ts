@@ -1,6 +1,7 @@
 export type LeadStatus = '관리중' | '구매완료' | '상담 마감' | '취소'
 export type VisitState = '미정' | '예정' | '방문' | '미방문' | '일정취소'
 export type PurchaseType = '미선택' | '일시불' | '구독' | '일시불+구독'
+export type AppointmentType = '미선택' | '상담예약(이업종)' | '이업종제휴'
 
 export interface MemoEntry {
   id: string
@@ -16,6 +17,7 @@ export interface Lead {
   phoneLast4: string
   gender: '남' | '여' | '미입력'
   visitScheduledDate?: string
+  appointmentType?: AppointmentType
   partnerName: string
   billToCode?: string
   lgeSubchannel?: string

@@ -7,7 +7,7 @@ import {
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from 'firebase/auth'
 import { collection, doc, getDoc, onSnapshot, query as firestoreQuery, setDoc, where, writeBatch, deleteField, increment } from 'firebase/firestore'
 import { auth, db, isDemoMode, isFirebaseConfigured } from './lib/firebase'
-import { STATUSES, type Lead, type LeadStatus, type MemoEntry, type PurchaseType, type VisitState } from './types'
+import { STATUSES, type AppointmentType, type Lead, type LeadStatus, type MemoEntry, type PurchaseType, type VisitState } from './types'
 
 type SortKey = 'customerName' | 'registeredAt' | 'partnerName' | 'manager' | 'visitDate' | 'status' | 'management' | 'updatedAt'
 type Staff = { employeeNo: string; name: string; role: '매니저' | '지점장' | '부지점장' }
@@ -149,7 +149,7 @@ const normalizeStatus = (value: string): LeadStatus => value === '구매완료' 
 const today = new Date().toISOString().slice(0, 10)
 const blankLead = (): Lead => ({
   id: crypto.randomUUID(), registeredAt: today, customerName: '', phoneLast4: '', gender: '미입력',
-  partnerName: '', status: '관리중', visitState: '미정', purchaseType: '미선택', manager: '', updatedAt: new Date().toISOString(),
+  partnerName: '', appointmentType: '미선택', status: '관리중', visitState: '미정', purchaseType: '미선택', manager: '', updatedAt: new Date().toISOString(),
 })
 const maskName = (value: string) => {
   const clean = value.trim().replace(/\s/g, '')
@@ -222,6 +222,7 @@ export default function App() {
   const [dataError, setDataError] = useState('')
   const [profileCount, setProfileCount] = useState(0)
   const [usageRows, setUsageRows] = useState<UsageRow[]>([])
+  const [settlementGuideOpen, setSettlementGuideOpen] = useState(false)
 
   useEffect(() => {
     if (!auth || !db) return
@@ -272,6 +273,7 @@ export default function App() {
         return {
           id: item.id, registeredAt: row.registeredAt, customerName: row.customerName,
           phoneLast4: row.phoneLast4, gender: row.gender, visitScheduledDate: row.visitScheduledDate || undefined,
+          appointmentType: ['상담예약(이업종)', '이업종제휴'].includes(row.appointmentType) ? row.appointmentType : '미선택',
           partnerName: row.partnerName, billToCode: row.billToCode || undefined, lgeSubchannel: row.lgeSubchannel || undefined,
           manager: row.manager || undefined, plannerName: row.plannerName || undefined, caseGroupId: row.caseGroupId || undefined, status: normalizeStatus(row.status),
           visitState: row.visitState, purchaseType, purchaseAmount: legacyAmount,
@@ -414,6 +416,7 @@ export default function App() {
       const payload = Object.fromEntries(Object.entries({
         registeredAt: sanitized.registeredAt, customerName: sanitized.customerName,
         phoneLast4: sanitized.phoneLast4, gender: sanitized.gender, visitScheduledDate: sanitized.visitScheduledDate || null,
+        appointmentType: sanitized.appointmentType || '미선택',
         partnerName: sanitized.partnerName, billToCode: sanitized.billToCode || null, lgeSubchannel: sanitized.lgeSubchannel || null,
         manager: sanitized.manager || null, managerEmployeeNo, plannerName: sanitized.plannerName || null,
         ...(caseGroupId ? { caseGroupId } : {}),
@@ -471,7 +474,7 @@ export default function App() {
 
     <main>
       <section className="content">
-        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>좋은 인연을, 놓치지 않도록.</h1><p>제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.</p></div><div className="heading-actions">{canManageAll&&<button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button>}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
+        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>좋은 인연을, 놓치지 않도록.</h1><p>제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.</p></div><div className="heading-actions"><button className="btn guide-button" onClick={()=>setSettlementGuideOpen(true)}><CircleHelp size={16}/>제휴·정산 안내</button>{canManageAll&&<button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button>}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
 
         {dataError&&<div className="data-alert"><CircleHelp size={18}/><div><strong>데이터를 불러오지 못했습니다.</strong><span>{dataError}</span></div><button onClick={()=>window.location.reload()}>다시 시도</button></div>}
 
@@ -539,13 +542,14 @@ export default function App() {
             <label className="filter-field"><span>방문 여부</span><select aria-label="방문 여부 필터" value={visitFilter} onChange={e => setVisitFilter(e.target.value as typeof visitFilter)}><option>전체</option><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label>
           </div>
           <div className="filter-summary"><div className="active-filters">{!query && partnerFilter === '전체 제휴업체' && managerFilter === '전체 담당자' && statusFilter === '전체' && visitFilter === '전체' && <span className="filter-hint">전체 고객을 표시하고 있습니다</span>}{query && <button onClick={() => setQuery('')}>검색: {query}<X size={12}/></button>}{partnerFilter !== '전체 제휴업체' && <button onClick={() => setPartnerFilter('전체 제휴업체')}>{partnerFilter}<X size={12}/></button>}{managerFilter !== '전체 담당자' && <button onClick={() => setManagerFilter('전체 담당자')}>{managerFilter}<X size={12}/></button>}{statusFilter !== '전체' && <button onClick={() => setStatusFilter('전체')}>{statusFilter}<X size={12}/></button>}{visitFilter !== '전체' && <button onClick={() => setVisitFilter('전체')}>{visitFilter}<X size={12}/></button>}</div><div className="filter-result"><strong>{visibleRows.length}</strong>건 · 고객 {filtered.length}명{(query || partnerFilter !== '전체 제휴업체' || managerFilter !== '전체 담당자' || statusFilter !== '전체' || visitFilter !== '전체') && <button onClick={() => { setQuery(''); setPartnerFilter('전체 제휴업체'); setManagerFilter('전체 담당자'); setStatusFilter('전체'); setVisitFilter('전체') }}>전체 초기화</button>}</div></div>
-          <div className="table-wrap"><table><thead><tr><th><SortHeader label="고객" column="customerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="등록일" column="registeredAt" sort={sort} onSort={sortBy}/></th><th><SortHeader label="제휴업체" column="partnerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="담당 매니저" column="manager" sort={sort} onSort={sortBy}/></th><th><SortHeader label="방문 일정" column="visitDate" sort={sort} onSort={sortBy}/></th><th><SortHeader label="현재 상태" column="status" sort={sort} onSort={sortBy}/></th><th>구매 정보</th><th><SortHeader label="관리 내용" column="management" sort={sort} onSort={sortBy}/></th><th/></tr></thead><tbody>{visibleRows.map(l => <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{l.customerName.slice(0,1)}</span><div><strong>{l.caseGroupId ? filtered.filter(member => member.caseGroupId === l.caseGroupId).map(member => member.customerName).join(' · ') : l.customerName}</strong><small>{l.caseGroupId ? filtered.filter(member => member.caseGroupId === l.caseGroupId).map(member => member.phoneLast4).join(' / ') : `•••• ${l.phoneLast4}`}</small>{l.caseGroupId && <em className="case-badge">{leads.filter(member => member.caseGroupId === l.caseGroupId).length === 2 ? '신랑·신부 함께 관리' : '연결 고객 함께 관리'}</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${statusTone[l.status]}`}><i/>{l.status}</span></td><td><PurchaseSummary lead={l}/></td><td><ManagementSummary lead={l} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>)}</tbody></table>{visibleRows.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
+          <div className="table-wrap"><table><thead><tr><th><SortHeader label="고객" column="customerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="등록일" column="registeredAt" sort={sort} onSort={sortBy}/></th><th><SortHeader label="제휴업체" column="partnerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="담당 매니저" column="manager" sort={sort} onSort={sortBy}/></th><th><SortHeader label="방문 일정" column="visitDate" sort={sort} onSort={sortBy}/></th><th><SortHeader label="현재 상태" column="status" sort={sort} onSort={sortBy}/></th><th>구매 정보</th><th><SortHeader label="관리 내용" column="management" sort={sort} onSort={sortBy}/></th><th/></tr></thead><tbody>{visibleRows.map(l => <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{l.customerName.slice(0,1)}</span><div><strong>{l.caseGroupId ? filtered.filter(member => member.caseGroupId === l.caseGroupId).map(member => member.customerName).join(' · ') : l.customerName}</strong><small>{l.caseGroupId ? filtered.filter(member => member.caseGroupId === l.caseGroupId).map(member => member.phoneLast4).join(' / ') : `•••• ${l.phoneLast4}`}</small>{l.caseGroupId && <em className="case-badge">{leads.filter(member => member.caseGroupId === l.caseGroupId).length === 2 ? '신랑·신부 함께 관리' : '연결 고객 함께 관리'}</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{l.appointmentType&&l.appointmentType!=='미선택'&&<em className="appointment-type">{l.appointmentType}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${statusTone[l.status]}`}><i/>{l.status}</span></td><td><PurchaseSummary lead={l}/></td><td><ManagementSummary lead={l} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>)}</tbody></table>{visibleRows.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
           <div className="panel-foot"><span>접수 {visibleRows.length}건 · 고객 {filtered.length}명 표시</span><span><i className="privacy-dot"/>민감정보 최소 수집 적용</span></div>
         </div>
       </section>
     </main>
 
     {active && <LeadDrawer lead={active} linkedLeads={active.caseGroupId ? leads.filter(lead => lead.caseGroupId === active.caseGroupId) : []} allLeads={leads} onSelectLinked={setActive} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer} onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false) }} onSave={saveLead} onUnlink={unlinkCase} remoteChanged={!creating && Boolean(leads.find(item => item.id === active.id && (item.updatedAt !== active.updatedAt || item.caseGroupId !== active.caseGroupId)))}/>}
+    {settlementGuideOpen && <SettlementGuideModal onClose={()=>setSettlementGuideOpen(false)}/>}
     {toast && <div className="toast"><Check size={17}/>{toast}</div>}
   </div>
 }
@@ -567,6 +571,10 @@ function PurchaseSummary({lead}:{lead:Lead}) {
   if (!lead.purchaseType || lead.purchaseType === '미선택' || !total) return <span className="purchase-empty">—</span>
   const subscriptionIneligible = subscriptionAmountFor(lead) > 0 && !isSubscriptionRebatePartner(lead.partnerName)
   return <div className="purchase-summary">{lead.purchaseType !== '일시불+구독' && <strong>{lead.purchaseType}</strong>}<span>{formatWon(total)}</span><small>예상 제휴 수수료 {formatWon(expectedRebateFor(lead))}</small>{subscriptionIneligible && <em>구독 제휴 수수료 대상 아님</em>}</div>
+}
+
+function SettlementGuideModal({onClose}:{onClose:()=>void}) {
+  return <div className="guide-overlay"><button className="guide-scrim" onClick={onClose} aria-label="제휴·정산 안내 닫기"/><section className="guide-modal" role="dialog" aria-modal="true" aria-label="제휴 접수 및 정산 안내"><header><div><span>PARTNER GUIDE</span><h2>제휴 접수·정산 기준 안내</h2></div><button onClick={onClose} aria-label="닫기"><X size={18}/></button></header><div className="guide-types"><article><b>01</b><div><strong>상담예약(이업종)</strong><p>고객이 전용 URL을 통해 직접 상담을 접수하는 방식입니다.</p></div></article><article><b>02</b><div><strong>이업종제휴</strong><p>제휴업체가 고객을 매장에 직접 연결해 접수하는 방식입니다.</p></div></article></div><div className="guide-policy"><h3>LG 제휴 수수료 정산 기준</h3><ul><li><strong>연결 매장과 구매 매장이 같아야 합니다.</strong><span>업체가 A지점으로 연결한 고객은 A지점에서 구매해야 정산 대상입니다.</span></li><li><strong>다른 지점에서 구매하면 정산 대상이 아닙니다.</strong><span>A지점으로 연결됐지만 B지점에서 구매한 경우에는 제외됩니다.</span></li><li><strong>비교 방문 매장이 2곳 이상이면 각각 접수해야 합니다.</strong><span>업체등록과 고객등록(URL 접수), 두 가지 방법으로 매장별 접수를 남겨야 합니다.</span></li><li><strong>제품 수령월 기준 익익월 중순에 입금됩니다.</strong><span>제휴 수수료는 고객이 제품을 받은 달로부터 두 달 뒤 중순에 정산됩니다.</span></li></ul></div><footer><button className="btn primary" onClick={onClose}><Check size={16}/>확인했습니다</button></footer></section></div>
 }
 
 function ManagementSummary({lead,onOpen}:{lead:Lead,onOpen:()=>void}) {
@@ -616,6 +624,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
         <label>고객명 <small>자동 마스킹</small><input required disabled={!creating} placeholder="예: 박수정 → 박*정" value={form.customerName} onChange={e=>update('customerName',e.target.value)}/></label>
         <label>휴대폰 뒷 4자리<input required disabled={!creating} inputMode="numeric" maxLength={4} pattern="[0-9]{4}" placeholder="4240" value={form.phoneLast4} onChange={e=>update('phoneLast4',last4(e.target.value))}/></label>
       </div></fieldset>
+      <fieldset><legend>약속 유형</legend><label>접수 방식<select value={form.appointmentType||'미선택'} onChange={e=>update('appointmentType',e.target.value as AppointmentType)}><option value="미선택">미선택</option><option value="상담예약(이업종)">상담예약(이업종)</option><option value="이업종제휴">이업종제휴</option></select></label><div className="appointment-help">{form.appointmentType==='상담예약(이업종)'?'고객이 전용 URL을 통해 직접 접수한 상담입니다.':form.appointmentType==='이업종제휴'?'제휴업체가 고객을 매장에 직접 연결한 접수입니다.':'접수 경로에 맞는 약속 유형을 선택하세요.'}</div></fieldset>
       {canManageAll && (creating || !lead.caseGroupId) && <fieldset className="case-link-fieldset"><legend>같은 접수건 연결</legend><label className="case-link-check"><input type="checkbox" checked={linkExisting} onChange={e=>{setLinkExisting(e.target.checked);setLinkTargetId('')}}/><span>이 고객을 기존 접수건과 묶기</span></label><small>신랑·신부 등 같은 접수건은 목록과 접수건 수에서 1건으로 표시됩니다. 고객별 상태와 관리메모는 따로 유지됩니다.</small>{linkExisting && <div className="case-link-picker"><label>기존 고객 찾기<input placeholder="고객명·휴대폰 뒷자리·제휴업체 검색" value={linkSearch} onChange={e=>{setLinkSearch(e.target.value);setLinkTargetId('')}}/></label><label>연결할 고객<select required value={linkTargetId} onChange={e=>setLinkTargetId(e.target.value)}><option value="">고객을 선택하세요</option>{linkChoices.map(item=><option key={item.id} value={item.id}>{item.customerName} · {item.phoneLast4} · {item.partnerName}</option>)}</select></label></div>}</fieldset>}
       <fieldset><legend>제휴 정보</legend><label>BILL To Name · 제휴업체명<input required disabled={!creating} list="partner-options" autoComplete="off" placeholder="판매 로우의 제휴업체 검색 또는 신규 입력" value={form.partnerName} onChange={e=>update('partnerName',e.target.value)} onBlur={e=>{const match=partners.find(partner=>partnerKey(partner)===partnerKey(e.target.value));if(match)update('partnerName',match)}}/><datalist id="partner-options">{partnerSuggestions.map(partner=><option key={partner} value={partner}/>)}</datalist><small>비슷한 기존 업체가 먼저 표시되며, 목록에 없는 업체명도 신규 저장할 수 있습니다.</small></label><label>플래너명<input disabled={!creating} placeholder="선택 입력" value={form.plannerName||''} onChange={e=>update('plannerName',e.target.value)}/></label></fieldset>
       <fieldset><legend>일정 정보</legend><label>매장방문 예정일<input type="date" value={form.visitScheduledDate||''} onChange={e=>update('visitScheduledDate',e.target.value)}/></label></fieldset>

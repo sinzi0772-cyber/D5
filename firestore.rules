@@ -73,6 +73,10 @@ service cloud.firestore {
           && resource.data.managerEmployeeNo == myEmployeeNo()
           && request.resource.data.managerEmployeeNo == myEmployeeNo()
           && (
+            !request.resource.data.keys().hasAny(['appointmentType'])
+            || request.resource.data.appointmentType in ['미선택', '상담예약(이업종)', '이업종제휴']
+          )
+          && (
             !request.resource.data.keys().hasAny(['purchaseType'])
             || request.resource.data.purchaseType in ['미선택', '일시불', '구독', '일시불+구독']
           )
@@ -93,6 +97,7 @@ service cloud.firestore {
           )
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'visitScheduledDate',
+            'appointmentType',
             'status',
             'visitState',
             'purchaseType',
