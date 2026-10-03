@@ -611,15 +611,15 @@ export default function App() {
               <InsightMetric label="미배정 고객" value={unassignedCount} unit="명" note="담당 매니저 확인 필요"/>
               <InsightMetric label="최근 7일 관리기록" value={recent7Memos.length} unit="건" note={`${recent7Managers}명이 작성`}/>
             </div>
-            <div className="insight-strips">
-              <div><span>최근 30일 신규 접수</span><strong>{recent30Cases}건</strong></div>
-              <div><span>최근 30일 관리기록</span><strong>{recent30Memos.length}건</strong></div>
-            </div>
             <div className="status-overview" aria-label="진행 상태 요약">
               <span>관리중 <strong>{newCount}</strong></span>
               <span>구매완료 <strong>{completedCount}</strong></span>
               <span>상담 마감 <strong>{closedCount}</strong></span>
               <span>취소 <strong>{canceledCount}</strong></span>
+            </div>
+            <div className="insight-strips">
+              <div><span>최근 30일 신규 접수</span><strong>{recent30Cases}건</strong></div>
+              <div><span>최근 30일 관리기록</span><strong>{recent30Memos.length}건</strong></div>
             </div>
             <details className="manager-stats-details">
               <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>담당자별 관리 성과</strong><span>{managerStats.length}명 · 배정·성공·종료 기록 보기</span></summary>
