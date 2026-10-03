@@ -487,6 +487,31 @@ export default function App() {
     }
     return [...groups.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'ko'))
   }, [metricLeads])
+  const managerStats = useMemo(() => {
+    const groups = new Map<string, { name: string; assigned: number; active: number; completed: number; closed: number; canceled: number; memoCount: number }>()
+    const getRow = (name: string) => {
+      const existing = groups.get(name)
+      if (existing) return existing
+      const created = { name, assigned: 0, active: 0, completed: 0, closed: 0, canceled: 0, memoCount: 0 }
+      groups.set(name, created)
+      return created
+    }
+    for (const lead of metricLeads) {
+      const name = lead.manager?.trim()
+      if (!name) continue
+      const row = getRow(name)
+      row.assigned++
+      if (lead.status === '구매완료') row.completed++
+      else if (lead.status === '상담 마감') row.closed++
+      else if (lead.status === '취소') row.canceled++
+      else row.active++
+    }
+    for (const entry of metricLeads.flatMap(memoEntriesFor)) {
+      const name = entry.manager?.trim()
+      if (name && name !== '미배정') getRow(name).memoCount++
+    }
+    return [...groups.values()].sort((a, b) => b.assigned - a.assigned || b.completed - a.completed || a.name.localeCompare(b.name, 'ko'))
+  }, [metricLeads])
   const canManageAll = Boolean(currentUser && ['admin', 'store_manager', 'assistant_manager', '데모 관리자'].includes(currentUser.role))
 
   const notify = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(''), 2800) }
@@ -596,6 +621,10 @@ export default function App() {
               <span>상담 마감 <strong>{closedCount}</strong></span>
               <span>취소 <strong>{canceledCount}</strong></span>
             </div>
+            <details className="manager-stats-details">
+              <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>담당자별 관리 성과</strong><span>{managerStats.length}명 · 배정·성공·종료 기록 보기</span></summary>
+              <div className="manager-stats-scroll"><table className="manager-stats-table"><thead><tr><th>담당자</th><th>배정 고객</th><th>관리중</th><th>구매성공</th><th>상담마감</th><th>취소</th><th>관리기록</th><th>구매 전환율</th></tr></thead><tbody>{managerStats.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.assigned}건</td><td>{row.active}건</td><td>{row.completed}건</td><td>{row.closed}건</td><td>{row.canceled}건</td><td>{row.memoCount}건</td><td>{row.assigned ? Math.round(row.completed / row.assigned * 100) : 0}%</td></tr>)}</tbody></table>{managerStats.length === 0 && <p className="manager-stats-empty">배정된 담당자가 없습니다.</p>}</div>
+            </details>
             {currentUser && <section className="usage-insight">
               <div className="usage-insight-title"><div><span>SITE ACCESS INSIGHT</span><h3>직원 접속 기록</h3></div><p>승인된 직원의 실제 로그인 기록만 보여줍니다.</p></div>
               <div className="usage-banner"><span>사용 흐름</span><strong>{usageMessage}</strong></div>

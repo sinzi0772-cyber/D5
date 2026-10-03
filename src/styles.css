@@ -108,6 +108,20 @@
 .access-log-table th,.access-log-table td{width:auto!important;height:auto;padding:8px 10px;font-size:8px}.access-log-table tbody tr{cursor:default}
 .access-log-table td:first-child{font-weight:700;color:#2f403d}.access-log-table td:last-child{color:#08705e;font-weight:700}
 .access-log-empty{margin:0;padding:16px;color:#899793;font-size:9px;text-align:center}
+.manager-stats-details{margin:0 0 10px;border:1px solid #dce6e3;border-radius:9px;background:#fff;overflow:hidden}
+.manager-stats-details>summary{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;list-style:none}
+.manager-stats-details>summary::-webkit-details-marker{display:none}
+.manager-stats-details>summary strong{font-size:10px;color:#30413f}
+.manager-stats-details>summary span{font-size:8px;color:#7a8987}
+.manager-stats-details[open]>summary{border-bottom:1px solid #e8edeb}
+.manager-stats-scroll{max-height:300px;overflow:auto}
+.manager-stats-table{width:100%;min-width:760px;table-layout:auto}
+.manager-stats-table th,.manager-stats-table td{width:auto!important;height:auto;padding:9px 12px;font-size:9px}
+.manager-stats-table tbody tr{cursor:default}
+.manager-stats-table td:first-child{font-weight:700;color:#2f403d}
+.manager-stats-table td:nth-child(4),.manager-stats-table td:last-child{color:#08705e;font-weight:700}
+.manager-stats-table td:nth-child(5),.manager-stats-table td:nth-child(6){color:#ad5861}
+.manager-stats-empty{margin:0;padding:16px;color:#899793;font-size:9px;text-align:center}
 .partner-stats-details{margin-top:8px;border:1px solid #e1e8e6;border-radius:9px;background:#fff;overflow:hidden}
 .partner-stats-details>summary{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;list-style:none}
 .partner-stats-details>summary::-webkit-details-marker{display:none}
@@ -118,7 +132,7 @@
 .details-toggle-mark{position:relative;width:17px;height:17px;border:1px solid #cbd6d2;border-radius:5px;background:#fff;flex:none}
 .details-toggle-mark:before,.details-toggle-mark:after{content:'';position:absolute;left:4px;right:4px;top:7px;height:1px;background:#4f6661}
 .details-toggle-mark:after{transform:rotate(90deg)}
-.access-log-details[open]>summary .details-toggle-mark:after,.partner-stats-details[open]>summary .details-toggle-mark:after{display:none}
+.access-log-details[open]>summary .details-toggle-mark:after,.manager-stats-details[open]>summary .details-toggle-mark:after,.partner-stats-details[open]>summary .details-toggle-mark:after{display:none}
 @media(max-width:900px){.usage-metrics{grid-template-columns:1fr 1fr}}
 @media(max-width:520px){.insight-heading,.usage-insight-title{align-items:flex-start;flex-direction:column}.insight-heading-actions{width:100%;justify-content:space-between}.usage-metrics,.usage-strips{grid-template-columns:1fr}}
 @media print{
@@ -129,11 +143,11 @@
   .metrics-panel{position:absolute!important;inset:0 auto auto 0!important;width:100%!important;margin:0!important;border:0!important;box-shadow:none!important}
   .metrics-toggle,.print-insight{display:none!important}
   .metrics-panel-body{display:block!important;padding:0!important;border:0!important;background:#fff!important}
-  .partner-stats-details>summary{display:none!important}
-  .partner-stats-details:not([open])>.partner-stats{display:block!important}
-  .partner-stats-scroll{max-height:none!important;overflow:visible!important}
-  .partner-stats-table{min-width:0!important}
-  .insight-metric,.usage-metric,.usage-insight,.partner-stats-details{break-inside:avoid}
+  .manager-stats-details>summary,.partner-stats-details>summary{display:none!important}
+  .manager-stats-details:not([open])>.manager-stats-scroll,.partner-stats-details:not([open])>.partner-stats{display:block!important}
+  .manager-stats-scroll,.partner-stats-scroll{max-height:none!important;overflow:visible!important}
+  .manager-stats-table,.partner-stats-table{min-width:0!important}
+  .insight-metric,.usage-metric,.manager-stats-details,.usage-insight,.partner-stats-details{break-inside:avoid}
 }
 
 /* Purchase amount and expected partner rebate */
