@@ -2,16 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUpRight, Building2, Check, CircleHelp, Clock3,
   LogOut, Menu, MoreHorizontal, Plus, Search,
-  Printer, Settings, Sparkles, UserRound, UsersRound, X,
+  Settings, Sparkles, UserRound, UsersRound, X,
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from 'firebase/auth'
 import { collection, doc, getDoc, onSnapshot, query as firestoreQuery, setDoc, where, writeBatch, deleteField, increment } from 'firebase/firestore'
 import { auth, db, isDemoMode, isFirebaseConfigured } from './lib/firebase'
 import { septemberAppointments } from './data/septemberAppointments'
+import { ExecutiveDashboard } from './components/ExecutiveDashboard'
 import { STATUSES, type AppointmentType, type Lead, type LeadStatus, type MemoEntry, type PurchaseType, type VisitState } from './types'
 
 type SortKey = 'customerName' | 'registeredAt' | 'partnerName' | 'manager' | 'visitDate' | 'status' | 'management' | 'updatedAt'
-type ManagerSortKey = 'name' | 'assigned' | 'active' | 'completed' | 'closed' | 'canceled' | 'memoCount' | 'conversion'
 type Staff = { employeeNo: string; name: string; role: '매니저' | '지점장' | '부지점장' }
 const managers: Staff[] = [
   {
@@ -223,7 +223,6 @@ export default function App() {
   const [managerFilter, setManagerFilter] = useState('전체 담당자')
   const [visitFilter, setVisitFilter] = useState<'전체' | VisitState>('전체')
   const [sort, setSort] = useState<{key: SortKey; direction: 'asc' | 'desc'}>({ key: 'updatedAt', direction: 'desc' })
-  const [managerSort, setManagerSort] = useState<{key: ManagerSortKey; direction: 'asc' | 'desc'}>({ key: 'assigned', direction: 'desc' })
   const [partnerFilter, setPartnerFilter] = useState('전체 제휴업체')
   const [active, setActive] = useState<Lead | null>(null)
   const [openMemoOnDrawer, setOpenMemoOnDrawer] = useState(false)
@@ -236,6 +235,8 @@ export default function App() {
   const [usageRows, setUsageRows] = useState<UsageRow[]>([])
   const [settlementGuideOpen, setSettlementGuideOpen] = useState(false)
   const septemberSyncStarted = useRef(false)
+  const customerPanelRef = useRef<HTMLDivElement>(null)
+  const customerHeadingRef = useRef<HTMLHeadingElement>(null)
 
   useEffect(() => {
     if (!auth || !db) return
@@ -427,13 +428,6 @@ export default function App() {
   }, [leads, query, statusFilter, partnerFilter, managerFilter, visitFilter, sort])
   const visibleRows = useMemo(() => collapseCases(filtered), [filtered])
   const caseCount = useMemo(() => collapseCases(metricLeads).length, [metricLeads])
-  const newCount = metricLeads.filter(l => l.status === '관리중').length
-  const completedCount = metricLeads.filter(l => l.status === '구매완료').length
-  const closedCount = metricLeads.filter(l => l.status === '상담 마감').length
-  const canceledCount = metricLeads.filter(l => l.status === '취소').length
-  const lumpSumRebate = metricLeads.reduce((total, lead) => total + Math.round(lumpSumAmountFor(lead) * 0.02), 0)
-  const subscriptionRebate = metricLeads.reduce((total, lead) => total + Math.round(isSubscriptionRebatePartner(lead.partnerName) ? subscriptionAmountFor(lead) * 0.015 : 0), 0)
-  const totalExpectedRebate = lumpSumRebate + subscriptionRebate
   const dateBefore = (days: number) => {
     const value = new Date()
     value.setHours(0, 0, 0, 0)
@@ -443,12 +437,6 @@ export default function App() {
   }
   const recent7Start = dateBefore(6)
   const recent30Start = dateBefore(29)
-  const recent7Cases = collapseCases(metricLeads.filter(lead => lead.registeredAt >= recent7Start)).length
-  const recent30Cases = collapseCases(metricLeads.filter(lead => lead.registeredAt >= recent30Start)).length
-  const unassignedCount = metricLeads.filter(lead => !lead.manager).length
-  const recent7Memos = metricLeads.flatMap(memoEntriesFor).filter(entry => entry.date >= recent7Start)
-  const recent30Memos = metricLeads.flatMap(memoEntriesFor).filter(entry => entry.date >= recent30Start)
-  const recent7Managers = new Set(recent7Memos.map(entry => entry.manager).filter(manager => manager && manager !== '미배정')).size
   const accessRows = useMemo(() => {
     const usageByEmployeeNo = new Map(usageRows.map(row => [row.employeeNo, row]))
     return approvedStaff.map(profile => ({ ...profile, usage: usageByEmployeeNo.get(profile.employeeNo) })).sort((a, b) => (b.usage?.lastSeenAt || '').localeCompare(a.usage?.lastSeenAt || '') || a.employeeNo.localeCompare(b.employeeNo, 'ko', { numeric: true }))
@@ -468,64 +456,20 @@ export default function App() {
     : recent7Users > 0
       ? `최근 7일 ${recent7Users}명이 접속했습니다. 기록 없음 ${neverAccessedCount}명을 확인해주세요.`
       : `저장된 접속 기록이 없습니다. 운영 배포 이후부터 실제 기록이 집계됩니다.`
-  const insightMessage = recent7Cases > 0
-    ? `최근 7일 ${recent7Cases}건이 새로 접수됐습니다. 미배정 고객 ${unassignedCount}명을 우선 확인해주세요.`
-    : `최근 7일 신규 접수는 없습니다. 현재 관리중인 고객 ${newCount}명을 이어서 관리해주세요.`
-  const partnerStats = useMemo(() => {
-    const groups = new Map<string, { name: string; total: number; active: number; completed: number; closed: number; canceled: number; purchaseTotal: number; rebateTotal: number }>()
-    const caseIds = new Set<string>()
-    for (const lead of metricLeads) {
-      const name = lead.partnerName?.trim() || '업체명 미입력'
-      const row = groups.get(name) || { name, total: 0, active: 0, completed: 0, closed: 0, canceled: 0, purchaseTotal: 0, rebateTotal: 0 }
-      const caseId = `${name}:${lead.caseGroupId || lead.id}`
-      if (!caseIds.has(caseId)) { row.total++; caseIds.add(caseId) }
-      if (lead.status === '구매완료') row.completed++
-      else if (lead.status === '상담 마감') row.closed++
-      else if (lead.status === '취소') row.canceled++
-      else row.active++
-      row.purchaseTotal += totalPurchaseAmountFor(lead)
-      row.rebateTotal += expectedRebateFor(lead)
-      groups.set(name, row)
-    }
-    return [...groups.values()].sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'ko'))
-  }, [metricLeads])
-  const managerStats = useMemo(() => {
-    const groups = new Map<string, { name: string; assigned: number; active: number; completed: number; closed: number; canceled: number; memoCount: number }>()
-    const getRow = (name: string) => {
-      const existing = groups.get(name)
-      if (existing) return existing
-      const created = { name, assigned: 0, active: 0, completed: 0, closed: 0, canceled: 0, memoCount: 0 }
-      groups.set(name, created)
-      return created
-    }
-    for (const lead of metricLeads) {
-      const name = lead.manager?.trim()
-      if (!name) continue
-      const row = getRow(name)
-      row.assigned++
-      if (lead.status === '구매완료') row.completed++
-      else if (lead.status === '상담 마감') row.closed++
-      else if (lead.status === '취소') row.canceled++
-      else row.active++
-    }
-    for (const entry of metricLeads.flatMap(memoEntriesFor)) {
-      const name = entry.manager?.trim()
-      if (name && name !== '미배정') getRow(name).memoCount++
-    }
-    const rows = [...groups.values()]
-    const direction = managerSort.direction === 'asc' ? 1 : -1
-    return rows.sort((a, b) => {
-      if (managerSort.key === 'name') return a.name.localeCompare(b.name, 'ko') * direction
-      const aValue = managerSort.key === 'conversion' ? (a.assigned ? a.completed / a.assigned : 0) : a[managerSort.key]
-      const bValue = managerSort.key === 'conversion' ? (b.assigned ? b.completed / b.assigned : 0) : b[managerSort.key]
-      return (aValue - bValue) * direction || a.name.localeCompare(b.name, 'ko')
-    })
-  }, [metricLeads, managerSort])
   const canManageAll = Boolean(currentUser && ['admin', 'store_manager', 'assistant_manager', '데모 관리자'].includes(currentUser.role))
 
   const notify = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(''), 2800) }
+  const resetCustomerFilters = () => { setQuery(''); setPartnerFilter('전체 제휴업체'); setManagerFilter('전체 담당자'); setStatusFilter('전체'); setVisitFilter('전체') }
+  const openManagerView = (name: string) => {
+    resetCustomerFilters()
+    setManagerFilter(name)
+    window.requestAnimationFrame(() => {
+      customerPanelRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })
+      customerHeadingRef.current?.focus({ preventScroll: true })
+    })
+  }
+  const selectedManager = managerFilter !== '전체 담당자' && managerFilter !== '미배정' ? managerFilter : null
   const sortBy = (key: SortKey) => setSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))
-  const sortManagersBy = (key: ManagerSortKey) => setManagerSort(current => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))
   const saveLead = async (lead: Lead, linkTargetId?: string) => {
     if (!creating) {
       const latest = leads.find(item => item.id === lead.id)
@@ -610,32 +554,10 @@ export default function App() {
         <details className="metrics-panel">
           <summary className="metrics-toggle"><span className="metrics-toggle-mark" aria-hidden="true"/><strong>관리지표</strong><small>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter} · 접수 {caseCount}건</small></summary>
           <div className="metrics-panel-body">
-            <div className="insight-heading">
-              <div><span>PARTNER OPERATIONS INSIGHT</span><h2>제휴고객 관리 현황</h2><p>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter}의 접수·진행상태·판매 성과를 보여줍니다.</p></div>
-              <div className="insight-heading-actions"><div className="rebate-total"><small>예상 수수료 총액</small><strong>{formatWon(totalExpectedRebate)}</strong></div><button type="button" className="print-insight" onClick={() => window.print()}><Printer size={15}/>출력</button></div>
-            </div>
-            <div className="insight-banner"><span>운영 흐름</span><strong>{insightMessage}</strong></div>
-            <div className="insight-metrics" aria-label="고객 운영 핵심지표">
-              <InsightMetric label="전체 접수" value={caseCount} unit="건" note={`고객 ${metricLeads.length}명 기준`}/>
-              <InsightMetric label="최근 7일 신규접수" value={recent7Cases} unit="건" note={`${formatDate(recent7Start)} 이후`}/>
-              <InsightMetric label="미배정 고객" value={unassignedCount} unit="명" note="담당 매니저 확인 필요"/>
-              <InsightMetric label="최근 7일 관리기록" value={recent7Memos.length} unit="건" note={`${recent7Managers}명이 작성`}/>
-            </div>
-            <div className="status-overview" aria-label="진행 상태 요약">
-              <span>관리중 <strong>{newCount}</strong></span>
-              <span>구매완료 <strong>{completedCount}</strong></span>
-              <span>상담 마감 <strong>{closedCount}</strong></span>
-              <span>취소 <strong>{canceledCount}</strong></span>
-            </div>
-            <div className="insight-strips">
-              <div><span>최근 30일 신규 접수</span><strong>{recent30Cases}건</strong></div>
-              <div><span>최근 30일 관리기록</span><strong>{recent30Memos.length}건</strong></div>
-            </div>
-            <details className="manager-stats-details">
-              <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>담당자별 관리 성과</strong><span>{managerStats.length}명 · 배정·성공·종료 기록 보기</span></summary>
-              <div className="manager-stats-scroll"><table className="manager-stats-table"><thead><tr><th><ManagerSortHeader label="담당자" column="name" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="배정 고객" column="assigned" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="관리중" column="active" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="구매성공" column="completed" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="상담마감" column="closed" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="취소" column="canceled" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="관리기록" column="memoCount" sort={managerSort} onSort={sortManagersBy}/></th><th><ManagerSortHeader label="구매 전환율" column="conversion" sort={managerSort} onSort={sortManagersBy}/></th></tr></thead><tbody>{managerStats.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.assigned}건</td><td>{row.active}건</td><td>{row.completed}건</td><td>{row.closed}건</td><td>{row.canceled}건</td><td>{row.memoCount}건</td><td>{row.assigned ? Math.round(row.completed / row.assigned * 100) : 0}%</td></tr>)}</tbody></table>{managerStats.length === 0 && <p className="manager-stats-empty">배정된 담당자가 없습니다.</p>}</div>
-            </details>
-            {currentUser && <section className="usage-insight">
+            <ExecutiveDashboard leads={leads} partnerLabel={partnerFilter} onSelectLead={lead => { setActive(lead); setCreating(false); setOpenMemoOnDrawer(false) }} onSelectManager={openManagerView}/>
+            {currentUser && <details className="usage-insight-details">
+              <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>직원 접속 기록</strong><span>접속 사용자 {loginExperienceCount}명 · 상세 보기</span></summary>
+              <section className="usage-insight">
               <div className="usage-insight-title"><div><span>SITE ACCESS INSIGHT</span><h3>직원 접속 기록</h3></div><p>승인된 직원의 실제 로그인 기록만 보여줍니다.</p></div>
               <div className="usage-banner"><span>사용 흐름</span><strong>{usageMessage}</strong></div>
               <div className="usage-metrics">
@@ -648,31 +570,20 @@ export default function App() {
                 <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>사용자별 접속기록</strong><span>전체 {profileCount}명 · 기록 확인</span></summary>
                 <div className="access-log-scroll"><table className="access-log-table"><thead><tr><th>사용자</th><th>사번</th><th>직책</th><th>최초 접속</th><th>최근 접속</th><th>접속 횟수</th></tr></thead><tbody>{accessRows.map(row=><tr key={row.employeeNo}><td>{row.displayName}</td><td>{row.employeeNo}</td><td>{roleLabel(row.role)}</td><td>{formatDateTime(row.usage?.firstSeenAt)}</td><td>{formatDateTime(row.usage?.lastSeenAt)}</td><td>{row.usage?.visitCount||0}회</td></tr>)}</tbody></table>{accessRows.length===0&&<p className="access-log-empty">승인된 사용자 정보를 불러오는 중입니다.</p>}</div>
               </details>
-            </section>}
-            <details className="partner-stats-details">
-              <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>업체별 관리 현황</strong><span>세부 현황 보기</span></summary>
-              <div className="partner-stats">
-                <div className="partner-stats-heading"><strong>업체별 관리 현황</strong><span>접수는 연결 고객을 1건으로, 상태는 고객별로 집계</span></div>
-                <div className="partner-stats-scroll">
-                  <table className="partner-stats-table"><thead><tr><th>제휴업체</th><th>접수건</th><th>관리중 고객</th><th>구매완료 고객</th><th>상담 마감 고객</th><th>취소 고객</th><th>구매 금액</th><th>예상 제휴 수수료</th></tr></thead><tbody>
-                    {partnerStats.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.total}건</td><td>{row.active}건</td><td>{row.completed}건</td><td>{row.closed}건</td><td>{row.canceled}건</td><td>{formatWon(row.purchaseTotal)}</td><td>{formatWon(row.rebateTotal)}</td></tr>)}
-                  </tbody></table>
-                  {partnerStats.length === 0 && <p className="partner-stats-empty">집계할 고객이 없습니다.</p>}
-                </div>
-              </div>
-            </details>
+              </section>
+            </details>}
           </div>
         </details>
 
-        <div className="panel">
-          <div className="panel-head"><div><h2>고객 접수 현황</h2><span>{latestRegisteredAt ? `데이터 기준일 ${formatDate(latestRegisteredAt)} · ${partnerFilter === '전체 제휴업체' ? '전체' : partnerFilter} 접수 ${caseCount}건 · 고객 ${metricLeads.length}명` : '등록된 고객 데이터가 없습니다'}</span></div><div className="panel-search search"><Search size={17}/><input aria-label="고객 검색" placeholder="고객명 또는 휴대폰 뒷자리 검색" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}><X size={15}/></button>}</div></div>
+        <div className="panel customer-panel" ref={customerPanelRef}>
+          <div className="panel-head"><div><div className="customer-panel-title"><h2 ref={customerHeadingRef} tabIndex={-1}>{selectedManager ? `${selectedManager} 담당 고객` : '고객 접수 현황'}</h2>{selectedManager && <button type="button" className="manager-view-reset" onClick={resetCustomerFilters}>전체 고객 보기</button>}</div><span>{selectedManager ? `전체 기간의 담당 고객 · 현재 조회 접수 ${visibleRows.length}건 · 고객 ${filtered.length}명` : latestRegisteredAt ? `데이터 기준일 ${formatDate(latestRegisteredAt)} · ${partnerFilter === '전체 제휴업체' ? '전체' : partnerFilter} 접수 ${caseCount}건 · 고객 ${metricLeads.length}명` : '등록된 고객 데이터가 없습니다'}</span></div><div className="panel-search search"><Search size={17}/><input aria-label="고객 검색" placeholder="고객명 또는 휴대폰 뒷자리 검색" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button type="button" aria-label="검색어 지우기" onClick={() => setQuery('')}><X size={15}/></button>}</div></div>
           <div className="filters">
             <label className="filter-field"><span>제휴업체</span><select aria-label="제휴업체 필터" value={partnerFilter} onChange={e => setPartnerFilter(e.target.value)}><option>전체 제휴업체</option>{partners.map(p => <option key={p}>{p}</option>)}</select></label>
             <label className="filter-field"><span>담당 매니저</span><select aria-label="담당 매니저 필터" value={managerFilter} onChange={e => setManagerFilter(e.target.value)}><option>전체 담당자</option><option>미배정</option>{managerNames.map(name => <option key={name}>{name}</option>)}</select></label>
             <label className="filter-field"><span>현재 상태</span><select aria-label="현재 상태 필터" value={statusFilter} onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}><option>전체</option>{STATUSES.map(status => <option key={status}>{status}</option>)}</select></label>
             <label className="filter-field"><span>방문 여부</span><select aria-label="방문 여부 필터" value={visitFilter} onChange={e => setVisitFilter(e.target.value as typeof visitFilter)}><option>전체</option><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label>
           </div>
-          <div className="filter-summary"><div className="active-filters">{!query && partnerFilter === '전체 제휴업체' && managerFilter === '전체 담당자' && statusFilter === '전체' && visitFilter === '전체' && <span className="filter-hint">전체 고객을 표시하고 있습니다</span>}{query && <button onClick={() => setQuery('')}>검색: {query}<X size={12}/></button>}{partnerFilter !== '전체 제휴업체' && <button onClick={() => setPartnerFilter('전체 제휴업체')}>{partnerFilter}<X size={12}/></button>}{managerFilter !== '전체 담당자' && <button onClick={() => setManagerFilter('전체 담당자')}>{managerFilter}<X size={12}/></button>}{statusFilter !== '전체' && <button onClick={() => setStatusFilter('전체')}>{statusFilter}<X size={12}/></button>}{visitFilter !== '전체' && <button onClick={() => setVisitFilter('전체')}>{visitFilter}<X size={12}/></button>}</div><div className="filter-result"><strong>{visibleRows.length}</strong>건 · 고객 {filtered.length}명{(query || partnerFilter !== '전체 제휴업체' || managerFilter !== '전체 담당자' || statusFilter !== '전체' || visitFilter !== '전체') && <button onClick={() => { setQuery(''); setPartnerFilter('전체 제휴업체'); setManagerFilter('전체 담당자'); setStatusFilter('전체'); setVisitFilter('전체') }}>전체 초기화</button>}</div></div>
+          <div className="filter-summary"><div className="active-filters">{!query && partnerFilter === '전체 제휴업체' && managerFilter === '전체 담당자' && statusFilter === '전체' && visitFilter === '전체' && <span className="filter-hint">전체 고객을 표시하고 있습니다</span>}{query && <button onClick={() => setQuery('')}>검색: {query}<X size={12}/></button>}{partnerFilter !== '전체 제휴업체' && <button onClick={() => setPartnerFilter('전체 제휴업체')}>{partnerFilter}<X size={12}/></button>}{managerFilter !== '전체 담당자' && <button onClick={() => setManagerFilter('전체 담당자')}>{managerFilter}<X size={12}/></button>}{statusFilter !== '전체' && <button onClick={() => setStatusFilter('전체')}>{statusFilter}<X size={12}/></button>}{visitFilter !== '전체' && <button onClick={() => setVisitFilter('전체')}>{visitFilter}<X size={12}/></button>}</div><div className="filter-result"><strong>{visibleRows.length}</strong>건 · 고객 {filtered.length}명{(query || partnerFilter !== '전체 제휴업체' || managerFilter !== '전체 담당자' || statusFilter !== '전체' || visitFilter !== '전체') && <button onClick={resetCustomerFilters}>전체 초기화</button>}</div></div>
           <div className="table-wrap"><table><thead><tr><th><SortHeader label="고객" column="customerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="등록일" column="registeredAt" sort={sort} onSort={sortBy}/></th><th><SortHeader label="제휴업체" column="partnerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="담당 매니저" column="manager" sort={sort} onSort={sortBy}/></th><th><SortHeader label="방문 일정" column="visitDate" sort={sort} onSort={sortBy}/></th><th><SortHeader label="현재 상태" column="status" sort={sort} onSort={sortBy}/></th><th>구매 정보</th><th><SortHeader label="관리 내용" column="management" sort={sort} onSort={sortBy}/></th><th/></tr></thead><tbody>{visibleRows.map(l => <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{l.customerName.slice(0,1)}</span><div><strong>{l.caseGroupId ? filtered.filter(member => member.caseGroupId === l.caseGroupId).map(member => member.customerName).join(' · ') : l.customerName}</strong><small>{l.caseGroupId ? filtered.filter(member => member.caseGroupId === l.caseGroupId).map(member => member.phoneLast4).join(' / ') : `•••• ${l.phoneLast4}`}</small>{l.caseGroupId && <em className="case-badge">{leads.filter(member => member.caseGroupId === l.caseGroupId).length === 2 ? '신랑·신부 함께 관리' : '연결 고객 함께 관리'}</em>}<DuplicateIntakeHelp lead={l} leads={leads}/></div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{l.appointmentType&&l.appointmentType!=='미선택'&&<em className="appointment-type">{l.appointmentType}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${statusTone[l.status]}`}><i/>{l.status}</span></td><td><PurchaseSummary lead={l}/></td><td><ManagementSummary lead={l} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>)}</tbody></table>{visibleRows.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
           <div className="panel-foot"><span>접수 {visibleRows.length}건 · 고객 {filtered.length}명 표시</span><span><i className="privacy-dot"/>민감정보 최소 수집 적용</span></div>
         </div>
@@ -688,14 +599,6 @@ export default function App() {
 function SortHeader({label,column,sort,onSort}:{label:string,column:SortKey,sort:{key:SortKey;direction:'asc'|'desc'},onSort:(key:SortKey)=>void}) {
   const active = sort.key === column
   return <button className={`sort-header ${active ? 'active' : ''}`} onClick={() => onSort(column)} aria-label={`${label} ${active && sort.direction === 'asc' ? '내림차순' : '오름차순'} 정렬`}>{label}<span>{active ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button>
-}
-function ManagerSortHeader({label,column,sort,onSort}:{label:string,column:ManagerSortKey,sort:{key:ManagerSortKey;direction:'asc'|'desc'},onSort:(key:ManagerSortKey)=>void}) {
-  const active = sort.key === column
-  return <button type="button" className={`sort-header ${active ? 'active' : ''}`} onClick={() => onSort(column)} aria-label={`${label} ${active && sort.direction === 'asc' ? '내림차순' : '오름차순'} 정렬`}>{label}<span>{active ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button>
-}
-
-function InsightMetric({label,value,unit,note}:{label:string,value:number,unit:string,note:string}) {
-  return <div className="insight-metric"><span>{label}</span><strong>{value}<small>{unit}</small></strong><p>{note}</p></div>
 }
 function UsageMetric({label,value,suffix,note}:{label:string,value:number,suffix:string,note:string}) {
   return <div className="usage-metric"><span>{label}</span><strong>{value}<small>{suffix}</small></strong><p>{note}</p></div>
