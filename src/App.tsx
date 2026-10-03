@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowUpRight, Building2, Check, CircleHelp, Clock3,
   LogOut, Menu, MoreHorizontal, Plus, Search,
-  Settings, Sparkles, UserRound, UsersRound, X,
+  Printer, Settings, Sparkles, UserRound, UsersRound, X,
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from 'firebase/auth'
-import { collection, doc, getDoc, onSnapshot, query as firestoreQuery, setDoc, where, writeBatch, deleteField } from 'firebase/firestore'
+import { collection, doc, getDoc, onSnapshot, query as firestoreQuery, setDoc, where, writeBatch, deleteField, increment } from 'firebase/firestore'
 import { auth, db, isDemoMode, isFirebaseConfigured } from './lib/firebase'
 import { STATUSES, type Lead, type LeadStatus, type MemoEntry, type VisitState } from './types'
 
@@ -134,6 +134,7 @@ const managers: Staff[] = [
   }
 ]
 type AppUser = { id: string; loginId: string; name: string; role: string; mustChangePassword: boolean }
+type UsageRow = { userId: string; employeeNo: string; displayName: string; role: string; firstSeenAt: string; lastSeenAt: string; lastSeenDate: string; visitCount: number }
 const appUserFromSession = (user: User): AppUser => ({
   id: user.uid,
   loginId: user.email?.split('@')[0] || '',
@@ -209,6 +210,8 @@ export default function App() {
   const [authReady, setAuthReady] = useState(!isFirebaseConfigured)
   const [dataReady, setDataReady] = useState(isDemoMode)
   const [dataError, setDataError] = useState('')
+  const [profileCount, setProfileCount] = useState(0)
+  const [usageRows, setUsageRows] = useState<UsageRow[]>([])
 
   useEffect(() => {
     if (!auth || !db) return
@@ -270,6 +273,35 @@ export default function App() {
     })
     return unsubscribe
   }, [currentUser?.id, currentUser?.loginId, currentUser?.role, currentUser?.mustChangePassword])
+  useEffect(() => {
+    if (!db || !currentUser || currentUser.mustChangePassword || isDemoMode) return
+    const firestoreDb = db
+    const recordUsage = async () => {
+      const usageRef = doc(firestoreDb, 'usage', currentUser.id)
+      const existing = await getDoc(usageRef)
+      const now = new Date().toISOString()
+      await setDoc(usageRef, {
+        userId: currentUser.id,
+        employeeNo: currentUser.loginId,
+        displayName: currentUser.name,
+        role: currentUser.role,
+        lastSeenAt: now,
+        lastSeenDate: today,
+        visitCount: increment(1),
+        ...(!existing.exists() ? { firstSeenAt: now } : {}),
+      }, { merge: true })
+    }
+    recordUsage().catch(() => undefined)
+  }, [currentUser?.id, currentUser?.mustChangePassword])
+
+  useEffect(() => {
+    if (!db || !currentUser || currentUser.mustChangePassword || !['admin', 'store_manager', 'assistant_manager'].includes(currentUser.role)) {
+      setProfileCount(0); setUsageRows([]); return
+    }
+    const unsubscribeProfiles = onSnapshot(collection(db, 'profiles'), snapshot => setProfileCount(snapshot.size))
+    const unsubscribeUsage = onSnapshot(collection(db, 'usage'), snapshot => setUsageRows(snapshot.docs.map(item => item.data() as UsageRow)))
+    return () => { unsubscribeProfiles(); unsubscribeUsage() }
+  }, [currentUser?.id, currentUser?.role, currentUser?.mustChangePassword])
   const partners = useMemo(() => [...new Set(leads.map(l => l.partnerName))].filter(Boolean), [leads])
   const managerNames = useMemo(() => [...new Set([...managers.filter(m => m.role === '매니저').map(m => m.name), ...leads.flatMap(l => l.manager ? [l.manager] : [])])], [leads])
   const metricLeads = useMemo(() => partnerFilter === '전체 제휴업체' ? leads : leads.filter(lead => lead.partnerName === partnerFilter), [leads, partnerFilter])
@@ -311,6 +343,15 @@ export default function App() {
   const recent7Memos = metricLeads.flatMap(memoEntriesFor).filter(entry => entry.date >= recent7Start)
   const recent30Memos = metricLeads.flatMap(memoEntriesFor).filter(entry => entry.date >= recent30Start)
   const recent7Managers = new Set(recent7Memos.map(entry => entry.manager).filter(manager => manager && manager !== '미배정')).size
+  const loginExperienceCount = usageRows.length
+  const recent7Users = usageRows.filter(row => row.lastSeenDate >= recent7Start).length
+  const recent30Users = usageRows.filter(row => row.lastSeenDate >= recent30Start).length
+  const neverAccessedCount = Math.max(profileCount - loginExperienceCount, 0)
+  const usageMessage = profileCount === 0
+    ? '사용 현황을 불러오는 중입니다.'
+    : recent7Users > 0
+      ? `최근 7일 ${recent7Users}명이 접속했습니다. 미접속 ${neverAccessedCount}명을 확인해주세요.`
+      : `최근 7일 접속 기록이 없습니다. 미접속 ${neverAccessedCount}명을 확인해주세요.`
   const insightMessage = recent7Cases > 0
     ? `최근 7일 ${recent7Cases}건이 새로 접수됐습니다. 미배정 고객 ${unassignedCount}명을 우선 확인해주세요.`
     : `최근 7일 신규 접수는 없습니다. 현재 관리중인 고객 ${newCount}명을 이어서 관리해주세요.`
@@ -416,9 +457,8 @@ export default function App() {
           <summary className="metrics-toggle"><span className="metrics-toggle-mark" aria-hidden="true"/><strong>관리지표</strong><small>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter} · 접수 {caseCount}건</small></summary>
           <div className="metrics-panel-body">
             <div className="insight-heading">
-              <span>PARTNER OPERATIONS INSIGHT</span>
-              <h2>제휴고객 운영 활용 현황</h2>
-              <p>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter}의 접수와 관리 흐름을 함께 보여줍니다.</p>
+              <div><span>PARTNER OPERATIONS INSIGHT</span><h2>제휴고객 운영 활용 현황</h2><p>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter}의 접수와 관리 흐름을 함께 보여줍니다.</p></div>
+              <button type="button" className="print-insight" onClick={() => window.print()}><Printer size={15}/>출력</button>
             </div>
             <div className="insight-banner"><span>운영 흐름</span><strong>{insightMessage}</strong></div>
             <div className="insight-metrics" aria-label="고객 운영 핵심지표">
@@ -437,15 +477,29 @@ export default function App() {
               <span>상담 마감 <strong>{closedCount}</strong></span>
               <span>취소 <strong>{canceledCount}</strong></span>
             </div>
-            <div className="partner-stats">
-              <div className="partner-stats-heading"><strong>업체별 관리 현황</strong><span>접수는 연결 고객을 1건으로, 상태는 고객별로 집계</span></div>
-              <div className="partner-stats-scroll">
-                <table className="partner-stats-table"><thead><tr><th>제휴업체</th><th>접수건</th><th>관리중 고객</th><th>구매완료 고객</th><th>상담 마감 고객</th><th>취소 고객</th></tr></thead><tbody>
-                  {partnerStats.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.total}건</td><td>{row.active}건</td><td>{row.completed}건</td><td>{row.closed}건</td><td>{row.canceled}건</td></tr>)}
-                </tbody></table>
-                {partnerStats.length === 0 && <p className="partner-stats-empty">집계할 고객이 없습니다.</p>}
+            {canManageAll && <section className="usage-insight">
+              <div className="usage-insight-title"><div><span>SITE OPERATIONS INSIGHT</span><h3>사이트 사용 운영현황</h3></div><p>승인된 사용자들의 접속과 관리 활동을 보여줍니다.</p></div>
+              <div className="usage-banner"><span>사용 흐름</span><strong>{usageMessage}</strong></div>
+              <div className="usage-metrics">
+                <UsageMetric label="로그인 경험" value={loginExperienceCount} suffix={`/${profileCount}명`} note={profileCount ? `${Math.round(loginExperienceCount / profileCount * 100)}%가 한 번 이상 접속` : '사용자 집계 중'}/>
+                <UsageMetric label="최근 7일 사용자" value={recent7Users} suffix="명" note="마지막 접속일 기준"/>
+                <UsageMetric label="미접속" value={neverAccessedCount} suffix="명" note="승인 후 접속 기록 없음"/>
+                <UsageMetric label="최근 7일 관리기록" value={recent7Memos.length} suffix="건" note={`${recent7Managers}명이 작성`}/>
               </div>
-            </div>
+              <div className="usage-strips"><div><span>최근 30일 접속 사용자</span><strong>{recent30Users}명</strong></div><div><span>최근 30일 관리기록</span><strong>{recent30Memos.length}건</strong></div></div>
+            </section>}
+            <details className="partner-stats-details">
+              <summary><strong>업체별 관리 현황</strong><span>세부 현황 보기</span></summary>
+              <div className="partner-stats">
+                <div className="partner-stats-heading"><strong>업체별 관리 현황</strong><span>접수는 연결 고객을 1건으로, 상태는 고객별로 집계</span></div>
+                <div className="partner-stats-scroll">
+                  <table className="partner-stats-table"><thead><tr><th>제휴업체</th><th>접수건</th><th>관리중 고객</th><th>구매완료 고객</th><th>상담 마감 고객</th><th>취소 고객</th></tr></thead><tbody>
+                    {partnerStats.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.total}건</td><td>{row.active}건</td><td>{row.completed}건</td><td>{row.closed}건</td><td>{row.canceled}건</td></tr>)}
+                  </tbody></table>
+                  {partnerStats.length === 0 && <p className="partner-stats-empty">집계할 고객이 없습니다.</p>}
+                </div>
+              </div>
+            </details>
           </div>
         </details>
 
@@ -476,6 +530,9 @@ function SortHeader({label,column,sort,onSort}:{label:string,column:SortKey,sort
 
 function InsightMetric({label,value,unit,note}:{label:string,value:number,unit:string,note:string}) {
   return <div className="insight-metric"><span>{label}</span><strong>{value}<small>{unit}</small></strong><p>{note}</p></div>
+}
+function UsageMetric({label,value,suffix,note}:{label:string,value:number,suffix:string,note:string}) {
+  return <div className="usage-metric"><span>{label}</span><strong>{value}<small>{suffix}</small></strong><p>{note}</p></div>
 }
 
 function ManagementSummary({lead,onOpen}:{lead:Lead,onOpen:()=>void}) {

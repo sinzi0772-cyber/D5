@@ -36,6 +36,30 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /usage/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || canManageAll());
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.employeeNo == myProfile().employeeNo
+        && request.resource.data.displayName == myProfile().displayName
+        && request.resource.data.role == myProfile().role
+        && request.resource.data.keys().hasOnly([
+          'userId', 'employeeNo', 'displayName', 'role',
+          'firstSeenAt', 'lastSeenAt', 'lastSeenDate', 'visitCount'
+        ]);
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.employeeNo == myProfile().employeeNo
+        && request.resource.data.displayName == myProfile().displayName
+        && request.resource.data.role == myProfile().role
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'employeeNo', 'displayName', 'role',
+          'lastSeenAt', 'lastSeenDate', 'visitCount'
+        ]);
+      allow delete: if false;
+    }
     match /referrals/{referralId} {
       allow read: if signedIn()
         && (canManageAll() || resource.data.managerEmployeeNo == myEmployeeNo());
