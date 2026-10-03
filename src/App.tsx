@@ -296,6 +296,24 @@ export default function App() {
   const completedCount = metricLeads.filter(l => l.status === '구매완료').length
   const closedCount = metricLeads.filter(l => l.status === '상담 마감').length
   const canceledCount = metricLeads.filter(l => l.status === '취소').length
+  const dateBefore = (days: number) => {
+    const value = new Date()
+    value.setHours(0, 0, 0, 0)
+    value.setDate(value.getDate() - days)
+    const offset = value.getTimezoneOffset() * 60000
+    return new Date(value.getTime() - offset).toISOString().slice(0, 10)
+  }
+  const recent7Start = dateBefore(6)
+  const recent30Start = dateBefore(29)
+  const recent7Cases = collapseCases(metricLeads.filter(lead => lead.registeredAt >= recent7Start)).length
+  const recent30Cases = collapseCases(metricLeads.filter(lead => lead.registeredAt >= recent30Start)).length
+  const unassignedCount = metricLeads.filter(lead => !lead.manager).length
+  const recent7Memos = metricLeads.flatMap(memoEntriesFor).filter(entry => entry.date >= recent7Start)
+  const recent30Memos = metricLeads.flatMap(memoEntriesFor).filter(entry => entry.date >= recent30Start)
+  const recent7Managers = new Set(recent7Memos.map(entry => entry.manager).filter(manager => manager && manager !== '미배정')).size
+  const insightMessage = recent7Cases > 0
+    ? `최근 7일 ${recent7Cases}건이 새로 접수됐습니다. 미배정 고객 ${unassignedCount}명을 우선 확인해주세요.`
+    : `최근 7일 신규 접수는 없습니다. 현재 관리중인 고객 ${newCount}명을 이어서 관리해주세요.`
   const partnerStats = useMemo(() => {
     const groups = new Map<string, { name: string; total: number; active: number; completed: number; closed: number; canceled: number }>()
     const caseIds = new Set<string>()
@@ -397,12 +415,27 @@ export default function App() {
         <details className="metrics-panel">
           <summary className="metrics-toggle"><span className="metrics-toggle-mark" aria-hidden="true"/><strong>관리지표</strong><small>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter} · 접수 {caseCount}건</small></summary>
           <div className="metrics-panel-body">
-            <div className="metrics" aria-label="고객 관리지표">
-              <Metric label={partnerFilter === '전체 제휴업체' ? '제휴업체 접수 고객' : `${partnerFilter} 접수 고객`} value={caseCount} note={`고객 ${metricLeads.length}명 · 같은 접수건은 1건`} icon={<UsersRound/>} tone="dark"/>
-              <Metric label="관리중" value={newCount} note="현재 관리 고객" icon={<Clock3/>} tone="amber"/>
-              <Metric label="구매완료" value={completedCount} note="구매 완료 고객" icon={<Check/>} tone="teal"/>
-              <Metric label="상담 마감" value={closedCount} note="상담을 마친 고객" icon={<Clock3/>} tone="violet"/>
-              <Metric label="취소" value={canceledCount} note="관리 종료 고객" icon={<X/>} tone="red"/>
+            <div className="insight-heading">
+              <span>PARTNER OPERATIONS INSIGHT</span>
+              <h2>제휴고객 운영 활용 현황</h2>
+              <p>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter}의 접수와 관리 흐름을 함께 보여줍니다.</p>
+            </div>
+            <div className="insight-banner"><span>운영 흐름</span><strong>{insightMessage}</strong></div>
+            <div className="insight-metrics" aria-label="고객 운영 핵심지표">
+              <InsightMetric label="전체 접수" value={caseCount} unit="건" note={`고객 ${metricLeads.length}명 기준`}/>
+              <InsightMetric label="최근 7일 신규접수" value={recent7Cases} unit="건" note={`${formatDate(recent7Start)} 이후`}/>
+              <InsightMetric label="미배정 고객" value={unassignedCount} unit="명" note="담당 매니저 확인 필요"/>
+              <InsightMetric label="최근 7일 관리기록" value={recent7Memos.length} unit="건" note={`${recent7Managers}명이 작성`}/>
+            </div>
+            <div className="insight-strips">
+              <div><span>최근 30일 신규 접수</span><strong>{recent30Cases}건</strong></div>
+              <div><span>최근 30일 관리기록</span><strong>{recent30Memos.length}건</strong></div>
+            </div>
+            <div className="status-overview" aria-label="진행 상태 요약">
+              <span>관리중 <strong>{newCount}</strong></span>
+              <span>구매완료 <strong>{completedCount}</strong></span>
+              <span>상담 마감 <strong>{closedCount}</strong></span>
+              <span>취소 <strong>{canceledCount}</strong></span>
             </div>
             <div className="partner-stats">
               <div className="partner-stats-heading"><strong>업체별 관리 현황</strong><span>접수는 연결 고객을 1건으로, 상태는 고객별로 집계</span></div>
@@ -441,8 +474,8 @@ function SortHeader({label,column,sort,onSort}:{label:string,column:SortKey,sort
   return <button className={`sort-header ${active ? 'active' : ''}`} onClick={() => onSort(column)} aria-label={`${label} ${active && sort.direction === 'asc' ? '내림차순' : '오름차순'} 정렬`}>{label}<span>{active ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button>
 }
 
-function Metric({label,value,note,icon,tone}:{label:string,value:number,note:string,icon:React.ReactNode,tone:string}) {
-  return <div className="metric"><div className={`metric-icon ${tone}`}>{icon}</div><div><span>{label}</span><strong>{value}<small>건</small></strong><p>{note}</p></div><ArrowUpRight size={17}/></div>
+function InsightMetric({label,value,unit,note}:{label:string,value:number,unit:string,note:string}) {
+  return <div className="insight-metric"><span>{label}</span><strong>{value}<small>{unit}</small></strong><p>{note}</p></div>
 }
 
 function ManagementSummary({lead,onOpen}:{lead:Lead,onOpen:()=>void}) {
