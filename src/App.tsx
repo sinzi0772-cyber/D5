@@ -167,8 +167,10 @@ const isSubscriptionRebatePartner = (partnerName: string) => {
   const key = partnerKey(partnerName)
   return subscriptionRebatePartners.some(partner => key.includes(partnerKey(partner)))
 }
-const rebateRateFor = (lead: Pick<Lead, 'purchaseType' | 'partnerName'>) => lead.purchaseType === '일시불' ? 0.02 : lead.purchaseType === '구독' && isSubscriptionRebatePartner(lead.partnerName) ? 0.015 : 0
-const expectedRebateFor = (lead: Pick<Lead, 'purchaseType' | 'purchaseAmount' | 'partnerName'>) => Math.round((lead.purchaseAmount || 0) * rebateRateFor(lead))
+const lumpSumAmountFor = (lead: Pick<Lead, 'purchaseType' | 'purchaseAmount' | 'lumpSumAmount'>) => lead.lumpSumAmount ?? (lead.purchaseType === '일시불' ? lead.purchaseAmount || 0 : 0)
+const subscriptionAmountFor = (lead: Pick<Lead, 'purchaseType' | 'purchaseAmount' | 'subscriptionAmount'>) => lead.subscriptionAmount ?? (lead.purchaseType === '구독' ? lead.purchaseAmount || 0 : 0)
+const totalPurchaseAmountFor = (lead: Pick<Lead, 'purchaseType' | 'purchaseAmount' | 'lumpSumAmount' | 'subscriptionAmount'>) => lumpSumAmountFor(lead) + subscriptionAmountFor(lead)
+const expectedRebateFor = (lead: Pick<Lead, 'purchaseType' | 'purchaseAmount' | 'lumpSumAmount' | 'subscriptionAmount' | 'partnerName'>) => Math.round(lumpSumAmountFor(lead) * 0.02 + (isSubscriptionRebatePartner(lead.partnerName) ? subscriptionAmountFor(lead) * 0.015 : 0))
 const formatWon = (value: number) => `${Math.round(value).toLocaleString('ko-KR')}원`
 const partnerMatchScore = (candidate: string, input: string) => {
   const candidateKey = partnerKey(candidate)
@@ -265,13 +267,16 @@ export default function App() {
     const unsubscribe = onSnapshot(request, snapshot => {
       setLeads(snapshot.docs.map(item => {
         const row = item.data()
+        const purchaseType: PurchaseType = ['일시불', '구독', '일시불+구독'].includes(row.purchaseType) ? row.purchaseType : '미선택'
+        const legacyAmount = typeof row.purchaseAmount === 'number' && row.purchaseAmount >= 0 ? row.purchaseAmount : undefined
         return {
           id: item.id, registeredAt: row.registeredAt, customerName: row.customerName,
           phoneLast4: row.phoneLast4, gender: row.gender, visitScheduledDate: row.visitScheduledDate || undefined,
           partnerName: row.partnerName, billToCode: row.billToCode || undefined, lgeSubchannel: row.lgeSubchannel || undefined,
           manager: row.manager || undefined, plannerName: row.plannerName || undefined, caseGroupId: row.caseGroupId || undefined, status: normalizeStatus(row.status),
-          visitState: row.visitState, purchaseType: ['일시불', '구독'].includes(row.purchaseType) ? row.purchaseType : '미선택',
-          purchaseAmount: typeof row.purchaseAmount === 'number' && row.purchaseAmount >= 0 ? row.purchaseAmount : undefined,
+          visitState: row.visitState, purchaseType, purchaseAmount: legacyAmount,
+          lumpSumAmount: typeof row.lumpSumAmount === 'number' && row.lumpSumAmount >= 0 ? row.lumpSumAmount : (purchaseType === '일시불' ? legacyAmount : undefined),
+          subscriptionAmount: typeof row.subscriptionAmount === 'number' && row.subscriptionAmount >= 0 ? row.subscriptionAmount : (purchaseType === '구독' ? legacyAmount : undefined),
           note: row.note || undefined, memoHistory: row.memoHistory || [], updatedAt: row.updatedAt,
         } as Lead
       }))
@@ -338,8 +343,8 @@ export default function App() {
   const completedCount = metricLeads.filter(l => l.status === '구매완료').length
   const closedCount = metricLeads.filter(l => l.status === '상담 마감').length
   const canceledCount = metricLeads.filter(l => l.status === '취소').length
-  const lumpSumRebate = metricLeads.filter(lead => lead.purchaseType === '일시불').reduce((total, lead) => total + expectedRebateFor(lead), 0)
-  const subscriptionRebate = metricLeads.filter(lead => lead.purchaseType === '구독').reduce((total, lead) => total + expectedRebateFor(lead), 0)
+  const lumpSumRebate = metricLeads.reduce((total, lead) => total + Math.round(lumpSumAmountFor(lead) * 0.02), 0)
+  const subscriptionRebate = metricLeads.reduce((total, lead) => total + Math.round(isSubscriptionRebatePartner(lead.partnerName) ? subscriptionAmountFor(lead) * 0.015 : 0), 0)
   const totalExpectedRebate = lumpSumRebate + subscriptionRebate
   const dateBefore = (days: number) => {
     const value = new Date()
@@ -380,7 +385,7 @@ export default function App() {
       else if (lead.status === '상담 마감') row.closed++
       else if (lead.status === '취소') row.canceled++
       else row.active++
-      row.purchaseTotal += lead.purchaseAmount || 0
+      row.purchaseTotal += totalPurchaseAmountFor(lead)
       row.rebateTotal += expectedRebateFor(lead)
       groups.set(name, row)
     }
@@ -413,7 +418,8 @@ export default function App() {
         manager: sanitized.manager || null, managerEmployeeNo, plannerName: sanitized.plannerName || null,
         ...(caseGroupId ? { caseGroupId } : {}),
         status: sanitized.status, visitState: sanitized.visitState, purchaseType: sanitized.purchaseType || '미선택',
-        purchaseAmount: sanitized.purchaseAmount ?? null, note: sanitized.note || null, memoHistory: sanitized.memoHistory || [],
+        purchaseAmount: totalPurchaseAmountFor(sanitized) || null, lumpSumAmount: lumpSumAmountFor(sanitized) || null,
+        subscriptionAmount: subscriptionAmountFor(sanitized) || null, note: sanitized.note || null, memoHistory: sanitized.memoHistory || [],
         ...(creating ? { createdBy: currentUser.id, createdAt: sanitized.updatedAt } : {}),
         updatedBy: currentUser.id, updatedAt: sanitized.updatedAt,
       }).filter(([, value]) => value !== undefined))
@@ -495,8 +501,8 @@ export default function App() {
             </div>
             <div className="rebate-overview" aria-label="예상 리베이트 요약">
               <span><small>예상 리베이트 총액</small><strong>{formatWon(totalExpectedRebate)}</strong></span>
-              <span><small>일시불 · 2%</small><strong>{formatWon(lumpSumRebate)}</strong></span>
-              <span><small>구독 · 대상 업체 1.5%</small><strong>{formatWon(subscriptionRebate)}</strong></span>
+              <span><small>일시불 예상</small><strong>{formatWon(lumpSumRebate)}</strong></span>
+              <span><small>구독 예상 · 대상 업체</small><strong>{formatWon(subscriptionRebate)}</strong></span>
             </div>
             {canManageAll && <section className="usage-insight">
               <div className="usage-insight-title"><div><span>SITE OPERATIONS INSIGHT</span><h3>사이트 사용 운영현황</h3></div><p>승인된 사용자들의 접속과 관리 활동을 보여줍니다.</p></div>
@@ -557,9 +563,10 @@ function UsageMetric({label,value,suffix,note}:{label:string,value:number,suffix
 }
 
 function PurchaseSummary({lead}:{lead:Lead}) {
-  if (!lead.purchaseType || lead.purchaseType === '미선택' || !lead.purchaseAmount) return <span className="purchase-empty">—</span>
-  const rate = rebateRateFor(lead)
-  return <div className="purchase-summary"><strong>{lead.purchaseType} · {formatWon(lead.purchaseAmount)}</strong>{rate > 0 ? <small>예상 리베이트 {formatWon(expectedRebateFor(lead))} · {rate * 100}%</small> : <small className="ineligible">구독 수수료 대상 아님</small>}</div>
+  const total = totalPurchaseAmountFor(lead)
+  if (!lead.purchaseType || lead.purchaseType === '미선택' || !total) return <span className="purchase-empty">—</span>
+  const subscriptionIneligible = subscriptionAmountFor(lead) > 0 && !isSubscriptionRebatePartner(lead.partnerName)
+  return <div className="purchase-summary"><strong>{lead.purchaseType}</strong><span>{formatWon(total)}</span><small>예상 {formatWon(expectedRebateFor(lead))}</small>{subscriptionIneligible && <em>구독 리베이트 대상 아님</em>}</div>
 }
 
 function ManagementSummary({lead,onOpen}:{lead:Lead,onOpen:()=>void}) {
@@ -612,7 +619,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
       {canManageAll && (creating || !lead.caseGroupId) && <fieldset className="case-link-fieldset"><legend>같은 접수건 연결</legend><label className="case-link-check"><input type="checkbox" checked={linkExisting} onChange={e=>{setLinkExisting(e.target.checked);setLinkTargetId('')}}/><span>이 고객을 기존 접수건과 묶기</span></label><small>신랑·신부 등 같은 접수건은 목록과 접수건 수에서 1건으로 표시됩니다. 고객별 상태와 관리메모는 따로 유지됩니다.</small>{linkExisting && <div className="case-link-picker"><label>기존 고객 찾기<input placeholder="고객명·휴대폰 뒷자리·제휴업체 검색" value={linkSearch} onChange={e=>{setLinkSearch(e.target.value);setLinkTargetId('')}}/></label><label>연결할 고객<select required value={linkTargetId} onChange={e=>setLinkTargetId(e.target.value)}><option value="">고객을 선택하세요</option>{linkChoices.map(item=><option key={item.id} value={item.id}>{item.customerName} · {item.phoneLast4} · {item.partnerName}</option>)}</select></label></div>}</fieldset>}
       <fieldset><legend>제휴 정보</legend><label>BILL To Name · 제휴업체명<input required disabled={!creating} list="partner-options" autoComplete="off" placeholder="판매 로우의 제휴업체 검색 또는 신규 입력" value={form.partnerName} onChange={e=>update('partnerName',e.target.value)} onBlur={e=>{const match=partners.find(partner=>partnerKey(partner)===partnerKey(e.target.value));if(match)update('partnerName',match)}}/><datalist id="partner-options">{partnerSuggestions.map(partner=><option key={partner} value={partner}/>)}</datalist><small>비슷한 기존 업체가 먼저 표시되며, 목록에 없는 업체명도 신규 저장할 수 있습니다.</small></label><label>플래너명<input disabled={!creating} placeholder="선택 입력" value={form.plannerName||''} onChange={e=>update('plannerName',e.target.value)}/></label></fieldset>
       <fieldset><legend>일정 정보</legend><label>매장방문 예정일<input type="date" value={form.visitScheduledDate||''} onChange={e=>update('visitScheduledDate',e.target.value)}/></label></fieldset>
-      <fieldset><legend>구매 정보</legend><div className="form-grid"><label>구매 방식<select value={form.purchaseType||'미선택'} onChange={e=>setForm(current=>({...current,purchaseType:e.target.value as PurchaseType,purchaseAmount:e.target.value==='미선택'?undefined:current.purchaseAmount}))}><option value="미선택">미선택</option><option value="일시불">일시불 구매</option><option value="구독">구독 구매</option></select></label><label>구매 금액<input type="number" inputMode="numeric" min="0" step="1000" disabled={!form.purchaseType||form.purchaseType==='미선택'} placeholder="예: 3000000" value={form.purchaseAmount??''} onChange={e=>setForm(current=>({...current,purchaseAmount:e.target.value===''?undefined:Math.max(0,Number(e.target.value))}))}/></label></div>{form.purchaseType&&form.purchaseType!=='미선택'&&<div className={`rebate-preview ${rebateRateFor(form)===0?'ineligible':''}`}><span>예상 리베이트</span><strong>{formatWon(expectedRebateFor(form))}</strong><small>{form.purchaseType==='일시불'?'구매 금액의 2%':rebateRateFor(form)>0?'구독 대상 업체 · 구매 금액의 1.5%':'이 제휴업체는 구독 수수료 지급 대상이 아닙니다.'}</small></div>}</fieldset>
+      <fieldset><legend>구매 정보</legend><label>구매 방식<select value={form.purchaseType||'미선택'} onChange={e=>{const purchaseType=e.target.value as PurchaseType;setForm(current=>({...current,purchaseType,lumpSumAmount:purchaseType.includes('일시불')?lumpSumAmountFor(current):undefined,subscriptionAmount:purchaseType.includes('구독')?subscriptionAmountFor(current):undefined,purchaseAmount:undefined}))}}><option value="미선택">미선택</option><option value="일시불">일시불</option><option value="구독">구독</option><option value="일시불+구독">일시불+구독</option></select></label><div className="form-grid purchase-amount-grid">{form.purchaseType?.includes('일시불')&&<label>일시불 금액<input type="number" inputMode="numeric" min="0" step="1000" placeholder="예: 3000000" value={form.lumpSumAmount??''} onChange={e=>setForm(current=>({...current,lumpSumAmount:e.target.value===''?undefined:Math.max(0,Number(e.target.value))}))}/></label>}{form.purchaseType?.includes('구독')&&<label>구독 금액<input type="number" inputMode="numeric" min="0" step="1000" placeholder="예: 1000000" value={form.subscriptionAmount??''} onChange={e=>setForm(current=>({...current,subscriptionAmount:e.target.value===''?undefined:Math.max(0,Number(e.target.value))}))}/></label>}</div>{form.purchaseType&&form.purchaseType!=='미선택'&&<div className={`rebate-preview ${subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?'ineligible':''}`}><span>예상 리베이트</span><strong>{formatWon(expectedRebateFor(form))}</strong><small>{subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?'구독 금액은 리베이트 대상 업체에만 반영됩니다.':'입력한 구매 방식과 금액을 기준으로 자동 계산됩니다.'}</small></div>}</fieldset>
       <fieldset><legend>진행 관리</legend><div className="form-grid"><label>담당 매니저<select disabled={!canManageAll} value={manualManager ? '__manual__' : form.manager||''} onChange={e=>{if(e.target.value==='__manual__'){setManualManager(true);update('manager','')}else{setManualManager(false);update('manager',e.target.value)}}}><option value="__manual__">직접입력</option><option value="">미배정</option>{managers.filter(m=>m.role==='매니저').map(m=><option key={m.employeeNo} value={m.name}>{m.name}</option>)}</select>{manualManager && canManageAll && <input className="manual-manager" autoFocus placeholder="담당자 이름 직접입력" value={form.manager||''} onChange={e=>update('manager',e.target.value)}/>}</label><label>현재 상태<select value={form.status} onChange={e=>update('status',e.target.value)}>{STATUSES.map(s=><option key={s}>{s}</option>)}</select></label><label>방문 여부<select value={form.visitState} onChange={e=>update('visitState',e.target.value as VisitState)}><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label></div><button type="button" className="memo-open" onClick={()=>setMemoOpen(true)}><span><Clock3 size={18}/><b>관리메모</b></span><small>{memoEntries.length ? memoEntries.length+'건의 관리 이력' : '접촉 내용과 다음 계획을 기록하세요'}</small><i>보기 →</i></button></fieldset>
       <div className="drawer-actions"><button type="button" className="btn secondary" onClick={onClose}>취소</button><button className="btn primary" type="submit" disabled={remoteChanged}><Check size={17}/>{creating ? '고객 등록' : '변경사항 저장'}</button></div>
     </form>

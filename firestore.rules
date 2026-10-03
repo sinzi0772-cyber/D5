@@ -74,12 +74,22 @@ service cloud.firestore {
           && request.resource.data.managerEmployeeNo == myEmployeeNo()
           && (
             !request.resource.data.keys().hasAny(['purchaseType'])
-            || request.resource.data.purchaseType in ['미선택', '일시불', '구독']
+            || request.resource.data.purchaseType in ['미선택', '일시불', '구독', '일시불+구독']
           )
           && (
             !request.resource.data.keys().hasAny(['purchaseAmount'])
             || request.resource.data.purchaseAmount == null
             || (request.resource.data.purchaseAmount is number && request.resource.data.purchaseAmount >= 0)
+          )
+          && (
+            !request.resource.data.keys().hasAny(['lumpSumAmount'])
+            || request.resource.data.lumpSumAmount == null
+            || (request.resource.data.lumpSumAmount is number && request.resource.data.lumpSumAmount >= 0)
+          )
+          && (
+            !request.resource.data.keys().hasAny(['subscriptionAmount'])
+            || request.resource.data.subscriptionAmount == null
+            || (request.resource.data.subscriptionAmount is number && request.resource.data.subscriptionAmount >= 0)
           )
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'visitScheduledDate',
@@ -87,6 +97,8 @@ service cloud.firestore {
             'visitState',
             'purchaseType',
             'purchaseAmount',
+            'lumpSumAmount',
+            'subscriptionAmount',
             'note',
             'memoHistory',
             'updatedAt',

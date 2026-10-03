@@ -125,11 +125,15 @@
 .rebate-overview>span{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border:1px solid #d9e7e2;border-radius:8px;background:#f8fcfa}
 .rebate-overview small{color:#687b78;font-size:8px;font-weight:700}
 .rebate-overview strong{color:#08705e;font-size:12px;white-space:nowrap}
-.purchase-summary{display:flex;min-width:130px;flex-direction:column;gap:4px}
-.purchase-summary strong{color:#2a3938;font-size:9px;white-space:nowrap}
-.purchase-summary small{color:#16816c;font-size:8px;font-weight:700;white-space:nowrap}
-.purchase-summary small.ineligible{color:#a36f32}
+.table-wrap>table{min-width:1320px}
+.table-wrap>table th:nth-child(1){width:12%}.table-wrap>table th:nth-child(2){width:8%}.table-wrap>table th:nth-child(3){width:15%}.table-wrap>table th:nth-child(4){width:10%}.table-wrap>table th:nth-child(5){width:9%}.table-wrap>table th:nth-child(6){width:9%}.table-wrap>table th:nth-child(7){width:12%}.table-wrap>table th:nth-child(8){width:21%}.table-wrap>table th:nth-child(9){width:4%}
+.purchase-summary{display:grid;min-width:0;max-width:100%;gap:2px;line-height:1.35}
+.purchase-summary strong{color:#2a3938;font-size:9px}
+.purchase-summary>span{color:#566361;font-size:8px;overflow-wrap:anywhere}
+.purchase-summary small{color:#16816c;font-size:8px;font-weight:700;overflow-wrap:anywhere}
+.purchase-summary em{color:#a36f32;font-size:7px;font-style:normal;line-height:1.35}
 .purchase-empty{color:#a2a8ad}
+.purchase-amount-grid:empty{display:none}
 .rebate-preview{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:10px;margin-top:12px;padding:11px 13px;border:1px solid #cfe5dc;border-radius:9px;background:#eef8f4}
 .rebate-preview>span{color:#52706a;font-size:9px;font-weight:700}
 .rebate-preview>strong{color:#08705e;font-size:17px}
