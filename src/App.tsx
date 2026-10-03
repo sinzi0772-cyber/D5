@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUpRight, Building2, Check, CircleHelp, Clock3,
   LogOut, Menu, MoreHorizontal, Plus, Search,
@@ -7,6 +7,7 @@ import {
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from 'firebase/auth'
 import { collection, doc, getDoc, onSnapshot, query as firestoreQuery, setDoc, where, writeBatch, deleteField, increment } from 'firebase/firestore'
 import { auth, db, isDemoMode, isFirebaseConfigured } from './lib/firebase'
+import { septemberAppointments } from './data/septemberAppointments'
 import { STATUSES, type AppointmentType, type Lead, type LeadStatus, type MemoEntry, type PurchaseType, type VisitState } from './types'
 
 type SortKey = 'customerName' | 'registeredAt' | 'partnerName' | 'manager' | 'visitDate' | 'status' | 'management' | 'updatedAt'
@@ -209,6 +210,11 @@ const collapseCases = (rows: Lead[]) => {
     return true
   })
 }
+const contactKey = (customerName: string, phoneLast4: string) => `${customerName.replace(/\s/g, '')}|${phoneLast4}`
+const hasDualIntake = (lead: Lead, rows: Lead[]) => {
+  const types = new Set(rows.filter(item => contactKey(item.customerName, item.phoneLast4) === contactKey(lead.customerName, lead.phoneLast4)).map(item => item.appointmentType))
+  return types.has('상담예약(이업종)') && types.has('이업종제휴')
+}
 
 export default function App() {
   const [leads, setLeads] = useState<Lead[]>([])
@@ -228,6 +234,7 @@ export default function App() {
   const [dataError, setDataError] = useState('')
   const [usageRows, setUsageRows] = useState<UsageRow[]>([])
   const [settlementGuideOpen, setSettlementGuideOpen] = useState(false)
+  const septemberSyncStarted = useRef(false)
 
   useEffect(() => {
     if (!auth || !db) return
@@ -278,7 +285,7 @@ export default function App() {
         return {
           id: item.id, registeredAt: row.registeredAt, customerName: row.customerName,
           phoneLast4: row.phoneLast4, gender: row.gender, visitScheduledDate: row.visitScheduledDate || undefined,
-          appointmentType: ['상담예약(이업종)', '이업종제휴'].includes(row.appointmentType) ? row.appointmentType : '미선택',
+          appointmentType: ['상담예약(이업종)', '이업종제휴'].includes(row.appointmentType) ? row.appointmentType : '미선택', appointmentSourceId: row.appointmentSourceId || undefined,
           partnerName: row.partnerName, billToCode: row.billToCode || undefined, lgeSubchannel: row.lgeSubchannel || undefined,
           manager: row.manager || undefined, plannerName: row.plannerName || undefined, caseGroupId: row.caseGroupId || undefined, status: normalizeStatus(row.status),
           visitState: row.visitState, purchaseType, purchaseAmount: legacyAmount,
@@ -315,6 +322,80 @@ export default function App() {
     }
     recordUsage().catch(() => undefined)
   }, [currentUser?.id, currentUser?.mustChangePassword])
+
+  useEffect(() => {
+    if (!db || !currentUser || !['admin', 'store_manager', 'assistant_manager'].includes(currentUser.role) || !dataReady || septemberSyncStarted.current) return
+    septemberSyncStarted.current = true
+    const firestoreDb = db
+    const syncSeptemberAppointments = async () => {
+      const batch = writeBatch(firestoreDb)
+      const usedLeadIds = new Set<string>()
+      const now = new Date().toISOString()
+      let writes = 0
+      for (const source of septemberAppointments) {
+        const sourceKey = contactKey(source.customerName, source.phoneLast4)
+        const existing = leads.find(lead => !usedLeadIds.has(lead.id) && (
+          lead.appointmentSourceId === source.sourceId
+          || (
+            !lead.appointmentSourceId
+            && contactKey(lead.customerName, lead.phoneLast4) === sourceKey
+            && lead.registeredAt === source.registeredAt
+            && (!lead.visitScheduledDate || lead.visitScheduledDate === source.visitScheduledDate)
+            && (!lead.appointmentType || lead.appointmentType === '미선택' || lead.appointmentType === source.appointmentType)
+          )
+        ))
+        if (existing) {
+          usedLeadIds.add(existing.id)
+          if (existing.appointmentSourceId !== source.sourceId || existing.appointmentType !== source.appointmentType || !existing.visitScheduledDate) {
+            batch.set(doc(firestoreDb, 'referrals', existing.id), {
+              appointmentSourceId: source.sourceId,
+              appointmentType: source.appointmentType,
+              ...(!existing.visitScheduledDate ? { visitScheduledDate: source.visitScheduledDate || null } : {}),
+            }, { merge: true })
+            writes++
+          }
+          continue
+        }
+        const id = `appointment-202609-${source.sourceId}`
+        batch.set(doc(firestoreDb, 'referrals', id), {
+          registeredAt: source.registeredAt,
+          customerName: source.customerName,
+          phoneLast4: source.phoneLast4,
+          gender: '미입력',
+          visitScheduledDate: source.visitScheduledDate || null,
+          appointmentType: source.appointmentType,
+          appointmentSourceId: source.sourceId,
+          partnerName: source.partnerName || '제휴업체 확인 필요',
+          billToCode: null,
+          lgeSubchannel: '이업종_혼수(H)',
+          manager: null,
+          managerEmployeeNo: null,
+          plannerName: null,
+          status: source.appointmentStatus === '취소' ? '취소' : '관리중',
+          visitState: source.appointmentStatus === '취소' ? '일정취소' : '방문',
+          purchaseType: '미선택',
+          purchaseAmount: null,
+          lumpSumAmount: null,
+          subscriptionAmount: null,
+          note: null,
+          memoHistory: [],
+          createdBy: currentUser.id,
+          createdAt: now,
+          updatedBy: currentUser.id,
+          updatedAt: now,
+        }, { merge: true })
+        writes++
+      }
+      if (writes > 0) await batch.commit()
+      setToast(writes > 0 ? `9월 약속 로우 ${septemberAppointments.length}건을 병합했습니다.` : '9월 약속 로우가 이미 최신 상태입니다.')
+      window.setTimeout(() => setToast(''), 3200)
+    }
+    syncSeptemberAppointments().catch(error => {
+      septemberSyncStarted.current = false
+      setToast(`9월 로우를 갱신하지 못했습니다: ${error instanceof Error ? error.message : 'Firebase 오류'}`)
+      window.setTimeout(() => setToast(''), 4200)
+    })
+  }, [currentUser?.id, currentUser?.role, dataReady, leads])
 
   useEffect(() => {
     if (!db || !currentUser || currentUser.mustChangePassword) {
@@ -555,7 +636,7 @@ export default function App() {
             <label className="filter-field"><span>방문 여부</span><select aria-label="방문 여부 필터" value={visitFilter} onChange={e => setVisitFilter(e.target.value as typeof visitFilter)}><option>전체</option><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label>
           </div>
           <div className="filter-summary"><div className="active-filters">{!query && partnerFilter === '전체 제휴업체' && managerFilter === '전체 담당자' && statusFilter === '전체' && visitFilter === '전체' && <span className="filter-hint">전체 고객을 표시하고 있습니다</span>}{query && <button onClick={() => setQuery('')}>검색: {query}<X size={12}/></button>}{partnerFilter !== '전체 제휴업체' && <button onClick={() => setPartnerFilter('전체 제휴업체')}>{partnerFilter}<X size={12}/></button>}{managerFilter !== '전체 담당자' && <button onClick={() => setManagerFilter('전체 담당자')}>{managerFilter}<X size={12}/></button>}{statusFilter !== '전체' && <button onClick={() => setStatusFilter('전체')}>{statusFilter}<X size={12}/></button>}{visitFilter !== '전체' && <button onClick={() => setVisitFilter('전체')}>{visitFilter}<X size={12}/></button>}</div><div className="filter-result"><strong>{visibleRows.length}</strong>건 · 고객 {filtered.length}명{(query || partnerFilter !== '전체 제휴업체' || managerFilter !== '전체 담당자' || statusFilter !== '전체' || visitFilter !== '전체') && <button onClick={() => { setQuery(''); setPartnerFilter('전체 제휴업체'); setManagerFilter('전체 담당자'); setStatusFilter('전체'); setVisitFilter('전체') }}>전체 초기화</button>}</div></div>
-          <div className="table-wrap"><table><thead><tr><th><SortHeader label="고객" column="customerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="등록일" column="registeredAt" sort={sort} onSort={sortBy}/></th><th><SortHeader label="제휴업체" column="partnerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="담당 매니저" column="manager" sort={sort} onSort={sortBy}/></th><th><SortHeader label="방문 일정" column="visitDate" sort={sort} onSort={sortBy}/></th><th><SortHeader label="현재 상태" column="status" sort={sort} onSort={sortBy}/></th><th>구매 정보</th><th><SortHeader label="관리 내용" column="management" sort={sort} onSort={sortBy}/></th><th/></tr></thead><tbody>{visibleRows.map(l => <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{l.customerName.slice(0,1)}</span><div><strong>{l.caseGroupId ? filtered.filter(member => member.caseGroupId === l.caseGroupId).map(member => member.customerName).join(' · ') : l.customerName}</strong><small>{l.caseGroupId ? filtered.filter(member => member.caseGroupId === l.caseGroupId).map(member => member.phoneLast4).join(' / ') : `•••• ${l.phoneLast4}`}</small>{l.caseGroupId && <em className="case-badge">{leads.filter(member => member.caseGroupId === l.caseGroupId).length === 2 ? '신랑·신부 함께 관리' : '연결 고객 함께 관리'}</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{l.appointmentType&&l.appointmentType!=='미선택'&&<em className="appointment-type">{l.appointmentType}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${statusTone[l.status]}`}><i/>{l.status}</span></td><td><PurchaseSummary lead={l}/></td><td><ManagementSummary lead={l} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>)}</tbody></table>{visibleRows.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
+          <div className="table-wrap"><table><thead><tr><th><SortHeader label="고객" column="customerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="등록일" column="registeredAt" sort={sort} onSort={sortBy}/></th><th><SortHeader label="제휴업체" column="partnerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="담당 매니저" column="manager" sort={sort} onSort={sortBy}/></th><th><SortHeader label="방문 일정" column="visitDate" sort={sort} onSort={sortBy}/></th><th><SortHeader label="현재 상태" column="status" sort={sort} onSort={sortBy}/></th><th>구매 정보</th><th><SortHeader label="관리 내용" column="management" sort={sort} onSort={sortBy}/></th><th/></tr></thead><tbody>{visibleRows.map(l => <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{l.customerName.slice(0,1)}</span><div><strong>{l.caseGroupId ? filtered.filter(member => member.caseGroupId === l.caseGroupId).map(member => member.customerName).join(' · ') : l.customerName}</strong><small>{l.caseGroupId ? filtered.filter(member => member.caseGroupId === l.caseGroupId).map(member => member.phoneLast4).join(' / ') : `•••• ${l.phoneLast4}`}</small>{l.caseGroupId && <em className="case-badge">{leads.filter(member => member.caseGroupId === l.caseGroupId).length === 2 ? '신랑·신부 함께 관리' : '연결 고객 함께 관리'}</em>}<DuplicateIntakeHelp lead={l} leads={leads}/></div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{l.appointmentType&&l.appointmentType!=='미선택'&&<em className="appointment-type">{l.appointmentType}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${statusTone[l.status]}`}><i/>{l.status}</span></td><td><PurchaseSummary lead={l}/></td><td><ManagementSummary lead={l} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>)}</tbody></table>{visibleRows.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
           <div className="panel-foot"><span>접수 {visibleRows.length}건 · 고객 {filtered.length}명 표시</span><span><i className="privacy-dot"/>민감정보 최소 수집 적용</span></div>
         </div>
       </section>
@@ -584,6 +665,11 @@ function PurchaseSummary({lead}:{lead:Lead}) {
   if (!lead.purchaseType || lead.purchaseType === '미선택' || !total) return <span className="purchase-empty">—</span>
   const subscriptionIneligible = subscriptionAmountFor(lead) > 0 && !isSubscriptionRebatePartner(lead.partnerName)
   return <div className="purchase-summary">{lead.purchaseType !== '일시불+구독' && <strong>{lead.purchaseType}</strong>}<span>{formatWon(total)}</span><small>예상 제휴 수수료 {formatWon(expectedRebateFor(lead))}</small>{subscriptionIneligible && <em>구독 제휴 수수료 대상 아님</em>}</div>
+}
+
+function DuplicateIntakeHelp({lead,leads}:{lead:Lead,leads:Lead[]}) {
+  if (!hasDualIntake(lead, leads)) return null
+  return <span className="duplicate-intake-help" title="동일한 이름과 연락처가 상담예약(이업종)과 이업종제휴에 각각 접수되었습니다. 정산 확인을 위해 두 기록을 모두 유지합니다."><CircleHelp size={11}/>두 방식 중복 접수</span>
 }
 
 function SettlementGuideModal({onClose}:{onClose:()=>void}) {
@@ -625,9 +711,11 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
     setUnlinkBusy(false)
   }
   const memoEntries: MemoEntry[] = form.memoHistory || (form.note ? [{ id: 'legacy', date: form.updatedAt.slice(0,10), manager: form.manager || '미배정', content: form.note }] : [])
+  const dualIntake = hasDualIntake(lead, allLeads)
   return <><button className="drawer-scrim" onClick={onClose}/><aside className="drawer">
     <div className="drawer-head"><div><span>{creating ? 'NEW REFERRAL' : 'CUSTOMER DETAIL'}</span><h2>{creating ? '신규 고객 등록' : `${lead.customerName} 고객`}</h2></div><button onClick={onClose}><X/></button></div>
     {!creating && <div className="identity"><div>{lead.customerName.slice(0,1)}</div><section><strong>{lead.customerName}</strong><span>{lead.phoneLast4}</span></section><span className={`badge ${statusTone[form.status]}`}><i/>{form.status}</span></div>}
+    {dualIntake && <div className="duplicate-intake-notice"><CircleHelp size={17}/><div><strong>두 가지 접수 방식이 모두 확인됩니다.</strong><p>동일한 이름과 연락처가 `상담예약(이업종)`과 `이업종제휴`에 각각 등록되어 있습니다. 제휴 수수료 정산 확인을 위해 두 기록을 삭제하거나 합치지 않고 별도로 유지합니다.</p></div></div>}
     {linkedLeads.length > 1 && <div className="linked-case"><strong>{linkedLeads.length === 2 ? '신랑·신부 함께 관리' : '연결 고객 함께 관리'} · 고객 {linkedLeads.length}명</strong><p>고객별 상태와 관리 내용은 각각 저장됩니다.</p><div>{linkedLeads.map(member => <button type="button" className={member.id === lead.id ? 'active' : ''} key={member.id} onClick={() => onSelectLinked(member)}><span>{member.customerName} · {member.phoneLast4}</span><small>{member.status}</small></button>)}</div>{canManageAll && <button type="button" className="unlink-case" disabled={unlinkBusy} onClick={unlinkSelected}>{unlinkBusy ? '해제 중...' : linkedLeads.length === 2 ? '두 고객 연결 해제' : '이 고객만 연결 해제'}</button>}</div>}
     {remoteChanged && <div className="drawer-sync-warning">다른 사용자가 이 고객 정보를 변경했습니다. 화면을 닫고 다시 열어 최신 내용을 확인해주세요.</div>}
     <form onSubmit={e => {e.preventDefault(); if (linkExisting && !linkTargetId) return; onSave(form, linkExisting ? linkTargetId : undefined)}}>

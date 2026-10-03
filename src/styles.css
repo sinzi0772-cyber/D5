@@ -156,6 +156,9 @@
 .guide-button:hover{background:linear-gradient(135deg,#e1545f,#a9212e);transform:translateY(-1px)}
 .appointment-type{display:inline-block;margin-top:4px;padding:3px 6px;border-radius:5px;background:#edf6f3;color:#267663;font-size:7px;font-style:normal;font-weight:700}
 .appointment-help{margin-top:-2px;padding:9px 11px;border-radius:8px;background:#f3f7f6;color:#667a75;font-size:9px;line-height:1.5}
+.duplicate-intake-help{display:flex;align-items:center;gap:3px;width:max-content;max-width:100%;margin-top:4px;padding:3px 6px;border:1px solid #ecc994;border-radius:5px;background:#fff8eb;color:#976222;font-size:7px;font-weight:700;cursor:help}
+.duplicate-intake-notice{display:flex;align-items:flex-start;gap:9px;margin:12px 24px 0;padding:11px 12px;border:1px solid #edcf9f;border-radius:9px;background:#fff8eb;color:#83581f}
+.duplicate-intake-notice>svg{flex:none;margin-top:1px}.duplicate-intake-notice strong{font-size:10px}.duplicate-intake-notice p{margin:4px 0 0;font-size:9px;line-height:1.55;color:#906f40}
 .guide-overlay{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:20px}
 .guide-scrim{position:absolute;inset:0;border:0;background:#1c2d296f;backdrop-filter:blur(3px)}
 .guide-modal{position:relative;width:min(720px,96vw);max-height:90vh;overflow:auto;border-top:5px solid #c93f49;border-radius:17px;background:#fff;box-shadow:0 28px 85px #17231f42;color:#20322f}

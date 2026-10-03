@@ -18,6 +18,7 @@ export interface Lead {
   gender: '남' | '여' | '미입력'
   visitScheduledDate?: string
   appointmentType?: AppointmentType
+  appointmentSourceId?: string
   partnerName: string
   billToCode?: string
   lgeSubchannel?: string
