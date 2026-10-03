@@ -14,6 +14,10 @@ service cloud.firestore {
       return signedIn() && myProfile().role in ['admin', 'store_manager', 'assistant_manager'];
     }
 
+    function canViewUsage() {
+      return signedIn() && myProfile().role in ['admin', 'store_manager', 'assistant_manager', 'manager'];
+    }
+
     function myEmployeeNo() {
       return myProfile().employeeNo;
     }
@@ -37,7 +41,7 @@ service cloud.firestore {
     }
 
     match /usage/{userId} {
-      allow read: if signedIn() && (request.auth.uid == userId || canManageAll());
+      allow read: if canViewUsage();
       allow create: if signedIn()
         && request.auth.uid == userId
         && request.resource.data.userId == request.auth.uid

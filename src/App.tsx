@@ -133,6 +133,11 @@ const managers: Staff[] = [
     "role": "부지점장"
   }
 ]
+const approvedStaff = [
+  { employeeNo: '12784', displayName: 'D5 관리자', role: 'admin' },
+  { employeeNo: '1292', displayName: 'D5 지점 관리자', role: 'store_manager' },
+  ...managers.map(member => ({ employeeNo: member.employeeNo, displayName: member.name, role: member.role === '지점장' ? 'store_manager' : member.role === '부지점장' ? 'assistant_manager' : 'manager' })),
+]
 type AppUser = { id: string; loginId: string; name: string; role: string; mustChangePassword: boolean }
 type UsageRow = { userId: string; employeeNo: string; displayName: string; role: string; firstSeenAt: string; lastSeenAt: string; lastSeenDate: string; visitCount: number }
 const appUserFromSession = (user: User): AppUser => ({
@@ -161,6 +166,7 @@ const maskName = (value: string) => {
 }
 const last4 = (value: string) => value.replace(/\D/g, '').slice(-4)
 const formatDate = (date?: string) => date ? date.replaceAll('-', '.') : '—'
+const formatDateTime = (value?: string) => value ? new Date(value).toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '미접속'
 const partnerKey = (value: string) => value.trim().toLowerCase().replace(/주식회사|\(주\)|㈜/g, '').replace(/[\s·._-]/g, '')
 const subscriptionRebatePartners = ['다이렉트컴', '아이니웨딩', '아이웨딩', '요즘웨딩', '아이티웨딩', '웨딩프렌즈', '와이즈웨딩']
 const isSubscriptionRebatePartner = (partnerName: string) => {
@@ -220,7 +226,6 @@ export default function App() {
   const [authReady, setAuthReady] = useState(!isFirebaseConfigured)
   const [dataReady, setDataReady] = useState(isDemoMode)
   const [dataError, setDataError] = useState('')
-  const [profileCount, setProfileCount] = useState(0)
   const [usageRows, setUsageRows] = useState<UsageRow[]>([])
   const [settlementGuideOpen, setSettlementGuideOpen] = useState(false)
 
@@ -312,12 +317,11 @@ export default function App() {
   }, [currentUser?.id, currentUser?.mustChangePassword])
 
   useEffect(() => {
-    if (!db || !currentUser || currentUser.mustChangePassword || !['admin', 'store_manager', 'assistant_manager'].includes(currentUser.role)) {
-      setProfileCount(0); setUsageRows([]); return
+    if (!db || !currentUser || currentUser.mustChangePassword) {
+      setUsageRows([]); return
     }
-    const unsubscribeProfiles = onSnapshot(collection(db, 'profiles'), snapshot => setProfileCount(snapshot.size))
     const unsubscribeUsage = onSnapshot(collection(db, 'usage'), snapshot => setUsageRows(snapshot.docs.map(item => item.data() as UsageRow)))
-    return () => { unsubscribeProfiles(); unsubscribeUsage() }
+    return unsubscribeUsage
   }, [currentUser?.id, currentUser?.role, currentUser?.mustChangePassword])
   const partners = useMemo(() => [...new Set(leads.map(l => l.partnerName))].filter(Boolean), [leads])
   const managerNames = useMemo(() => [...new Set([...managers.filter(m => m.role === '매니저').map(m => m.name), ...leads.flatMap(l => l.manager ? [l.manager] : [])])], [leads])
@@ -363,7 +367,12 @@ export default function App() {
   const recent7Memos = metricLeads.flatMap(memoEntriesFor).filter(entry => entry.date >= recent7Start)
   const recent30Memos = metricLeads.flatMap(memoEntriesFor).filter(entry => entry.date >= recent30Start)
   const recent7Managers = new Set(recent7Memos.map(entry => entry.manager).filter(manager => manager && manager !== '미배정')).size
-  const loginExperienceCount = usageRows.length
+  const accessRows = useMemo(() => {
+    const usageByEmployeeNo = new Map(usageRows.map(row => [row.employeeNo, row]))
+    return approvedStaff.map(profile => ({ ...profile, usage: usageByEmployeeNo.get(profile.employeeNo) })).sort((a, b) => (b.usage?.lastSeenAt || '').localeCompare(a.usage?.lastSeenAt || '') || a.employeeNo.localeCompare(b.employeeNo, 'ko', { numeric: true }))
+  }, [usageRows])
+  const profileCount = approvedStaff.length
+  const loginExperienceCount = accessRows.filter(row => row.usage).length
   const recent7Users = usageRows.filter(row => row.lastSeenDate >= recent7Start).length
   const recent30Users = usageRows.filter(row => row.lastSeenDate >= recent30Start).length
   const neverAccessedCount = Math.max(profileCount - loginExperienceCount, 0)
@@ -507,8 +516,8 @@ export default function App() {
               <span><small>일시불 예상</small><strong>{formatWon(lumpSumRebate)}</strong></span>
               <span><small>구독 예상 · 대상 업체</small><strong>{formatWon(subscriptionRebate)}</strong></span>
             </div>
-            {canManageAll && <section className="usage-insight">
-              <div className="usage-insight-title"><div><span>SITE OPERATIONS INSIGHT</span><h3>사이트 사용 운영현황</h3></div><p>승인된 사용자들의 접속과 관리 활동을 보여줍니다.</p></div>
+            {currentUser && <section className="usage-insight">
+              <div className="usage-insight-title"><div><span>SITE OPERATIONS INSIGHT</span><h3>전체 직원 사이트 접속 현황</h3></div><p>지점장·부지점장·매니저가 모든 사용자의 접속 기록을 확인합니다.</p></div>
               <div className="usage-banner"><span>사용 흐름</span><strong>{usageMessage}</strong></div>
               <div className="usage-metrics">
                 <UsageMetric label="로그인 경험" value={loginExperienceCount} suffix={`/${profileCount}명`} note={profileCount ? `${Math.round(loginExperienceCount / profileCount * 100)}%가 한 번 이상 접속` : '사용자 집계 중'}/>
@@ -517,6 +526,10 @@ export default function App() {
                 <UsageMetric label="최근 7일 관리기록" value={recent7Memos.length} suffix="건" note={`${recent7Managers}명이 작성`}/>
               </div>
               <div className="usage-strips"><div><span>최근 30일 접속 사용자</span><strong>{recent30Users}명</strong></div><div><span>최근 30일 관리기록</span><strong>{recent30Memos.length}건</strong></div></div>
+              <details className="access-log-details">
+                <summary><strong>사용자별 접속기록</strong><span>전체 {profileCount}명 · 기록 확인</span></summary>
+                <div className="access-log-scroll"><table className="access-log-table"><thead><tr><th>사용자</th><th>사번</th><th>직책</th><th>최초 접속</th><th>최근 접속</th><th>접속 횟수</th></tr></thead><tbody>{accessRows.map(row=><tr key={row.employeeNo}><td>{row.displayName}</td><td>{row.employeeNo}</td><td>{roleLabel(row.role)}</td><td>{formatDateTime(row.usage?.firstSeenAt)}</td><td>{formatDateTime(row.usage?.lastSeenAt)}</td><td>{row.usage?.visitCount||0}회</td></tr>)}</tbody></table>{accessRows.length===0&&<p className="access-log-empty">승인된 사용자 정보를 불러오는 중입니다.</p>}</div>
+              </details>
             </section>}
             <details className="partner-stats-details">
               <summary><strong>업체별 관리 현황</strong><span>세부 현황 보기</span></summary>
