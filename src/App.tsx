@@ -577,7 +577,7 @@ export default function App() {
           <div className="metrics-panel-body">
             <div className="insight-heading">
               <div><span>PARTNER OPERATIONS INSIGHT</span><h2>제휴고객 관리 현황</h2><p>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter}의 접수·진행상태·판매 성과를 보여줍니다.</p></div>
-              <button type="button" className="print-insight" onClick={() => window.print()}><Printer size={15}/>출력</button>
+              <div className="insight-heading-actions"><div className="rebate-total"><small>예상 수수료 총액</small><strong>{formatWon(totalExpectedRebate)}</strong></div><button type="button" className="print-insight" onClick={() => window.print()}><Printer size={15}/>출력</button></div>
             </div>
             <div className="insight-banner"><span>운영 흐름</span><strong>{insightMessage}</strong></div>
             <div className="insight-metrics" aria-label="고객 운영 핵심지표">
@@ -596,11 +596,6 @@ export default function App() {
               <span>상담 마감 <strong>{closedCount}</strong></span>
               <span>취소 <strong>{canceledCount}</strong></span>
             </div>
-            <div className="rebate-overview" aria-label="예상 제휴 수수료 요약">
-              <span><small>예상 제휴 수수료 총액</small><strong>{formatWon(totalExpectedRebate)}</strong></span>
-              <span><small>일시불 예상</small><strong>{formatWon(lumpSumRebate)}</strong></span>
-              <span><small>구독 예상 · 대상 업체</small><strong>{formatWon(subscriptionRebate)}</strong></span>
-            </div>
             {currentUser && <section className="usage-insight">
               <div className="usage-insight-title"><div><span>SITE ACCESS INSIGHT</span><h3>직원 접속 기록</h3></div><p>승인된 직원의 실제 로그인 기록만 보여줍니다.</p></div>
               <div className="usage-banner"><span>사용 흐름</span><strong>{usageMessage}</strong></div>
@@ -611,12 +606,12 @@ export default function App() {
                 <UsageMetric label="누적 로그인" value={totalLoginCount} suffix="회" note="기록 기능 적용 이후 합계"/>
               </div>
               <details className="access-log-details">
-                <summary><strong>사용자별 접속기록</strong><span>전체 {profileCount}명 · 기록 확인</span></summary>
+                <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>사용자별 접속기록</strong><span>전체 {profileCount}명 · 기록 확인</span></summary>
                 <div className="access-log-scroll"><table className="access-log-table"><thead><tr><th>사용자</th><th>사번</th><th>직책</th><th>최초 접속</th><th>최근 접속</th><th>접속 횟수</th></tr></thead><tbody>{accessRows.map(row=><tr key={row.employeeNo}><td>{row.displayName}</td><td>{row.employeeNo}</td><td>{roleLabel(row.role)}</td><td>{formatDateTime(row.usage?.firstSeenAt)}</td><td>{formatDateTime(row.usage?.lastSeenAt)}</td><td>{row.usage?.visitCount||0}회</td></tr>)}</tbody></table>{accessRows.length===0&&<p className="access-log-empty">승인된 사용자 정보를 불러오는 중입니다.</p>}</div>
               </details>
             </section>}
             <details className="partner-stats-details">
-              <summary><strong>업체별 관리 현황</strong><span>세부 현황 보기</span></summary>
+              <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>업체별 관리 현황</strong><span>세부 현황 보기</span></summary>
               <div className="partner-stats">
                 <div className="partner-stats-heading"><strong>업체별 관리 현황</strong><span>접수는 연결 고객을 1건으로, 상태는 고객별로 집계</span></div>
                 <div className="partner-stats-scroll">

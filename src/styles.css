@@ -63,6 +63,10 @@
 /* Compact management insight and usage reporting */
 .metrics-panel-body{padding:12px}
 .insight-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:0 0 10px}
+.insight-heading-actions{display:flex;align-items:center;gap:8px;flex:none}
+.rebate-total{display:flex;align-items:center;gap:10px;padding:7px 11px;border:1px solid #cfe3dc;border-radius:8px;background:#eef8f4}
+.rebate-total small{color:#58716c;font-size:8px;font-weight:700}
+.rebate-total strong{color:#08705e;font-size:14px;white-space:nowrap}
 .insight-heading>div>span,.usage-insight-title span{display:block;color:#e36162;font-size:8px;font-weight:800;letter-spacing:1.4px}
 .insight-heading h2{margin:5px 0 3px;font-size:18px}
 .insight-heading p{font-size:9px}
@@ -97,7 +101,7 @@
 .usage-strips>div{display:flex;justify-content:space-between;padding:7px 10px;border-radius:7px;background:#f1f5f4;color:#667676;font-size:9px}
 .usage-strips strong{color:#08705e}
 .access-log-details{margin-top:8px;border:1px solid #dfe8e5;border-radius:9px;overflow:hidden;background:#fbfdfc}
-.access-log-details>summary{display:flex;align-items:center;justify-content:space-between;padding:9px 11px;cursor:pointer;list-style:none}
+.access-log-details>summary{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;padding:9px 11px;cursor:pointer;list-style:none}
 .access-log-details>summary::-webkit-details-marker{display:none}.access-log-details>summary strong{font-size:9px;color:#304541}.access-log-details>summary span{font-size:8px;color:#7d8b88}
 .access-log-details[open]>summary{border-bottom:1px solid #e5ebe9}
 .access-log-scroll{max-height:320px;overflow:auto}.access-log-table{width:100%;min-width:700px;table-layout:auto}
@@ -105,14 +109,18 @@
 .access-log-table td:first-child{font-weight:700;color:#2f403d}.access-log-table td:last-child{color:#08705e;font-weight:700}
 .access-log-empty{margin:0;padding:16px;color:#899793;font-size:9px;text-align:center}
 .partner-stats-details{margin-top:8px;border:1px solid #e1e8e6;border-radius:9px;background:#fff;overflow:hidden}
-.partner-stats-details>summary{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;cursor:pointer;list-style:none}
+.partner-stats-details>summary{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;list-style:none}
 .partner-stats-details>summary::-webkit-details-marker{display:none}
 .partner-stats-details>summary strong{font-size:10px;color:#30413f}
 .partner-stats-details>summary span{font-size:8px;color:#7a8987}
 .partner-stats-details[open]>summary{border-bottom:1px solid #e8edeb}
 .partner-stats-details .partner-stats{border:0;border-radius:0}
+.details-toggle-mark{position:relative;width:17px;height:17px;border:1px solid #cbd6d2;border-radius:5px;background:#fff;flex:none}
+.details-toggle-mark:before,.details-toggle-mark:after{content:'';position:absolute;left:4px;right:4px;top:7px;height:1px;background:#4f6661}
+.details-toggle-mark:after{transform:rotate(90deg)}
+.access-log-details[open]>summary .details-toggle-mark:after,.partner-stats-details[open]>summary .details-toggle-mark:after{display:none}
 @media(max-width:900px){.usage-metrics{grid-template-columns:1fr 1fr}}
-@media(max-width:520px){.insight-heading,.usage-insight-title{align-items:flex-start;flex-direction:column}.usage-metrics,.usage-strips{grid-template-columns:1fr}}
+@media(max-width:520px){.insight-heading,.usage-insight-title{align-items:flex-start;flex-direction:column}.insight-heading-actions{width:100%;justify-content:space-between}.usage-metrics,.usage-strips{grid-template-columns:1fr}}
 @media print{
   @page{size:A4 landscape;margin:10mm}
   body{background:#fff!important}
@@ -129,10 +137,6 @@
 }
 
 /* Purchase amount and expected partner rebate */
-.rebate-overview{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:7px;margin:0 0 10px}
-.rebate-overview>span{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border:1px solid #d9e7e2;border-radius:8px;background:#f8fcfa}
-.rebate-overview small{color:#687b78;font-size:8px;font-weight:700}
-.rebate-overview strong{color:#08705e;font-size:12px;white-space:nowrap}
 .table-wrap>table{min-width:1320px}
 .table-wrap>table th:nth-child(1){width:12%}.table-wrap>table th:nth-child(2){width:8%}.table-wrap>table th:nth-child(3){width:15%}.table-wrap>table th:nth-child(4){width:10%}.table-wrap>table th:nth-child(5){width:9%}.table-wrap>table th:nth-child(6){width:9%}.table-wrap>table th:nth-child(7){width:12%}.table-wrap>table th:nth-child(8){width:21%}.table-wrap>table th:nth-child(9){width:4%}
 .purchase-summary{display:grid;min-width:0;max-width:100%;gap:2px;line-height:1.35}
@@ -148,7 +152,7 @@
 .rebate-preview>small{color:#70847f;font-size:9px;text-align:right}
 .rebate-preview.ineligible{border-color:#eadcc7;background:#fff9ef}
 .rebate-preview.ineligible>strong,.rebate-preview.ineligible>small{color:#99692f}
-@media(max-width:700px){.rebate-overview{grid-template-columns:1fr}.rebate-preview{grid-template-columns:1fr;gap:4px}.rebate-preview>small{text-align:left}}
+@media(max-width:700px){.rebate-preview{grid-template-columns:1fr;gap:4px}.rebate-preview>small{text-align:left}}
 
 /* Referral type and settlement guide */
 .guide-button{position:relative;border-color:#bd3540;background:linear-gradient(135deg,#d84a55,#b92936);color:#fff;box-shadow:0 6px 16px #b62d3b32}
