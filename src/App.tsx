@@ -566,7 +566,7 @@ function PurchaseSummary({lead}:{lead:Lead}) {
   const total = totalPurchaseAmountFor(lead)
   if (!lead.purchaseType || lead.purchaseType === '미선택' || !total) return <span className="purchase-empty">—</span>
   const subscriptionIneligible = subscriptionAmountFor(lead) > 0 && !isSubscriptionRebatePartner(lead.partnerName)
-  return <div className="purchase-summary"><strong>{lead.purchaseType}</strong><span>{formatWon(total)}</span><small>예상 제휴 수수료 {formatWon(expectedRebateFor(lead))}</small>{subscriptionIneligible && <em>구독 제휴 수수료 대상 아님</em>}</div>
+  return <div className="purchase-summary">{lead.purchaseType !== '일시불+구독' && <strong>{lead.purchaseType}</strong>}<span>{formatWon(total)}</span><small>예상 제휴 수수료 {formatWon(expectedRebateFor(lead))}</small>{subscriptionIneligible && <em>구독 제휴 수수료 대상 아님</em>}</div>
 }
 
 function ManagementSummary({lead,onOpen}:{lead:Lead,onOpen:()=>void}) {
