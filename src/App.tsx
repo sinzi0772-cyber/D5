@@ -135,7 +135,6 @@ const managers: Staff[] = [
   }
 ]
 const approvedStaff = [
-  { employeeNo: '12784', displayName: 'D5 관리자', role: 'admin' },
   { employeeNo: '1292', displayName: 'D5 지점 관리자', role: 'store_manager' },
   ...managers.map(member => ({ employeeNo: member.employeeNo, displayName: member.name, role: member.role === '지점장' ? 'store_manager' : member.role === '부지점장' ? 'assistant_manager' : 'manager' })),
 ]
@@ -167,7 +166,7 @@ const maskName = (value: string) => {
 }
 const last4 = (value: string) => value.replace(/\D/g, '').slice(-4)
 const formatDate = (date?: string) => date ? date.replaceAll('-', '.') : '—'
-const formatDateTime = (value?: string) => value ? new Date(value).toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '미접속'
+const formatDateTime = (value?: string) => value ? new Date(value).toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '기록 없음'
 const partnerKey = (value: string) => value.trim().toLowerCase().replace(/주식회사|\(주\)|㈜/g, '').replace(/[\s·._-]/g, '')
 const subscriptionRebatePartners = ['다이렉트컴', '아이니웨딩', '아이웨딩', '요즘웨딩', '아이티웨딩', '웨딩프렌즈', '와이즈웨딩']
 const isSubscriptionRebatePartner = (partnerName: string) => {
@@ -303,7 +302,7 @@ export default function App() {
     return unsubscribe
   }, [currentUser?.id, currentUser?.loginId, currentUser?.role, currentUser?.mustChangePassword])
   useEffect(() => {
-    if (!db || !currentUser || currentUser.mustChangePassword || isDemoMode) return
+    if (!db || !currentUser || currentUser.mustChangePassword || isDemoMode || currentUser.loginId === '12784') return
     const firestoreDb = db
     const recordUsage = async () => {
       const usageRef = doc(firestoreDb, 'usage', currentUser.id)
@@ -452,16 +451,20 @@ export default function App() {
     const usageByEmployeeNo = new Map(usageRows.map(row => [row.employeeNo, row]))
     return approvedStaff.map(profile => ({ ...profile, usage: usageByEmployeeNo.get(profile.employeeNo) })).sort((a, b) => (b.usage?.lastSeenAt || '').localeCompare(a.usage?.lastSeenAt || '') || a.employeeNo.localeCompare(b.employeeNo, 'ko', { numeric: true }))
   }, [usageRows])
+  const trackedUsageRows = useMemo(() => {
+    const employeeNos = new Set(approvedStaff.map(profile => profile.employeeNo))
+    return usageRows.filter(row => employeeNos.has(row.employeeNo))
+  }, [usageRows])
   const profileCount = approvedStaff.length
   const loginExperienceCount = accessRows.filter(row => row.usage).length
-  const recent7Users = usageRows.filter(row => row.lastSeenDate >= recent7Start).length
-  const recent30Users = usageRows.filter(row => row.lastSeenDate >= recent30Start).length
+  const recent7Users = trackedUsageRows.filter(row => row.lastSeenDate >= recent7Start).length
+  const recent30Users = trackedUsageRows.filter(row => row.lastSeenDate >= recent30Start).length
   const neverAccessedCount = Math.max(profileCount - loginExperienceCount, 0)
   const usageMessage = profileCount === 0
-    ? '사용 현황을 불러오는 중입니다.'
+    ? '승인된 직원 명단을 확인하는 중입니다.'
     : recent7Users > 0
-      ? `최근 7일 ${recent7Users}명이 접속했습니다. 미접속 ${neverAccessedCount}명을 확인해주세요.`
-      : `최근 7일 접속 기록이 없습니다. 미접속 ${neverAccessedCount}명을 확인해주세요.`
+      ? `최근 7일 ${recent7Users}명이 접속했습니다. 기록 없음 ${neverAccessedCount}명을 확인해주세요.`
+      : `저장된 접속 기록이 없습니다. 운영 배포 이후부터 실제 기록이 집계됩니다.`
   const insightMessage = recent7Cases > 0
     ? `최근 7일 ${recent7Cases}건이 새로 접수됐습니다. 미배정 고객 ${unassignedCount}명을 우선 확인해주세요.`
     : `최근 7일 신규 접수는 없습니다. 현재 관리중인 고객 ${newCount}명을 이어서 관리해주세요.`
@@ -601,9 +604,9 @@ export default function App() {
               <div className="usage-insight-title"><div><span>SITE OPERATIONS INSIGHT</span><h3>전체 직원 사이트 접속 현황</h3></div><p>지점장·부지점장·매니저가 모든 사용자의 접속 기록을 확인합니다.</p></div>
               <div className="usage-banner"><span>사용 흐름</span><strong>{usageMessage}</strong></div>
               <div className="usage-metrics">
-                <UsageMetric label="로그인 경험" value={loginExperienceCount} suffix={`/${profileCount}명`} note={profileCount ? `${Math.round(loginExperienceCount / profileCount * 100)}%가 한 번 이상 접속` : '사용자 집계 중'}/>
+                <UsageMetric label="로그인 기록" value={loginExperienceCount} suffix={`/${profileCount}명`} note="접속기록 기능 적용 이후 기준"/>
                 <UsageMetric label="최근 7일 사용자" value={recent7Users} suffix="명" note="마지막 접속일 기준"/>
-                <UsageMetric label="미접속" value={neverAccessedCount} suffix="명" note="승인 후 접속 기록 없음"/>
+                <UsageMetric label="기록 없음" value={neverAccessedCount} suffix="명" note="과거 접속 여부와는 별개"/>
                 <UsageMetric label="최근 7일 관리기록" value={recent7Memos.length} suffix="건" note={`${recent7Managers}명이 작성`}/>
               </div>
               <div className="usage-strips"><div><span>최근 30일 접속 사용자</span><strong>{recent30Users}명</strong></div><div><span>최근 30일 관리기록</span><strong>{recent30Memos.length}건</strong></div></div>
