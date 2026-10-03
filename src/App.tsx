@@ -459,6 +459,7 @@ export default function App() {
   const loginExperienceCount = accessRows.filter(row => row.usage).length
   const recent7Users = trackedUsageRows.filter(row => row.lastSeenDate >= recent7Start).length
   const recent30Users = trackedUsageRows.filter(row => row.lastSeenDate >= recent30Start).length
+  const totalLoginCount = trackedUsageRows.reduce((total, row) => total + (row.visitCount || 0), 0)
   const neverAccessedCount = Math.max(profileCount - loginExperienceCount, 0)
   const usageMessage = profileCount === 0
     ? '승인된 직원 명단을 확인하는 중입니다.'
@@ -575,7 +576,7 @@ export default function App() {
           <summary className="metrics-toggle"><span className="metrics-toggle-mark" aria-hidden="true"/><strong>관리지표</strong><small>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter} · 접수 {caseCount}건</small></summary>
           <div className="metrics-panel-body">
             <div className="insight-heading">
-              <div><span>PARTNER OPERATIONS INSIGHT</span><h2>제휴고객 운영 활용 현황</h2><p>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter}의 접수와 관리 흐름을 함께 보여줍니다.</p></div>
+              <div><span>PARTNER OPERATIONS INSIGHT</span><h2>제휴고객 관리 현황</h2><p>{partnerFilter === '전체 제휴업체' ? '전체 제휴업체' : partnerFilter}의 접수·진행상태·판매 성과를 보여줍니다.</p></div>
               <button type="button" className="print-insight" onClick={() => window.print()}><Printer size={15}/>출력</button>
             </div>
             <div className="insight-banner"><span>운영 흐름</span><strong>{insightMessage}</strong></div>
@@ -601,15 +602,14 @@ export default function App() {
               <span><small>구독 예상 · 대상 업체</small><strong>{formatWon(subscriptionRebate)}</strong></span>
             </div>
             {currentUser && <section className="usage-insight">
-              <div className="usage-insight-title"><div><span>SITE OPERATIONS INSIGHT</span><h3>전체 직원 사이트 접속 현황</h3></div><p>지점장·부지점장·매니저가 모든 사용자의 접속 기록을 확인합니다.</p></div>
+              <div className="usage-insight-title"><div><span>SITE ACCESS INSIGHT</span><h3>직원 접속 기록</h3></div><p>승인된 직원의 실제 로그인 기록만 보여줍니다.</p></div>
               <div className="usage-banner"><span>사용 흐름</span><strong>{usageMessage}</strong></div>
               <div className="usage-metrics">
                 <UsageMetric label="로그인 기록" value={loginExperienceCount} suffix={`/${profileCount}명`} note="접속기록 기능 적용 이후 기준"/>
                 <UsageMetric label="최근 7일 사용자" value={recent7Users} suffix="명" note="마지막 접속일 기준"/>
-                <UsageMetric label="기록 없음" value={neverAccessedCount} suffix="명" note="과거 접속 여부와는 별개"/>
-                <UsageMetric label="최근 7일 관리기록" value={recent7Memos.length} suffix="건" note={`${recent7Managers}명이 작성`}/>
+                <UsageMetric label="최근 30일 사용자" value={recent30Users} suffix="명" note="마지막 접속일 기준"/>
+                <UsageMetric label="누적 로그인" value={totalLoginCount} suffix="회" note="기록 기능 적용 이후 합계"/>
               </div>
-              <div className="usage-strips"><div><span>최근 30일 접속 사용자</span><strong>{recent30Users}명</strong></div><div><span>최근 30일 관리기록</span><strong>{recent30Memos.length}건</strong></div></div>
               <details className="access-log-details">
                 <summary><strong>사용자별 접속기록</strong><span>전체 {profileCount}명 · 기록 확인</span></summary>
                 <div className="access-log-scroll"><table className="access-log-table"><thead><tr><th>사용자</th><th>사번</th><th>직책</th><th>최초 접속</th><th>최근 접속</th><th>접속 횟수</th></tr></thead><tbody>{accessRows.map(row=><tr key={row.employeeNo}><td>{row.displayName}</td><td>{row.employeeNo}</td><td>{roleLabel(row.role)}</td><td>{formatDateTime(row.usage?.firstSeenAt)}</td><td>{formatDateTime(row.usage?.lastSeenAt)}</td><td>{row.usage?.visitCount||0}회</td></tr>)}</tbody></table>{accessRows.length===0&&<p className="access-log-empty">승인된 사용자 정보를 불러오는 중입니다.</p>}</div>
