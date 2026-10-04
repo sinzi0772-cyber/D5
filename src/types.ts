@@ -10,6 +10,44 @@ export interface MemoEntry {
   content: string
 }
 
+/** Customer-level RAW totals. Source phone numbers and order identifiers are not stored. */
+export interface SalesRawPeriod {
+  period: string
+  sourceHash: string
+  importedAt: string
+  orderCount: number
+  confirmedOrderCount: number
+  reservedOrderCount: number
+  tentativeOrderCount?: number
+  confirmedAmount: number
+  reservedAmount: number
+  tentativeAmount?: number
+  eligibleConfirmedAmount: number
+  eligibleReservedAmount: number
+  eligibleTentativeAmount?: number
+  /** Original order stages remain distinct; these stages count as business sales. */
+  completedStatuses?: readonly string[]
+  returnAmount: number
+}
+
+/** Subscription amounts use membership-benefit basis, not monthly fees or shipment prices. */
+export interface SubscriptionRawPeriod {
+  period: string
+  sourceHash: string
+  importedAt: string
+  itemCount: number
+  confirmedItemCount: number
+  pendingItemCount: number
+  confirmedBasisAmount: number
+  pendingBasisAmount: number
+  eligibleConfirmedBasisAmount: number
+  eligiblePendingBasisAmount: number
+  includedStatuses: readonly string[]
+  missingBasisItemCount: number
+  /** Reference count only: rejected proof is included in eligible-route commission. */
+  rejectedProofItemCount: number
+}
+
 export interface Lead {
   id: string
   registeredAt: string
@@ -23,6 +61,7 @@ export interface Lead {
   billToCode?: string
   lgeSubchannel?: string
   manager?: string
+  managerEmployeeNo?: string
   plannerName?: string
   caseGroupId?: string
   status: LeadStatus
@@ -31,6 +70,8 @@ export interface Lead {
   purchaseAmount?: number
   lumpSumAmount?: number
   subscriptionAmount?: number
+  salesRawPeriods?: Record<string, SalesRawPeriod>
+  subscriptionRawPeriods?: Record<string, SubscriptionRawPeriod>
   note?: string
   memoHistory?: MemoEntry[]
   updatedAt: string

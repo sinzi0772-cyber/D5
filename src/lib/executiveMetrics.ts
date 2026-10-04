@@ -1,4 +1,5 @@
 import type { Lead } from '../types'
+import { completedSalesFor, expectedLumpSumRebateFor, expectedRebateFor, expectedSubscriptionRebateFor, salesRawAmountsFor, subscriptionRawAmountsFor } from './salesFinance'
 
 export interface ExecutivePeriodSummary {
   /** Intake cases, with linked bride/groom customers counted once. */
@@ -10,6 +11,7 @@ export interface ExecutivePeriodSummary {
   canceled: number
   completedCustomers: number
   sales: number
+  reservedSales: number
   expectedCommission: number
   missingAmounts: number
   conversionRate: number
@@ -47,8 +49,6 @@ interface ReferralCase {
 }
 
 const dayInMilliseconds = 86_400_000
-const subscriptionCommissionPartners = ['다이렉트컴', '아이니웨딩', '아이웨딩', '요즘웨딩', '아이티웨딩', '웨딩프렌즈', '와이즈웨딩']
-const partnerKey = (name: string) => name.trim().toLowerCase().replace(/주식회사|\(주\)|㈜/g, '').replace(/[\s·._-]/g, '')
 
 const dateOnly = (value?: string): string => {
   const date = value?.slice(0, 10) || ''
@@ -58,15 +58,7 @@ const dateOnly = (value?: string): string => {
 }
 
 const validMonth = (month: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
-const amount = (value?: number) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
-const lumpSumAmount = (lead: Lead) => amount(lead.lumpSumAmount ?? (lead.purchaseType === '일시불' ? lead.purchaseAmount : undefined))
-const subscriptionAmount = (lead: Lead) => amount(lead.subscriptionAmount ?? (lead.purchaseType === '구독' ? lead.purchaseAmount : undefined))
 const memoCount = (lead: Lead) => lead.memoHistory?.length || (lead.note?.trim() ? 1 : 0)
-
-const expectedCommission = (lead: Lead) => {
-  const subscriptionEligible = subscriptionCommissionPartners.some(name => partnerKey(lead.partnerName).includes(partnerKey(name)))
-  return Math.round(lumpSumAmount(lead) * 0.02 + (subscriptionEligible ? subscriptionAmount(lead) * 0.015 : 0))
-}
 
 const groupCases = (leads: readonly Lead[]): ReferralCase[] => {
   const groups = new Map<string, Lead[]>()
@@ -102,6 +94,7 @@ const summarizeCases = (cases: readonly ReferralCase[]): ExecutivePeriodSummary 
     canceled: 0,
     completedCustomers: 0,
     sales: 0,
+    reservedSales: 0,
     expectedCommission: 0,
     missingAmounts: 0,
     conversionRate: 0,
@@ -117,11 +110,19 @@ const summarizeCases = (cases: readonly ReferralCase[]): ExecutivePeriodSummary 
     for (const lead of item.leads) {
       result.customerCount++
       result.managementRecords += memoCount(lead)
-      if (lead.status !== '구매완료') continue
-      const saleAmount = lumpSumAmount(lead) + subscriptionAmount(lead)
-      result.completedCustomers++
+      const raw = salesRawAmountsFor(lead)
+      const subscription = subscriptionRawAmountsFor(lead)
+      const saleAmount = completedSalesFor(lead)
       result.sales += saleAmount
-      result.expectedCommission += expectedCommission(lead)
+      if (raw.current) result.reservedSales += raw.pending
+      if (subscription.current) result.reservedSales += subscription.pending
+      // Imports set customer completion separately; original RAW stages remain
+      // unchanged. Business-completed reservations are not counted as pending.
+      result.expectedCommission += lead.status === '구매완료'
+        ? expectedRebateFor(lead)
+        : expectedLumpSumRebateFor(lead) + (subscription.current ? expectedSubscriptionRebateFor(lead) : 0)
+      if (lead.status !== '구매완료') continue
+      result.completedCustomers++
       if (saleAmount === 0) result.missingAmounts++
     }
   }

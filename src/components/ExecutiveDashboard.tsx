@@ -4,11 +4,18 @@ import { buildExecutiveMetrics, getDefaultExecutiveMonth, getExecutiveMonthLeads
 import type { Lead } from '../types'
 import './ExecutiveDashboard.css'
 
-type SortColumn = 'name' | 'cases' | 'active' | 'completed' | 'closed' | 'canceled' | 'sales' | 'salesProgress' | 'managementRecords'
+type SortColumn = 'name' | 'cases' | 'active' | 'completed' | 'closed' | 'canceled' | 'sales' | 'reservedSales' | 'salesProgress' | 'managementRecords'
 type PerformanceRow = ExecutivePeriodSummary & { name: string }
 type Queue = 'unassigned' | 'overdue' | 'stale' | 'canceled' | 'closed'
 const won = (amount: number) => `${Math.round(amount).toLocaleString('ko-KR')}원`
 const salesProgressLabel = (row: PerformanceRow, kind: 'partner' | 'manager') => `${kind === 'partner' ? '접수' : '배정'} ${row.cases.toLocaleString('ko-KR')}건 중 구매완료 ${row.completed.toLocaleString('ko-KR')}건`
+const financialDefinitions = '일시불 주문확정·예약·가예약은 영업 판매완료로 집계하며 원본 주문단계는 보존합니다. 판매 기준금액은 일시불 판매금액과 구독 주문확정·마감됨의 멤버십혜택 기준금액 합계입니다. 구독 출하대기는 별도 표시하며, 실제 납품·정산 완료를 뜻하지 않습니다.'
+const performanceColumnHelp = (key: SortColumn) => key === 'completed'
+  ? '고객의 구매완료 상태 기준입니다. 연결된 일시불 주문확정·예약·가예약은 영업 판매완료로 반영하며, 신랑·신부 연결 접수는 1건으로 집계합니다.'
+  : key === 'sales' ? '일시불 주문확정·예약·가예약의 판매금액과 구독 주문확정·마감됨의 멤버십혜택 기준금액 합계입니다. 구독 출하대기는 제외하며 원본 주문단계는 보존합니다.'
+  : key === 'reservedSales' ? '구독 출하대기의 멤버십혜택 기준금액입니다. 판매 기준금액과 구분해 표시하며 예상 수수료에는 포함합니다.'
+  : key === 'salesProgress' ? '고객의 구매완료 접수건수로 정렬하며, 같으면 접수·배정 건수로 정렬합니다. RAW 상품·주문 건수가 아닙니다.'
+  : undefined
 const monthLabel = (month: string) => `${month.slice(0, 4)}년 ${Number(month.slice(5))}월`
 const koreanToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
 const queueInfo: Record<Queue, { title: string; note: string }> = {
@@ -49,9 +56,9 @@ export function ExecutiveDashboard({ leads, partnerLabel, onSelectLead, onSelect
       <Kpi label="접수" value={current.cases.toLocaleString('ko-KR')} unit="건" icon={<UsersRound size={19}/>} change={countChange(current.cases, previous.cases, '건')} note={`연결 고객을 1건으로 · 고객 ${current.customerCount}명`}/>
       <Kpi label="구매완료" value={current.completed.toLocaleString('ko-KR')} unit="건" icon={<CheckCircle2 size={19}/>} change={countChange(current.completed, previous.completed, '건')} note="선택월 접수 중 구매완료된 접수"/>
       <Kpi label="접수 대비 구매완료" value={current.cases ? current.completed.toLocaleString('ko-KR') : '—'} unit={current.cases ? '건' : ''} denominator={current.cases || undefined} icon={<TrendingUp size={19}/>} change={{ text: current.cases ? `접수 ${current.cases.toLocaleString('ko-KR')}건 중 구매완료 ${current.completed.toLocaleString('ko-KR')}건` : '선택월 접수 없음', tone: 'neutral' }} note="구매완료 / 접수 · 실제 건수로 확인"/>
-      <Kpi label="판매금액" value={Math.round(current.sales).toLocaleString('ko-KR')} unit="원" icon={<ArrowUpRight size={19}/>} change={countChange(current.sales, previous.sales, '원')} note={completedWithAmount ? `구매완료 고객 ${current.missingAmounts}명 금액 미입력` : '구매완료 고객의 입력금액 합계'} sales/>
+      <Kpi label="판매·구독 기준금액" value={Math.round(current.sales).toLocaleString('ko-KR')} unit="원" icon={<ArrowUpRight size={19}/>} change={countChange(current.sales, previous.sales, '원')} note={completedWithAmount ? `구매완료 고객 ${current.missingAmounts}명 금액 미입력` : '일시불 판매금액 + 구독 멤버십혜택 기준금액'} sales/>
     </div>
-    <p className="exec-footnote">선택월 접수의 현재 성과입니다. 구매일 기준 월 매출과는 다르며, 전월도 해당 월 접수의 현재 결과로 비교합니다.</p>
+    <p className="exec-footnote">일시불 주문확정·예약·가예약은 영업 판매완료에 포함하며 실제 납품·정산과는 구분합니다. 구독 출하대기 기준금액 {won(current.reservedSales)}은 판매 기준금액에서 제외하고 예상 수수료에만 포함합니다. 구독은 지정 업체만 수수료 대상이며 선택월 접수 기준으로 구매월 매출과는 다릅니다.</p>
     <div className="exec-outcomes" aria-label="선택 접수월 진행 상태">
       <div className="exec-outcome" data-tone="active"><span>관리중</span><strong>{current.active}<small>건</small></strong></div>
       <div className="exec-outcome" data-tone="success"><span>구매완료</span><strong>{current.completed}<small>건</small></strong></div>
@@ -73,14 +80,14 @@ export function ExecutiveDashboard({ leads, partnerLabel, onSelectLead, onSelect
     </section>}
 
     <div className="exec-highlights">
-      <section className="exec-highlight"><header><div><h3>성과를 만드는 제휴업체</h3><p>선택 접수월 · 판매금액 순, 같으면 구매완료 순</p></div><span>TOP 3</span></header><Ranking rows={sortedPartners.slice(0, 3)} kind="partner"/></section>
-      <section className="exec-highlight"><header><div><h3>담당자별 판매 성과</h3><p>구매완료 건수 순 · 동률은 판매금액 순 · 이름을 누르면 담당 고객 보기</p></div><span>TOP 3</span></header><Ranking rows={sortedManagers.slice(0, 3)} kind="manager" onSelectManager={onSelectManager}/></section>
+      <section className="exec-highlight"><header><div><h3>성과를 만드는 제휴업체</h3><p>선택 접수월 · 판매 기준금액 순, 같으면 구매완료 순</p></div><span>TOP 3</span></header><Ranking rows={sortedPartners.slice(0, 3)} kind="partner"/></section>
+      <section className="exec-highlight"><header><div><h3>담당자별 판매 성과</h3><p>구매완료 건수 순 · 동률은 판매 기준금액 순 · 이름을 누르면 담당 고객 보기</p></div><span>TOP 3</span></header><Ranking rows={sortedManagers.slice(0, 3)} kind="manager" onSelectManager={onSelectManager}/></section>
     </div>
     <section className="exec-closure-strip"><strong>개별 고객의 종료 결과</strong><button type="button" onClick={() => setQueue('canceled')}>취소 고객 <b>{cohort.filter(lead => lead.status === '취소').length}명</b><ArrowUpRight size={14}/></button><button type="button" onClick={() => setQueue('closed')}>상담마감 고객 <b>{cohort.filter(lead => lead.status === '상담 마감').length}명</b><ArrowUpRight size={14}/></button><span>종료 사유는 고객별 관리메모에서 확인</span></section>
 
     <PerformanceTable title="업체별 상세 성과" rows={metrics.partners} month={month} kind="partner"/>
     <PerformanceTable title="담당자별 상세 성과" rows={sortedManagers} month={month} kind="manager" onSelectManager={onSelectManager}/>
-    <p className="exec-footer">연결된 신랑·신부는 접수·상태·판매 성과에서 1건으로 집계합니다. 일부라도 구매완료면 구매완료, 관리중이면 관리중을 우선합니다. 개별 고객의 상태와 관리메모는 그대로 유지됩니다.</p>
+    <p className="exec-footer" title={financialDefinitions}>연결된 신랑·신부는 접수·상태·판매 성과에서 1건으로 집계합니다. 일부라도 구매완료면 구매완료, 관리중이면 관리중을 우선합니다. 연결된 일시불 RAW의 주문확정·예약·가예약은 구매완료로 반영하며 원본 주문단계와 고객별 관리메모·연결기록은 유지됩니다.</p>
   </section>
 }
 
@@ -108,11 +115,24 @@ function Ranking({ rows, kind, onSelectManager }: { rows: PerformanceRow[]; kind
 function PerformanceTable({ title, rows, month, kind, onSelectManager }: { title: string; rows: PerformanceRow[]; month: string; kind: 'partner' | 'manager'; onSelectManager?: (name: string) => void }) {
   const [sort, setSort] = useState<{ key: SortColumn; direction: 'asc' | 'desc' }>({ key: 'cases', direction: 'desc' })
   const columns: { key: SortColumn; label: string }[] = [
-    { key: 'name', label: kind === 'partner' ? '제휴업체' : '담당자' }, { key: 'cases', label: kind === 'partner' ? '접수' : '배정 접수' }, { key: 'active', label: '관리중' }, { key: 'completed', label: '구매완료' }, { key: 'closed', label: '상담마감' }, { key: 'canceled', label: '취소' }, { key: 'salesProgress', label: kind === 'partner' ? '판매 / 접수' : '판매 / 배정' }, { key: 'sales', label: '판매금액' }, { key: 'managementRecords', label: '관리기록' },
+    { key: 'name', label: kind === 'partner' ? '제휴업체' : '담당자' }, { key: 'cases', label: kind === 'partner' ? '접수' : '배정 접수' }, { key: 'active', label: '관리중' }, { key: 'completed', label: '구매완료' }, { key: 'closed', label: '상담마감' }, { key: 'canceled', label: '취소' }, { key: 'salesProgress', label: kind === 'partner' ? '판매 / 접수' : '판매 / 배정' }, { key: 'sales', label: '판매 기준금액' }, { key: 'reservedSales', label: '구독 출하대기 금액' }, { key: 'managementRecords', label: '관리기록' },
   ]
   const sorted = [...rows].sort((a, b) => {
     const result = sort.key === 'name' ? a.name.localeCompare(b.name, 'ko') : sort.key === 'salesProgress' ? a.completed - b.completed || a.cases - b.cases : a[sort.key] - b[sort.key]
     return result * (sort.direction === 'asc' ? 1 : -1) || a.name.localeCompare(b.name, 'ko')
   })
-  return <details className="exec-details"><summary><i className="details-toggle-mark" aria-hidden="true"/><strong>{title}</strong><small>{rows.length}{kind === 'partner' ? '개 업체' : '명'} · + / − 상세 보기</small></summary><div className="exec-detail-body"><h4>{title}</h4><p>{monthLabel(month)} 접수 기준 · 열 제목을 누르면 정렬됩니다.{kind === 'manager' ? ' 담당자 이름을 누르면 전체 기간의 담당 고객을 봅니다. 같은 접수를 함께 맡으면 담당자마다 1건씩 표시하며, 관리기록은 배정 고객의 메모 건수입니다.' : ''}</p><div className="exec-table-scroll"><table className="exec-table"><thead><tr>{columns.map(column => <th key={column.key} aria-sort={sort.key === column.key ? sort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}><button type="button" title={column.key === 'salesProgress' ? '구매완료 건수로 정렬하며, 같으면 접수·배정 건수로 정렬합니다.' : undefined} className={`exec-sort-button${sort.key === column.key ? ' active' : ''}`} onClick={() => setSort(current => ({ key: column.key, direction: current.key === column.key && current.direction === 'desc' ? 'asc' : 'desc' }))}>{column.label}<span aria-hidden="true">{sort.key === column.key ? sort.direction === 'asc' ? '↑' : '↓' : '↕'}</span></button></th>)}</tr></thead><tbody>{sorted.map(row => <tr key={row.name}>{columns.map(column => <td key={column.key}>{column.key === 'name' ? kind === 'manager' && onSelectManager ? <ManagerLink name={row.name} onSelect={onSelectManager}/> : row.name : column.key === 'sales' ? won(row.sales) : column.key === 'salesProgress' ? <span className="exec-sales-progress" title={salesProgressLabel(row, kind)} aria-label={salesProgressLabel(row, kind)}>{row.completed.toLocaleString('ko-KR')}건 / {row.cases.toLocaleString('ko-KR')}건</span> : `${row[column.key]}건`}</td>)}</tr>)}</tbody></table></div>{!rows.length && <p className="exec-empty">선택한 접수월의 데이터가 없습니다.</p>}</div></details>
+  return <details className="exec-details">
+    <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>{title}</strong><small>{rows.length}{kind === 'partner' ? '개 업체' : '명'} · + / − 상세 보기</small></summary>
+    <div className="exec-detail-body">
+      <h4>{title}</h4>
+      <p title={financialDefinitions}>{monthLabel(month)} 접수 기준 · 열 제목을 누르면 정렬됩니다. 일시불 주문확정·예약·가예약은 판매완료에 포함하며 구독 출하대기는 별도 표시합니다.{kind === 'manager' ? ' 담당자 이름을 누르면 전체 기간의 담당 고객을 봅니다. 같은 접수를 함께 맡으면 담당자마다 1건씩 표시하며, 관리기록은 배정 고객의 메모 건수입니다.' : ''}</p>
+      <div className="exec-table-scroll"><table className="exec-table">
+        <thead><tr>{columns.map(column => <th key={column.key} aria-sort={sort.key === column.key ? sort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}>
+          <button type="button" title={performanceColumnHelp(column.key)} className={`exec-sort-button${sort.key === column.key ? ' active' : ''}`} onClick={() => setSort(current => ({ key: column.key, direction: current.key === column.key && current.direction === 'desc' ? 'asc' : 'desc' }))}>{column.label}<span aria-hidden="true">{sort.key === column.key ? sort.direction === 'asc' ? '↑' : '↓' : '↕'}</span></button>
+        </th>)}</tr></thead>
+        <tbody>{sorted.map(row => <tr key={row.name}>{columns.map(column => <td key={column.key}>{column.key === 'name' ? kind === 'manager' && onSelectManager ? <ManagerLink name={row.name} onSelect={onSelectManager}/> : row.name : column.key === 'sales' || column.key === 'reservedSales' ? won(row[column.key]) : column.key === 'salesProgress' ? <span className="exec-sales-progress" title={salesProgressLabel(row, kind)} aria-label={salesProgressLabel(row, kind)}>{row.completed.toLocaleString('ko-KR')}건 / {row.cases.toLocaleString('ko-KR')}건</span> : `${row[column.key]}건`}</td>)}</tr>)}</tbody>
+      </table></div>
+      {!rows.length && <p className="exec-empty">선택한 접수월의 데이터가 없습니다.</p>}
+    </div>
+  </details>
 }
