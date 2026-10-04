@@ -212,7 +212,7 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState<'전체' | LeadStatus>('전체')
   const [managerFilter, setManagerFilter] = useState('전체 담당자')
   const [visitFilter, setVisitFilter] = useState<'전체' | VisitState>('전체')
-  const [sort, setSort] = useState<{key: SortKey; direction: 'asc' | 'desc'}>({ key: 'updatedAt', direction: 'desc' })
+  const [sort, setSort] = useState<{key: SortKey; direction: 'asc' | 'desc'}>({ key: 'registeredAt', direction: 'desc' })
   const [partnerFilter, setPartnerFilter] = useState('전체 제휴업체')
   const [active, setActive] = useState<Lead | null>(null)
   const [openMemoOnDrawer, setOpenMemoOnDrawer] = useState(false)
