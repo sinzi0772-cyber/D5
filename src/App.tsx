@@ -5,7 +5,7 @@ import {
   Settings, Sparkles, UserRound, UsersRound, X,
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from 'firebase/auth'
-import { collection, doc, getDoc, onSnapshot, query as firestoreQuery, setDoc, where, writeBatch, deleteField, increment } from 'firebase/firestore'
+import { collection, doc, getDoc, onSnapshot, query as firestoreQuery, runTransaction, setDoc, where, writeBatch, deleteField, increment } from 'firebase/firestore'
 import { auth, db, isDemoMode, isFirebaseConfigured } from './lib/firebase'
 import { septemberAppointments } from './data/septemberAppointments'
 import { ExecutiveDashboard } from './components/ExecutiveDashboard'
@@ -13,6 +13,7 @@ import { customerIdentityKey, maskCustomerName } from './lib/salesRaw'
 import { canonicalPartnerName } from './lib/partners'
 import { expectedRebateFor, isSubscriptionRebatePartner, lumpSumAmountFor, salesRawAmountsFor, subscriptionRawAmountsFor, subscriptionAmountFor, totalPurchaseAmountFor } from './lib/salesFinance'
 import { comparePurchaseAmounts, getVisiblePurchaseMembers, purchaseSortValue } from './lib/customerSorting'
+import { buildSeptemberSyncPlan, canStartSeptemberSync, septemberExistingPatch } from './lib/septemberSync'
 import { STATUSES, type AppointmentType, type Lead, type LeadStatus, type MemoEntry, type PurchaseType, type VisitState } from './types'
 
 type SortKey = 'customerName' | 'registeredAt' | 'partnerName' | 'manager' | 'visitDate' | 'status' | 'management' | 'updatedAt' | 'purchase'
@@ -205,6 +206,7 @@ const hasDualIntake = (lead: Lead, rows: Lead[]) => {
   const types = new Set(rows.filter(item => contactKey(item.customerName, item.phoneLast4) === contactKey(lead.customerName, lead.phoneLast4)).map(item => item.appointmentType))
   return types.has('상담예약(이업종)') && types.has('이업종제휴')
 }
+type ReferralReadiness = { sessionKey: string; serverConfirmed: boolean }
 
 export default function App() {
   const [leads, setLeads] = useState<Lead[]>([])
@@ -222,9 +224,14 @@ export default function App() {
   const [authReady, setAuthReady] = useState(!isFirebaseConfigured)
   const [dataReady, setDataReady] = useState(isDemoMode)
   const [dataError, setDataError] = useState('')
+  const [serverConfirmed, setServerConfirmed] = useState(false)
   const [usageRows, setUsageRows] = useState<UsageRow[]>([])
   const [settlementGuideOpen, setSettlementGuideOpen] = useState(false)
-  const septemberSyncStarted = useRef(false)
+  const referralReadiness = useRef<ReferralReadiness | null>(null)
+  const septemberSyncRun = useRef<{ readiness: ReferralReadiness } | null>(null)
+  const sessionKey = JSON.stringify([currentUser?.id, currentUser?.loginId, currentUser?.role, currentUser?.mustChangePassword])
+  const latestSessionKey = useRef(sessionKey)
+  latestSessionKey.current = sessionKey
   const customerPanelRef = useRef<HTMLDivElement>(null)
   const customerHeadingRef = useRef<HTMLHeadingElement>(null)
 
@@ -264,12 +271,20 @@ export default function App() {
 
 
   useEffect(() => {
+    const readiness: ReferralReadiness = { sessionKey, serverConfirmed: false }
+    referralReadiness.current = readiness
+    septemberSyncRun.current = null
+    setServerConfirmed(false)
     if (!db || !currentUser || currentUser.mustChangePassword) return
+    let active = true
     setDataReady(false); setDataError(''); setLeads([])
     const canReadAll = ['admin', 'store_manager', 'assistant_manager'].includes(currentUser.role)
     const referrals = collection(db, 'referrals')
     const request = canReadAll ? referrals : firestoreQuery(referrals, where('managerEmployeeNo', '==', currentUser.loginId))
-    const unsubscribe = onSnapshot(request, snapshot => {
+    const unsubscribe = onSnapshot(request, { includeMetadataChanges: true }, snapshot => {
+      if (!active) return
+      readiness.serverConfirmed = !snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites
+      setServerConfirmed(readiness.serverConfirmed)
       setLeads(snapshot.docs.map(item => {
         const row = item.data()
         const purchaseType: PurchaseType = ['일시불', '구독', '일시불+구독'].includes(row.purchaseType) ? row.purchaseType : '미선택'
@@ -290,11 +305,14 @@ export default function App() {
       }))
       setDataError(''); setDataReady(true)
     }, error => {
+      if (!active) return
+      readiness.serverConfirmed = false
+      setServerConfirmed(false)
       setLeads([])
       setDataError(error instanceof Error ? error.message : '데이터를 동기화하지 못했습니다.')
       setDataReady(true)
     })
-    return unsubscribe
+    return () => { active = false; readiness.serverConfirmed = false; unsubscribe() }
   }, [currentUser?.id, currentUser?.loginId, currentUser?.role, currentUser?.mustChangePassword])
   useEffect(() => {
     if (!db || !currentUser || currentUser.mustChangePassword || isDemoMode || currentUser.loginId === '12784') return
@@ -318,78 +336,96 @@ export default function App() {
   }, [currentUser?.id, currentUser?.mustChangePassword])
 
   useEffect(() => {
-    if (!db || !currentUser || !['admin', 'store_manager', 'assistant_manager'].includes(currentUser.role) || !dataReady || septemberSyncStarted.current) return
-    septemberSyncStarted.current = true
+    if (!db || !currentUser || !canStartSeptemberSync({ role: currentUser.role, mustChangePassword: currentUser.mustChangePassword, dataReady, serverConfirmed, dataError, isDemoMode })) return
+    const readiness = referralReadiness.current
+    if (!readiness || !readiness.serverConfirmed || readiness.sessionKey !== sessionKey || septemberSyncRun.current?.readiness === readiness) return
+    const run = { readiness }
+    septemberSyncRun.current = run
     const firestoreDb = db
+    const plan = buildSeptemberSyncPlan(septemberAppointments, leads)
+    const currentById = new Map(leads.map(lead => [lead.id, lead]))
+    const entries = plan.entries.filter(entry => {
+      if (entry.kind === 'new') return true
+      const existing = currentById.get(entry.targetId)
+      if (!existing) return false
+      const patch = septemberExistingPatch(entry.source, { ...existing })
+      return patch !== null && Object.keys(patch).length > 0
+    })
+    const stopped = new Error('서버 연결이나 로그인 상태가 변경되어 RAW 갱신을 중단했습니다.')
+    const assertReady = () => {
+      if (referralReadiness.current !== readiness || !readiness.serverConfirmed || latestSessionKey.current !== readiness.sessionKey || auth?.currentUser?.uid !== currentUser.id) throw stopped
+    }
     const syncSeptemberAppointments = async () => {
-      const batch = writeBatch(firestoreDb)
-      const usedLeadIds = new Set<string>()
       const now = new Date().toISOString()
       let writes = 0
-      for (const source of septemberAppointments) {
-        const sourceKey = contactKey(source.customerName, source.phoneLast4)
-        const existing = leads.find(lead => !usedLeadIds.has(lead.id) && (
-          lead.appointmentSourceId === source.sourceId
-          || (
-            !lead.appointmentSourceId
-            && contactKey(lead.customerName, lead.phoneLast4) === sourceKey
-            && lead.registeredAt === source.registeredAt
-            && (!lead.visitScheduledDate || lead.visitScheduledDate === source.visitScheduledDate)
-            && (!lead.appointmentType || lead.appointmentType === '미선택' || lead.appointmentType === source.appointmentType)
-          )
-        ))
-        if (existing) {
-          usedLeadIds.add(existing.id)
-          if (existing.appointmentSourceId !== source.sourceId || existing.appointmentType !== source.appointmentType || !existing.visitScheduledDate) {
-            batch.set(doc(firestoreDb, 'referrals', existing.id), {
-              appointmentSourceId: source.sourceId,
-              appointmentType: source.appointmentType,
-              ...(!existing.visitScheduledDate ? { visitScheduledDate: source.visitScheduledDate || null } : {}),
-            }, { merge: true })
-            writes++
+      for (const entry of entries) {
+        assertReady()
+        const { source, targetId, kind } = entry
+        // Read the target again inside a transaction. A stale or empty list must
+        // never turn an existing customer's manual fields into import defaults.
+        const changed = await runTransaction(firestoreDb, async transaction => {
+          assertReady()
+          const target = doc(firestoreDb, 'referrals', targetId)
+          const existing = await transaction.get(target)
+          assertReady()
+          if (existing.exists()) {
+            const current = existing.data()
+            const patch = septemberExistingPatch(source, current)
+            if (!patch || !Object.keys(patch).length) return 0
+            // UI normalization is not evidence for a legacy match. Recheck raw
+            // type/date values if this target has no authoritative source link.
+            if (current.appointmentSourceId !== source.sourceId && targetId !== `appointment-202609-${source.sourceId}`) {
+              const freshPlan = buildSeptemberSyncPlan([source], [{ ...current, id: targetId } as Lead])
+              if (!freshPlan.entries.some(entry => entry.kind === 'existing' && entry.targetId === targetId)) return 0
+            }
+            transaction.set(target, patch, { merge: true })
+            return 1
           }
-          continue
-        }
-        const id = `appointment-202609-${source.sourceId}`
-        batch.set(doc(firestoreDb, 'referrals', id), {
-          registeredAt: source.registeredAt,
-          customerName: source.customerName,
-          phoneLast4: source.phoneLast4,
-          gender: '미입력',
-          visitScheduledDate: source.visitScheduledDate || null,
-          appointmentType: source.appointmentType,
-          appointmentSourceId: source.sourceId,
-          partnerName: source.partnerName || '제휴업체 확인 필요',
-          billToCode: null,
-          lgeSubchannel: '이업종_혼수(H)',
-          manager: null,
-          managerEmployeeNo: null,
-          plannerName: null,
-          status: source.appointmentStatus === '취소' ? '취소' : '관리중',
-          visitState: source.appointmentStatus === '취소' ? '일정취소' : '방문',
-          purchaseType: '미선택',
-          purchaseAmount: null,
-          lumpSumAmount: null,
-          subscriptionAmount: null,
-          note: null,
-          memoHistory: [],
-          createdBy: currentUser.id,
-          createdAt: now,
-          updatedBy: currentUser.id,
-          updatedAt: now,
-        }, { merge: true })
-        writes++
+          // A record deleted after the snapshot must stay deleted.
+          if (kind !== 'new') return 0
+          transaction.set(target, {
+            registeredAt: source.registeredAt,
+            customerName: source.customerName,
+            phoneLast4: source.phoneLast4,
+            gender: '미입력',
+            visitScheduledDate: source.visitScheduledDate || null,
+            appointmentType: source.appointmentType,
+            appointmentSourceId: source.sourceId,
+            partnerName: source.partnerName || '제휴업체 확인 필요',
+            billToCode: null,
+            lgeSubchannel: '이업종_혼수(H)',
+            manager: null,
+            managerEmployeeNo: null,
+            plannerName: null,
+            status: source.appointmentStatus === '취소' ? '취소' : '관리중',
+            visitState: source.appointmentStatus === '취소' ? '일정취소' : '방문',
+            purchaseType: '미선택',
+            purchaseAmount: null,
+            lumpSumAmount: null,
+            subscriptionAmount: null,
+            note: null,
+            memoHistory: [],
+            createdBy: currentUser.id,
+            createdAt: now,
+            updatedBy: currentUser.id,
+            updatedAt: now,
+          })
+          return 1
+        })
+        // Transaction callbacks may retry; count only the committed result.
+        writes += changed
       }
-      if (writes > 0) await batch.commit()
-      setToast(writes > 0 ? `9월 약속 로우 ${septemberAppointments.length}건을 병합했습니다.` : '9월 약속 로우가 이미 최신 상태입니다.')
+      assertReady()
+      setToast(plan.skipped > 0 ? `9월 약속 로우 ${writes}건 갱신 · 중복 또는 불일치 ${plan.skipped}건은 기존 기록 보호를 위해 제외했습니다.` : writes > 0 ? `9월 약속 로우 ${writes}건을 안전하게 갱신했습니다.` : '9월 약속 로우가 이미 최신 상태입니다.')
       window.setTimeout(() => setToast(''), 3200)
     }
     syncSeptemberAppointments().catch(error => {
-      septemberSyncStarted.current = false
+      if (septemberSyncRun.current === run) septemberSyncRun.current = null
+      if (error === stopped || latestSessionKey.current !== readiness.sessionKey) return
       setToast(`9월 로우를 갱신하지 못했습니다: ${error instanceof Error ? error.message : 'Firebase 오류'}`)
       window.setTimeout(() => setToast(''), 4200)
     })
-  }, [currentUser?.id, currentUser?.role, dataReady, leads])
+  }, [currentUser?.id, currentUser?.role, currentUser?.mustChangePassword, dataReady, serverConfirmed, dataError, leads])
 
   useEffect(() => {
     if (!db || !currentUser || currentUser.mustChangePassword) {
