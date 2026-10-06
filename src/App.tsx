@@ -14,6 +14,7 @@ import { canonicalPartnerName } from './lib/partners'
 import { expectedRebateFor, isSubscriptionRebatePartner, lumpSumAmountFor, salesRawAmountsFor, subscriptionRawAmountsFor, subscriptionAmountFor, totalPurchaseAmountFor } from './lib/salesFinance'
 import { comparePurchaseAmounts, getVisiblePurchaseMembers, purchaseSortValue } from './lib/customerSorting'
 import { buildSeptemberSyncPlan, canStartSeptemberSync, septemberExistingPatch } from './lib/septemberSync'
+import { accountAccessError, SHARED_ACCOUNT_EMPLOYEE_NO, SHARED_ACCOUNT_MESSAGE } from './lib/accountAccess'
 import { STATUSES, type AppointmentType, type Lead, type LeadStatus, type MemoEntry, type PurchaseType, type VisitState } from './types'
 
 type SortKey = 'customerName' | 'registeredAt' | 'partnerName' | 'manager' | 'visitDate' | 'status' | 'management' | 'updatedAt' | 'purchase'
@@ -141,7 +142,6 @@ const managers: Staff[] = [
   }
 ]
 const approvedStaff = [
-  { employeeNo: '1292', displayName: 'D5 지점 관리자', role: 'store_manager' },
   ...managers.map(member => ({ employeeNo: member.employeeNo, displayName: member.name, role: member.role === '지점장' ? 'store_manager' : member.role === '부지점장' ? 'assistant_manager' : 'manager' })),
 ]
 type AppUser = { id: string; loginId: string; name: string; role: string; mustChangePassword: boolean }
@@ -222,6 +222,7 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [currentUser, setCurrentUser] = useState<AppUser | null>(isDemoMode ? { id: 'demo', loginId: 'demo', name: 'D5 관리자', role: '데모 관리자', mustChangePassword: false } : null)
   const [authReady, setAuthReady] = useState(!isFirebaseConfigured)
+  const [authError, setAuthError] = useState('')
   const [dataReady, setDataReady] = useState(isDemoMode)
   const [dataError, setDataError] = useState('')
   const [serverConfirmed, setServerConfirmed] = useState(false)
@@ -238,35 +239,48 @@ export default function App() {
   useEffect(() => {
     if (!auth || !db) return
     const firestoreDb = db
-    return onAuthStateChanged(auth, async firebaseUser => {
-      if (!firebaseUser) { setCurrentUser(null); setAuthReady(true); return }
+    const firebaseAuth = auth
+    let active = true
+    let revision = 0
+    const unsubscribe = onAuthStateChanged(firebaseAuth, async firebaseUser => {
+      const currentRevision = ++revision
+      const isCurrentSession = () => active && currentRevision === revision && firebaseAuth.currentUser?.uid === firebaseUser?.uid
+      setCurrentUser(null)
+      setLeads([])
+      setActive(null)
+      setCreating(false)
+      setQuery('')
+      setManagerFilter('전체 담당자')
+      setPartnerFilter('전체 제휴업체')
+      setStatusFilter('전체')
+      setVisitFilter('전체')
+      if (!firebaseUser) { setAuthReady(true); return }
+      setAuthReady(false)
       const baseUser = appUserFromSession(firebaseUser)
+      let denialMessage = ''
       try {
-        const profileRef = doc(firestoreDb, 'profiles', firebaseUser.uid)
-        let profileSnapshot = await getDoc(profileRef)
-        if (!profileSnapshot.exists()) {
-          const staff = managers.find(member => member.employeeNo === baseUser.loginId)
-          const isAdmin = baseUser.loginId === '12784'
-          const isStoreAdmin = baseUser.loginId === '1292'
-          await setDoc(profileRef, {
-            employeeNo: baseUser.loginId,
-            displayName: isAdmin ? 'D5 관리자' : (isStoreAdmin ? 'D5 지점 관리자' : (staff?.name || baseUser.loginId)),
-            role: isAdmin ? 'admin' : (isStoreAdmin ? 'store_manager' : 'manager'),
-            positionLabel: isAdmin ? '관리자' : (isStoreAdmin ? '지점 관리자' : '매니저'),
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          })
-          profileSnapshot = await getDoc(profileRef)
+        if (baseUser.loginId === SHARED_ACCOUNT_EMPLOYEE_NO) {
+          denialMessage = SHARED_ACCOUNT_MESSAGE
+          throw new Error(denialMessage)
         }
-        const profile = profileSnapshot.data()
-        setCurrentUser({ ...baseUser, name: String(profile?.displayName || baseUser.name), role: String(profile?.role || 'manager'), mustChangePassword: Boolean(profile?.mustChangePassword) })
-      } catch (error) {
-        setDataError(error instanceof Error ? error.message : '사용자 권한을 확인하지 못했습니다.')
-        setCurrentUser(baseUser)
+        const profileRef = doc(firestoreDb, 'profiles', firebaseUser.uid)
+        const profileSnapshot = await getDoc(profileRef)
+        if (!isCurrentSession()) return
+        const profile = profileSnapshot.exists() ? profileSnapshot.data() : undefined
+        const accessError = accountAccessError(baseUser.loginId, profile)
+        if (accessError) { denialMessage = accessError; throw new Error(accessError) }
+        setAuthError('')
+        setCurrentUser({ ...baseUser, name: String(profile?.displayName || baseUser.name), role: String(profile?.role), mustChangePassword: Boolean(profile?.mustChangePassword) })
+      } catch {
+        if (!isCurrentSession()) return
+        setAuthError(denialMessage || '사용자 권한을 확인하지 못했습니다. 다시 로그인해주세요.')
+        setCurrentUser(null)
+        await signOut(firebaseAuth).catch(() => undefined)
       } finally {
-        setAuthReady(true)
+        if (active && currentRevision === revision) setAuthReady(true)
       }
     })
+    return () => { active = false; revision++; unsubscribe() }
   }, [])
 
 
@@ -573,7 +587,7 @@ export default function App() {
   }
   if (!isFirebaseConfigured && !isDemoMode) return <SetupRequired/>
   if (!authReady) return <div className="loading-screen"><div className="brand-mark">D5</div><p>안전하게 연결하는 중...</p></div>
-  if (!currentUser) return <LoginScreen/>
+  if (!currentUser) return <LoginScreen accountError={authError} onLoginStart={() => setAuthError('')}/>
   if (currentUser.mustChangePassword) return <PasswordChangeScreen onComplete={() => setCurrentUser(user => user ? { ...user, mustChangePassword: false } : user)}/>
   if (!dataReady) return <div className="loading-screen"><div className="brand-mark">D5</div><p>안전하게 연결하는 중...</p></div>
 
@@ -766,19 +780,21 @@ function PasswordChangeScreen({onComplete}:{onComplete:()=>void}) {
   }
   return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">FIRST LOGIN</p><h1>새 비밀번호 설정</h1><p className="login-copy">초기 비밀번호를 본인만 아는 비밀번호로 변경해주세요.</p><form onSubmit={save}><label>새 비밀번호<input type="password" autoComplete="new-password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="영문·숫자 포함 10자 이상"/></label><label>새 비밀번호 확인<input type="password" autoComplete="new-password" required value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} placeholder="한 번 더 입력"/></label>{error&&<p className="login-error">{error}</p>}<button className="btn primary" disabled={busy}>{busy?'변경 중...':'비밀번호 변경'}</button><button type="button" className="btn secondary" onClick={()=>auth&&signOut(auth)}>다른 계정으로 로그인</button></form><div className="login-safe"><Sparkles size={15}/> 최초 로그인 보안 설정</div></div></div>
 }
-function LoginScreen() {
+function LoginScreen({accountError,onLoginStart}:{accountError:string;onLoginStart:()=>void}) {
   const [loginId,setLoginId]=useState('')
   const [password,setPassword]=useState('')
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
   const login=async(e:React.FormEvent)=>{
-    e.preventDefault(); setError(''); setBusy(true)
+    e.preventDefault(); setError(''); onLoginStart()
+    if(loginId===SHARED_ACCOUNT_EMPLOYEE_NO){setError(SHARED_ACCOUNT_MESSAGE);return}
+    setBusy(true)
     if(!auth){setError('Firebase 연결이 필요합니다.');setBusy(false);return}
     const firebasePassword = password === loginId ? `D5${loginId}` : password
     try { await signInWithEmailAndPassword(auth, loginId+'@d5.local',firebasePassword) }
-    catch { setError('접속번호 또는 비밀번호를 확인해주세요.') }
+    catch (error) { setError(error instanceof Error && 'code' in error && error.code==='auth/user-disabled' ? '사용이 중지된 계정입니다. 본인 사번으로 로그인해주세요.' : '사번 또는 비밀번호를 확인해주세요.') }
     setBusy(false)
   }
-  return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">SECURE WORKSPACE</p><h1>D5 제휴고객 관리</h1><p className="login-copy">승인된 관리자와 매니저만 접속할 수 있습니다.</p><form onSubmit={login}><label>접속번호<input inputMode="numeric" required value={loginId} onChange={e=>setLoginId(e.target.value.replace(/\D/g,''))} placeholder="사번 또는 관리번호"/></label><label>비밀번호<input type="password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="비밀번호"/></label>{error&&<p className="login-error">{error}</p>}<button className="btn primary" disabled={busy}>{busy?'접속 중...':'로그인'}</button></form><div className="login-safe"><Sparkles size={15}/> Firebase 보안 인증</div></div></div>
+  return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">SECURE WORKSPACE</p><h1>D5 제휴고객 관리</h1><p className="login-copy">본인 사번과 기존 비밀번호로 로그인해주세요.<br/>1292 공용 계정 대신 개인 사번으로 사용합니다.</p><form onSubmit={login}><label>사번<input inputMode="numeric" autoComplete="username" required value={loginId} onChange={e=>setLoginId(e.target.value.replace(/\D/g,''))} placeholder="본인 사번"/></label><label>비밀번호<input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="기존 비밀번호"/></label>{(error||accountError)&&<p className="login-error" role="alert">{error||accountError}</p>}<button className="btn primary" disabled={busy}>{busy?'접속 중...':'로그인'}</button></form><div className="login-safe"><Sparkles size={15}/> Firebase 보안 인증</div></div></div>
 }
 
