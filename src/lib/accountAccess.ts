@@ -1,5 +1,5 @@
 export const SHARED_ACCOUNT_EMPLOYEE_NO = '1292'
-export const SHARED_ACCOUNT_MESSAGE = '1292 공용 계정은 사용이 중지되었습니다. 본인 사번으로 로그인해주세요.'
+export const SHARED_ACCOUNT_MESSAGE = '사용할 수 없는 계정입니다. 본인 사번으로 로그인해주세요.'
 
 const approvedRoles = new Set(['admin', 'store_manager', 'assistant_manager', 'manager'])
 const inactiveStatuses = new Set(['inactive', 'disabled', 'suspended'])

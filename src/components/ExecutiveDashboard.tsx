@@ -4,7 +4,7 @@ import { buildExecutiveMetrics, getDefaultExecutiveMonth, getExecutiveMonthLeads
 import type { Lead } from '../types'
 import './ExecutiveDashboard.css'
 
-type SortColumn = 'name' | 'cases' | 'active' | 'completed' | 'closed' | 'canceled' | 'sales' | 'reservedSales' | 'salesProgress' | 'managementRecords'
+type SortColumn = 'name' | 'cases' | 'expectedCommission' | 'active' | 'completed' | 'closed' | 'canceled' | 'sales' | 'reservedSales' | 'salesProgress' | 'managementRecords'
 type PerformanceRow = ExecutivePeriodSummary & { name: string }
 type Queue = 'unassigned' | 'overdue' | 'stale' | 'canceled' | 'closed'
 const won = (amount: number) => `${Math.round(amount).toLocaleString('ko-KR')}원`
@@ -14,6 +14,7 @@ const performanceColumnHelp = (key: SortColumn) => key === 'completed'
   ? '고객의 구매완료 상태 기준입니다. 연결된 일시불 주문확정·예약·가예약은 영업 판매완료로 반영하며, 신랑·신부 연결 접수는 1건으로 집계합니다.'
   : key === 'sales' ? '일시불 주문확정·예약·가예약의 판매금액과 구독 주문확정·마감됨의 멤버십혜택 기준금액 합계입니다. 구독 출하대기는 제외하며 원본 주문단계는 보존합니다.'
   : key === 'reservedSales' ? '구독 출하대기의 멤버십혜택 기준금액입니다. 판매 기준금액과 구분해 표시하며 예상 수수료에는 포함합니다.'
+  : key === 'expectedCommission' ? '이 업체에 연결된 고객의 일시불·대상 구독 예상 수수료 합계입니다. 고객 목록과 동일한 기준으로 계산하며 수기 금액과 구독 출하대기를 반영합니다. 실제 정산 확정액은 아닙니다.'
   : key === 'salesProgress' ? '고객의 구매완료 접수건수로 정렬하며, 같으면 접수·배정 건수로 정렬합니다. RAW 상품·주문 건수가 아닙니다.'
   : undefined
 const monthLabel = (month: string) => `${month.slice(0, 4)}년 ${Number(month.slice(5))}월`
@@ -115,8 +116,11 @@ function Ranking({ rows, kind, onSelectManager }: { rows: PerformanceRow[]; kind
 function PerformanceTable({ title, rows, month, kind, onSelectManager }: { title: string; rows: PerformanceRow[]; month: string; kind: 'partner' | 'manager'; onSelectManager?: (name: string) => void }) {
   const [sort, setSort] = useState<{ key: SortColumn; direction: 'asc' | 'desc' }>({ key: 'cases', direction: 'desc' })
   const columns: { key: SortColumn; label: string }[] = [
-    { key: 'name', label: kind === 'partner' ? '제휴업체' : '담당자' }, { key: 'cases', label: kind === 'partner' ? '접수' : '배정 접수' }, { key: 'active', label: '관리중' }, { key: 'completed', label: '구매완료' }, { key: 'closed', label: '상담마감' }, { key: 'canceled', label: '취소' }, { key: 'salesProgress', label: kind === 'partner' ? '판매 / 접수' : '판매 / 배정' }, { key: 'sales', label: '판매 기준금액' }, { key: 'reservedSales', label: '구독 출하대기 금액' }, { key: 'managementRecords', label: '관리기록' },
+    { key: 'name', label: kind === 'partner' ? '제휴업체' : '담당자' }, { key: 'cases', label: kind === 'partner' ? '접수' : '배정 접수' },
+    ...(kind === 'partner' ? [{ key: 'expectedCommission' as const, label: '예상 수수료' }] : []),
+    { key: 'active', label: '관리중' }, { key: 'completed', label: '구매완료' }, { key: 'closed', label: '상담마감' }, { key: 'canceled', label: '취소' }, { key: 'salesProgress', label: kind === 'partner' ? '판매 / 접수' : '판매 / 배정' }, { key: 'sales', label: '판매 기준금액' }, { key: 'reservedSales', label: '구독 출하대기 금액' }, { key: 'managementRecords', label: '관리기록' },
   ]
+  const totalCommission = rows.reduce((total, row) => total + row.expectedCommission, 0)
   const sorted = [...rows].sort((a, b) => {
     const result = sort.key === 'name' ? a.name.localeCompare(b.name, 'ko') : sort.key === 'salesProgress' ? a.completed - b.completed || a.cases - b.cases : a[sort.key] - b[sort.key]
     return result * (sort.direction === 'asc' ? 1 : -1) || a.name.localeCompare(b.name, 'ko')
@@ -125,12 +129,13 @@ function PerformanceTable({ title, rows, month, kind, onSelectManager }: { title
     <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>{title}</strong><small>{rows.length}{kind === 'partner' ? '개 업체' : '명'} · + / − 상세 보기</small></summary>
     <div className="exec-detail-body">
       <h4>{title}</h4>
-      <p title={financialDefinitions}>{monthLabel(month)} 접수 기준 · 열 제목을 누르면 정렬됩니다. 일시불 주문확정·예약·가예약은 판매완료에 포함하며 구독 출하대기는 별도 표시합니다.{kind === 'manager' ? ' 담당자 이름을 누르면 전체 기간의 담당 고객을 봅니다. 같은 접수를 함께 맡으면 담당자마다 1건씩 표시하며, 관리기록은 배정 고객의 메모 건수입니다.' : ''}</p>
+      <p title={financialDefinitions}>{monthLabel(month)} 접수 기준 · 열 제목을 누르면 정렬됩니다. 일시불 주문확정·예약·가예약은 판매완료에 포함하며 구독 출하대기는 별도 표시합니다.{kind === 'manager' ? ' 담당자 이름을 누르면 전체 기간의 담당 고객을 봅니다. 같은 접수를 함께 맡으면 담당자마다 1건씩 표시하며, 관리기록은 배정 고객의 메모 건수입니다.' : ' 예상 수수료는 해당 업체 고객의 금액만 합산하며 실제 정산 확정액과는 다릅니다.'}</p>
       <div className="exec-table-scroll"><table className="exec-table">
         <thead><tr>{columns.map(column => <th key={column.key} aria-sort={sort.key === column.key ? sort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}>
           <button type="button" title={performanceColumnHelp(column.key)} className={`exec-sort-button${sort.key === column.key ? ' active' : ''}`} onClick={() => setSort(current => ({ key: column.key, direction: current.key === column.key && current.direction === 'desc' ? 'asc' : 'desc' }))}>{column.label}<span aria-hidden="true">{sort.key === column.key ? sort.direction === 'asc' ? '↑' : '↓' : '↕'}</span></button>
         </th>)}</tr></thead>
-        <tbody>{sorted.map(row => <tr key={row.name}>{columns.map(column => <td key={column.key}>{column.key === 'name' ? kind === 'manager' && onSelectManager ? <ManagerLink name={row.name} onSelect={onSelectManager}/> : row.name : column.key === 'sales' || column.key === 'reservedSales' ? won(row[column.key]) : column.key === 'salesProgress' ? <span className="exec-sales-progress" title={salesProgressLabel(row, kind)} aria-label={salesProgressLabel(row, kind)}>{row.completed.toLocaleString('ko-KR')}건 / {row.cases.toLocaleString('ko-KR')}건</span> : `${row[column.key]}건`}</td>)}</tr>)}</tbody>
+        <tbody>{sorted.map(row => <tr key={row.name}>{columns.map(column => <td key={column.key} className={column.key === 'expectedCommission' ? 'exec-commission-cell' : undefined}>{column.key === 'name' ? kind === 'manager' && onSelectManager ? <ManagerLink name={row.name} onSelect={onSelectManager}/> : row.name : column.key === 'sales' || column.key === 'reservedSales' || column.key === 'expectedCommission' ? won(row[column.key]) : column.key === 'salesProgress' ? <span className="exec-sales-progress" title={salesProgressLabel(row, kind)} aria-label={salesProgressLabel(row, kind)}>{row.completed.toLocaleString('ko-KR')}건 / {row.cases.toLocaleString('ko-KR')}건</span> : `${row[column.key]}건`}</td>)}</tr>)}</tbody>
+        {kind === 'partner' ? <tfoot><tr><th scope="row" colSpan={2}>예상 수수료 합계</th><td className="exec-commission-cell">{won(totalCommission)}</td><td colSpan={columns.length - 3}/></tr></tfoot> : null}
       </table></div>
       {!rows.length && <p className="exec-empty">선택한 접수월의 데이터가 없습니다.</p>}
     </div>

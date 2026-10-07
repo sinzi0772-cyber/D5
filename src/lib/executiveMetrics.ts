@@ -1,5 +1,5 @@
 import type { Lead } from '../types'
-import { completedSalesFor, expectedLumpSumRebateFor, expectedRebateFor, expectedSubscriptionRebateFor, salesRawAmountsFor, subscriptionRawAmountsFor } from './salesFinance'
+import { completedSalesFor, expectedRebateFor, salesRawAmountsFor, subscriptionRawAmountsFor } from './salesFinance'
 
 export interface ExecutivePeriodSummary {
   /** Intake cases, with linked bride/groom customers counted once. */
@@ -118,9 +118,9 @@ const summarizeCases = (cases: readonly ReferralCase[]): ExecutivePeriodSummary 
       if (subscription.current) result.reservedSales += subscription.pending
       // Imports set customer completion separately; original RAW stages remain
       // unchanged. Business-completed reservations are not counted as pending.
-      result.expectedCommission += lead.status === '구매완료'
-        ? expectedRebateFor(lead)
-        : expectedLumpSumRebateFor(lead) + (subscription.current ? expectedSubscriptionRebateFor(lead) : 0)
+      // Expected commission uses the same eligibility and rounding as customer
+      // purchase information; manual customer status is not a RAW order stage.
+      result.expectedCommission += expectedRebateFor(lead)
       if (lead.status !== '구매완료') continue
       result.completedCustomers++
       if (saleAmount === 0) result.missingAmounts++
@@ -176,11 +176,15 @@ export const buildExecutiveMetrics = (leads: readonly Lead[], month: string, tod
 
   const partners = new Map<string, ReferralCase[]>()
   for (const item of monthCases) {
-    // A connected case belongs to its first intake partner, so partner totals reconcile.
-    const name = item.leads[0].partnerName.trim() || '업체 미입력'
-    const groups = partners.get(name)
-    if (groups) groups.push(item)
-    else partners.set(name, [item])
+    // Each company owns only its customers' financial amounts. A cross-company
+    // linked case appears in every involved company row, so case counts must
+    // not be summed; financial totals still reconcile with the overall total.
+    for (const name of new Set(item.leads.map(lead => lead.partnerName))) {
+      const scopedCase = { ...item, leads: item.leads.filter(lead => lead.partnerName === name) }
+      const groups = partners.get(name)
+      if (groups) groups.push(scopedCase)
+      else partners.set(name, [scopedCase])
+    }
   }
 
   const managers = new Map<string, Lead[]>()
@@ -203,7 +207,7 @@ export const buildExecutiveMetrics = (leads: readonly Lead[], month: string, tod
       overdue,
       stale,
     },
-    partners: [...partners].map(([name, groups]) => ({ name, ...summarizeCases(groups) }))
+    partners: [...partners].map(([name, groups]) => ({ name: name.trim() || '업체 미입력', ...summarizeCases(groups) }))
       .sort((a, b) => b.sales - a.sales || b.completed - a.completed || b.cases - a.cases || a.name.localeCompare(b.name, 'ko')),
     // Connected cases can be shared by managers; these rows should not be summed.
     managers: [...managers].map(([name, members]) => ({ name, assigned: members.length, ...summarizeCases(groupCases(members)) }))

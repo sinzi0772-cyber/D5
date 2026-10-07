@@ -11,7 +11,8 @@ import { septemberAppointments } from './data/septemberAppointments'
 import { ExecutiveDashboard } from './components/ExecutiveDashboard'
 import { customerIdentityKey, maskCustomerName } from './lib/salesRaw'
 import { canonicalPartnerName } from './lib/partners'
-import { expectedRebateFor, isSubscriptionRebatePartner, lumpSumAmountFor, salesRawAmountsFor, subscriptionRawAmountsFor, subscriptionAmountFor, totalPurchaseAmountFor } from './lib/salesFinance'
+import { expectedRebateFor, isSubscriptionRebatePartner, lumpSumAmountFor, purchaseAmountSourceFor, salesRawAmountsFor, subscriptionRawAmountsFor, subscriptionAmountFor, totalPurchaseAmountFor } from './lib/salesFinance'
+import { formatAmountInput, parseAmountInput } from './lib/amountInput'
 import { comparePurchaseAmounts, getVisiblePurchaseMembers, purchaseSortValue } from './lib/customerSorting'
 import { buildSeptemberSyncPlan, canStartSeptemberSync, septemberExistingPatch } from './lib/septemberSync'
 import { accountAccessError, SHARED_ACCOUNT_EMPLOYEE_NO, SHARED_ACCOUNT_MESSAGE } from './lib/accountAccess'
@@ -168,6 +169,10 @@ const formatDate = (date?: string) => date ? date.replaceAll('-', '.') : '—'
 const formatDateTime = (value?: string) => value ? new Date(value).toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '기록 없음'
 const partnerKey = (value: string) => canonicalPartnerName(value).trim().toLowerCase().replace(/주식회사|\(주\)|㈜/g, '').replace(/[\s·._-]/g, '')
 const formatWon = (value: number) => `${Math.round(value).toLocaleString('ko-KR')}원`
+const enteredAmountFor = (lead: Lead, kind: 'lumpSum' | 'subscription') => kind === 'lumpSum'
+  ? lead.lumpSumAmount ?? (lead.purchaseType === '일시불' ? lead.purchaseAmount : undefined)
+  : lead.subscriptionAmount ?? (lead.purchaseType === '구독' ? lead.purchaseAmount : undefined)
+const hasEnteredAmount = (value?: number) => typeof value === 'number' && Number.isFinite(value) && value >= 0
 const partnerMatchScore = (candidate: string, input: string) => {
   const candidateKey = partnerKey(candidate)
   const inputKey = partnerKey(input)
@@ -542,8 +547,9 @@ export default function App() {
         manager: sanitized.manager || null, managerEmployeeNo, plannerName: sanitized.plannerName || null,
         ...(caseGroupId ? { caseGroupId } : {}),
         status: sanitized.status, visitState: sanitized.visitState, purchaseType: sanitized.purchaseType || '미선택',
-        purchaseAmount: totalPurchaseAmountFor(sanitized) || null, lumpSumAmount: lumpSumAmountFor(sanitized) || null,
-        subscriptionAmount: subscriptionAmountFor(sanitized) || null, note: sanitized.note || null, memoHistory: sanitized.memoHistory || [],
+        purchaseAmount: hasEnteredAmount(enteredAmountFor(sanitized, 'lumpSum')) || hasEnteredAmount(enteredAmountFor(sanitized, 'subscription')) ? totalPurchaseAmountFor(sanitized) : null,
+        lumpSumAmount: hasEnteredAmount(enteredAmountFor(sanitized, 'lumpSum')) ? lumpSumAmountFor(sanitized) : null,
+        subscriptionAmount: hasEnteredAmount(enteredAmountFor(sanitized, 'subscription')) ? subscriptionAmountFor(sanitized) : null, note: sanitized.note || null, memoHistory: sanitized.memoHistory || [],
         ...(creating ? { createdBy: currentUser.id, createdAt: sanitized.updatedAt } : {}),
         updatedBy: currentUser.id, updatedAt: sanitized.updatedAt,
       }).filter(([, value]) => value !== undefined))
@@ -665,9 +671,10 @@ function PurchaseSummary({members}:{members:Lead[]}) {
   const expectedCommission = uniqueMembers.reduce((sum, member) => sum + expectedRebateFor(member), 0)
   const reserved = rawByMember.reduce((sum, raw) => sum + (raw.current ? raw.pending : 0), 0) + subscriptionByMember.reduce((sum, raw) => sum + (raw.current ? raw.pending : 0), 0)
   if (!total && !rawByMember.some(raw => raw.current) && !subscriptionByMember.some(raw => raw.current)) return <span className="purchase-empty">—</span>
-  const unknownLumpSumRoute = uniqueMembers.some((member, index) => lumpSumAmountFor(member) > 0 && !rawByMember[index].current)
+  const manualAmount = uniqueMembers.some(member => (['lumpSum', 'subscription'] as const).some(kind => purchaseAmountSourceFor(member, kind).kind === 'manual' && purchaseAmountSourceFor(member, kind).amount > 0))
+  const missingAppointmentType = uniqueMembers.some(member => (lumpSumAmountFor(member) > 0 || subscriptionAmountFor(member) > 0) && member.appointmentType !== '이업종제휴' && member.appointmentType !== '상담예약(이업종)' && (purchaseAmountSourceFor(member, 'lumpSum').kind === 'manual' || purchaseAmountSourceFor(member, 'subscription').kind === 'manual'))
   const subscriptionIneligible = uniqueMembers.some(member => subscriptionAmountFor(member) > 0 && !isSubscriptionRebatePartner(member.partnerName))
-  return <div className="purchase-summary"><span>{formatWon(total)}</span>{subscriptionByMember.some(raw => raw.current) && <em>구독은 멤버십혜택 기준금액</em>}{reserved > 0 && <em>예약·출하대기 {formatWon(reserved)} 포함</em>}<small>예상 제휴 수수료 {formatWon(expectedCommission)}</small>{unknownLumpSumRoute && <em>일시불 판매경로 확인 필요</em>}{subscriptionIneligible && <em>구독 제휴 수수료 대상 아님</em>}</div>
+  return <div className="purchase-summary"><span>{formatWon(total)}</span>{subscriptionByMember.some(raw => raw.current) && <em>구독은 멤버십혜택 기준금액</em>}{reserved > 0 && <em>예약·출하대기 {formatWon(reserved)} 포함</em>}<small>예상 제휴 수수료 {formatWon(expectedCommission)}</small>{manualAmount && <em>수기 금액 반영</em>}{missingAppointmentType && <em>제휴 접수 유형 확인 필요</em>}{subscriptionIneligible && <em>구독 제휴 수수료 대상 아님</em>}</div>
 }
 
 function DuplicateIntakeHelp({lead,leads}:{lead:Lead,leads:Lead[]}) {
@@ -684,6 +691,26 @@ function ManagementSummary({lead,onOpen}:{lead:Lead,onOpen:()=>void}) {
   const visible = entries.slice(-2)
   const firstRound = entries.length - visible.length + 1
   return <div className="management-cell"><div className="management-actions">{visible.map((entry,index)=><button type="button" className="management-chip" key={entry.id} onClick={event=>{event.stopPropagation();onOpen()}}><span>✓ {firstRound+index}회차 · 관리</span><small>{formatDate(entry.date)}</small></button>)}<button type="button" className="management-add" onClick={event=>{event.stopPropagation();onOpen()}}>+ 관리 기록 추가</button></div></div>
+}
+
+function MoneyInput({label,kind,lead,onChange}:{label:string;kind:'lumpSum'|'subscription';lead:Lead;onChange:(value?:number)=>void}) {
+  const value = enteredAmountFor(lead, kind)
+  const source = purchaseAmountSourceFor(lead, kind)
+  const [invalid, setInvalid] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const descriptionId = `${kind}-amount-source`
+  const sourceLabel = source.kind === 'raw' ? 'RAW 일치' : source.kind === 'manual' ? '수기 금액' : '미입력'
+  const description = source.kind === 'raw'
+    ? '현재 금액이 연결된 RAW 합계와 일치합니다. 같은 금액을 수기로 다시 입력한 과거 이력은 별도로 기록되지 않습니다.'
+    : source.kind === 'manual' ? source.rawAmount === null ? '연결된 RAW 금액이 없어 현재 입력된 수기 금액을 사용합니다.' : `RAW ${formatWon(source.rawAmount)}과 다르므로 현재 수기 금액을 우선 사용합니다.`
+    : '원 단위 금액을 입력해주세요.'
+  useEffect(() => { setInvalid(false); inputRef.current?.setCustomValidity('') }, [value])
+  return <label className="money-field"><span className="money-label">{label}<small id={descriptionId} className={`amount-source ${source.kind}`} title={description}>{sourceLabel}</small></span><span className="money-input-wrap"><input ref={inputRef} aria-label={label} aria-describedby={descriptionId} aria-invalid={invalid} type="text" inputMode="numeric" autoComplete="off" placeholder="예: 3,000,000" value={formatAmountInput(value)} onChange={event => {
+    const parsed = parseAmountInput(event.target.value)
+    setInvalid(!parsed.valid)
+    event.target.setCustomValidity(parsed.valid ? '' : '원 단위의 숫자 금액을 입력해주세요.')
+    if (parsed.valid) onChange(parsed.value)
+  }}/><span className="currency-unit" aria-hidden="true">원</span></span>{invalid && <small className="amount-input-error">원 단위 숫자로 입력해주세요.</small>}</label>
 }
 
 function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,onClose,onSave,onUnlink,remoteChanged}:{lead:Lead,linkedLeads:Lead[],allLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,onClose:()=>void,onSave:(l:Lead,linkTargetId?:string)=>void,onUnlink:(lead:Lead)=>Promise<void>,remoteChanged:boolean}) {
@@ -732,7 +759,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
       {canManageAll && (creating || !lead.caseGroupId) && <fieldset className="case-link-fieldset"><legend>같은 접수건 연결</legend><label className="case-link-check"><input type="checkbox" checked={linkExisting} onChange={e=>{setLinkExisting(e.target.checked);setLinkTargetId('')}}/><span>이 고객을 기존 접수건과 묶기</span></label><small>신랑·신부 등 같은 접수건은 목록과 접수건 수에서 1건으로 표시됩니다. 고객별 상태와 관리메모는 따로 유지됩니다.</small>{linkExisting && <div className="case-link-picker"><label>기존 고객 찾기<input placeholder="고객명·휴대폰 뒷자리·제휴업체 검색" value={linkSearch} onChange={e=>{setLinkSearch(e.target.value);setLinkTargetId('')}}/></label><label>연결할 고객<select required value={linkTargetId} onChange={e=>setLinkTargetId(e.target.value)}><option value="">고객을 선택하세요</option>{linkChoices.map(item=><option key={item.id} value={item.id}>{item.customerName} · {item.phoneLast4} · {item.partnerName}</option>)}</select></label></div>}</fieldset>}
       <fieldset><legend>제휴 정보</legend><label>BILL To Name · 제휴업체명<input required disabled={!creating} list="partner-options" autoComplete="off" placeholder="판매 로우의 제휴업체 검색 또는 신규 입력" value={form.partnerName} onChange={e=>update('partnerName',e.target.value)} onBlur={e=>{const match=partners.find(partner=>partnerKey(partner)===partnerKey(e.target.value));if(match)update('partnerName',match)}}/><datalist id="partner-options">{partnerSuggestions.map(partner=><option key={partner} value={partner}/>)}</datalist><small>비슷한 기존 업체가 먼저 표시되며, 목록에 없는 업체명도 신규 저장할 수 있습니다.</small></label><label>플래너명<input disabled={!creating} placeholder="선택 입력" value={form.plannerName||''} onChange={e=>update('plannerName',e.target.value)}/></label></fieldset>
       <fieldset><legend>일정 정보</legend><label>매장방문 예정일<input type="date" value={form.visitScheduledDate||''} onChange={e=>update('visitScheduledDate',e.target.value)}/></label></fieldset>
-      <fieldset><legend>구매 정보</legend><label>구매 방식<select value={form.purchaseType||'미선택'} onChange={e=>{const purchaseType=e.target.value as PurchaseType;setForm(current=>({...current,purchaseType,lumpSumAmount:purchaseType.includes('일시불')?lumpSumAmountFor(current):undefined,subscriptionAmount:purchaseType.includes('구독')?subscriptionAmountFor(current):undefined,purchaseAmount:undefined}))}}><option value="미선택">미선택</option><option value="일시불">일시불</option><option value="구독">구독</option><option value="일시불+구독">일시불+구독</option></select></label><div className="form-grid purchase-amount-grid">{form.purchaseType?.includes('일시불')&&<label>일시불 금액<input type="number" inputMode="numeric" min="0" step="1000" placeholder="예: 3000000" value={form.lumpSumAmount??''} onChange={e=>setForm(current=>({...current,lumpSumAmount:e.target.value===''?undefined:Math.max(0,Number(e.target.value))}))}/></label>}{form.purchaseType?.includes('구독')&&<label>구독 금액<input type="number" inputMode="numeric" min="0" step="1000" placeholder="예: 1000000" value={form.subscriptionAmount??''} onChange={e=>setForm(current=>({...current,subscriptionAmount:e.target.value===''?undefined:Math.max(0,Number(e.target.value))}))}/></label>}</div>{form.purchaseType&&form.purchaseType!=='미선택'&&<div className={`rebate-preview ${subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?'ineligible':''}`}><span>예상 제휴 수수료</span><strong>{formatWon(expectedRebateFor(form))}</strong><small>일시불은 지정 판매경로가 확인된 RAW 금액 기준이며 예약·가예약도 판매완료에 포함합니다. 실제 납품·정산은 별도 확인합니다.{subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?' 구독 금액은 제휴 수수료 대상 업체에만 반영됩니다.':subscriptionAmountFor(form)>0?' 구독 금액은 대상 업체의 별도 기준을 적용합니다.':''}</small></div>}</fieldset>
+      <fieldset><legend>구매 정보</legend><label>구매 방식<select value={form.purchaseType||'미선택'} onChange={e=>{const purchaseType=e.target.value as PurchaseType;setForm(current=>({...current,purchaseType,lumpSumAmount:purchaseType.includes('일시불')?lumpSumAmountFor(current):undefined,subscriptionAmount:purchaseType.includes('구독')?subscriptionAmountFor(current):undefined,purchaseAmount:undefined}))}}><option value="미선택">미선택</option><option value="일시불">일시불</option><option value="구독">구독</option><option value="일시불+구독">일시불+구독</option></select></label><div className="form-grid purchase-amount-grid">{form.purchaseType?.includes('일시불') && <MoneyInput key={`${form.id}-lumpSum`} label="일시불 금액" kind="lumpSum" lead={form} onChange={value=>setForm(current=>({...current,lumpSumAmount:value,purchaseAmount:undefined}))}/>} {form.purchaseType?.includes('구독') && <MoneyInput key={`${form.id}-subscription`} label="구독 금액" kind="subscription" lead={form} onChange={value=>setForm(current=>({...current,subscriptionAmount:value,purchaseAmount:undefined}))}/>}</div>{form.purchaseType&&form.purchaseType!=='미선택'&&<div className={`rebate-preview ${subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?'ineligible':''}`}><span>예상 제휴 수수료</span><strong>{formatWon(expectedRebateFor(form))}</strong><small>RAW 일치 금액은 원본의 대상 판매경로를 적용하고, 수기 금액은 현재 입력값을 우선 계산합니다. 실제 납품·연결 매장·정산은 별도 확인합니다.{subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?' 구독 금액은 제휴 수수료 대상 업체에만 반영됩니다.':''}</small></div>}</fieldset>
       <fieldset><legend>진행 관리</legend><div className="form-grid"><label>담당 매니저<select disabled={!canManageAll} value={manualManager ? '__manual__' : form.manager||''} onChange={e=>{if(e.target.value==='__manual__'){setManualManager(true);update('manager','')}else{setManualManager(false);update('manager',e.target.value)}}}><option value="__manual__">직접입력</option><option value="">미배정</option>{managers.filter(m=>m.role==='매니저').map(m=><option key={m.employeeNo} value={m.name}>{m.name}</option>)}</select>{manualManager && canManageAll && <input className="manual-manager" autoFocus placeholder="담당자 이름 직접입력" value={form.manager||''} onChange={e=>update('manager',e.target.value)}/>}</label><label>현재 상태<select value={form.status} onChange={e=>update('status',e.target.value)}>{STATUSES.map(s=><option key={s}>{s}</option>)}</select></label><label>방문 여부<select value={form.visitState} onChange={e=>update('visitState',e.target.value as VisitState)}><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label></div><button type="button" className="memo-open" onClick={()=>setMemoOpen(true)}><span><Clock3 size={18}/><b>관리메모</b></span><small>{memoEntries.length ? memoEntries.length+'건의 관리 이력' : '접촉 내용과 다음 계획을 기록하세요'}</small><i>보기 →</i></button></fieldset>
       <div className="drawer-actions"><button type="button" className="btn secondary" onClick={onClose}>취소</button><button className="btn primary" type="submit" disabled={remoteChanged}><Check size={17}/>{creating ? '고객 등록' : '변경사항 저장'}</button></div>
     </form>
@@ -795,6 +822,6 @@ function LoginScreen({accountError,onLoginStart}:{accountError:string;onLoginSta
     catch (error) { setError(error instanceof Error && 'code' in error && error.code==='auth/user-disabled' ? '사용이 중지된 계정입니다. 본인 사번으로 로그인해주세요.' : '사번 또는 비밀번호를 확인해주세요.') }
     setBusy(false)
   }
-  return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">SECURE WORKSPACE</p><h1>D5 제휴고객 관리</h1><p className="login-copy">본인 사번과 기존 비밀번호로 로그인해주세요.<br/>1292 공용 계정 대신 개인 사번으로 사용합니다.</p><form onSubmit={login}><label>사번<input inputMode="numeric" autoComplete="username" required value={loginId} onChange={e=>setLoginId(e.target.value.replace(/\D/g,''))} placeholder="본인 사번"/></label><label>비밀번호<input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="기존 비밀번호"/></label>{(error||accountError)&&<p className="login-error" role="alert">{error||accountError}</p>}<button className="btn primary" disabled={busy}>{busy?'접속 중...':'로그인'}</button></form><div className="login-safe"><Sparkles size={15}/> Firebase 보안 인증</div></div></div>
+  return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">SECURE WORKSPACE</p><h1>D5 제휴고객 관리</h1><p className="login-copy">본인 사번과 기존 비밀번호로 로그인해주세요.</p><form onSubmit={login}><label>사번<input inputMode="numeric" autoComplete="username" required value={loginId} onChange={e=>setLoginId(e.target.value.replace(/\D/g,''))} placeholder="본인 사번"/></label><label>비밀번호<input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="기존 비밀번호"/></label>{(error||accountError)&&<p className="login-error" role="alert">{error||accountError}</p>}<button className="btn primary" disabled={busy}>{busy?'접속 중...':'로그인'}</button></form><div className="login-safe"><Sparkles size={15}/> Firebase 보안 인증</div></div></div>
 }
 

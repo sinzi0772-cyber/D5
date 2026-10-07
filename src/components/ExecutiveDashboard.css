@@ -301,6 +301,9 @@
 .exec-dashboard .exec-table td:first-child { color: #355447; font-weight: 700; }
 .exec-dashboard .exec-table tbody tr { cursor: default; }
 .exec-dashboard .exec-table tbody tr:hover { background: #f7fbf8; }
+.exec-dashboard .exec-table .exec-commission-cell { color: var(--exec-teal); font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.exec-dashboard .exec-table tfoot th,
+.exec-dashboard .exec-table tfoot td { position: static; background: #edf6f1; border-top: 1px solid #d5e7dc; border-bottom: 0; }
 .exec-sort-button { display: inline-flex; align-items: center; gap: 5px; border: 0; padding: 3px 0; background: transparent; color: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .exec-sort-button svg { width: 12px; height: 12px; color: #a9b7af; }
 .exec-sort-button.active,

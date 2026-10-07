@@ -5,7 +5,8 @@ const employeeNo = '13783'
 const approvedProfile = { employeeNo, displayName: '테스트 직원', role: 'manager' }
 
 assert.equal(SHARED_ACCOUNT_EMPLOYEE_NO, '1292')
-assert.equal(SHARED_ACCOUNT_MESSAGE, '1292 공용 계정은 사용이 중지되었습니다. 본인 사번으로 로그인해주세요.')
+assert.equal(SHARED_ACCOUNT_MESSAGE, '사용할 수 없는 계정입니다. 본인 사번으로 로그인해주세요.')
+assert.doesNotMatch(SHARED_ACCOUNT_MESSAGE, /1292|공용/, 'Login guidance must not mention the retired account')
 assert.equal(accountAccessError('1292'), SHARED_ACCOUNT_MESSAGE, 'The shared account is denied before profile lookup')
 assert.equal(accountAccessError('1292', { employeeNo: '1292', role: 'admin', active: true, approved: true }), SHARED_ACCOUNT_MESSAGE, 'No role or active flag can reactivate the shared account')
 assert.equal(accountAccessError('1292', approvedProfile), SHARED_ACCOUNT_MESSAGE)
