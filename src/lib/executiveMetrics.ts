@@ -22,10 +22,13 @@ export interface ExecutivePartnerSummary extends ExecutivePeriodSummary {
   name: string
 }
 
+/** Display aggregate only: preserve confirmed/completed and pending bases separately. */
+export const executiveTotalSalesFor = (row: Pick<ExecutivePeriodSummary, 'sales' | 'reservedSales'>): number => row.sales + row.reservedSales
+
 /** Rank positive expected commissions without changing the underlying company summaries. */
 export const getTopCommissionPartners = (rows: readonly ExecutivePartnerSummary[]): ExecutivePartnerSummary[] => rows
   .filter(row => row.expectedCommission > 0)
-  .sort((a, b) => b.expectedCommission - a.expectedCommission || b.sales - a.sales || a.name.localeCompare(b.name, 'ko'))
+  .sort((a, b) => b.expectedCommission - a.expectedCommission || executiveTotalSalesFor(b) - executiveTotalSalesFor(a) || a.name.localeCompare(b.name, 'ko'))
   .slice(0, 3)
 
 export interface ExecutiveManagerSummary extends ExecutivePeriodSummary {
@@ -214,9 +217,9 @@ export const buildExecutiveMetrics = (leads: readonly Lead[], month: string, tod
       stale,
     },
     partners: [...partners].map(([name, groups]) => ({ name: name.trim() || '업체 미입력', ...summarizeCases(groups) }))
-      .sort((a, b) => b.sales - a.sales || b.completed - a.completed || b.cases - a.cases || a.name.localeCompare(b.name, 'ko')),
+      .sort((a, b) => executiveTotalSalesFor(b) - executiveTotalSalesFor(a) || b.completed - a.completed || b.cases - a.cases || a.name.localeCompare(b.name, 'ko')),
     // Connected cases can be shared by managers; these rows should not be summed.
     managers: [...managers].map(([name, members]) => ({ name, assigned: members.length, ...summarizeCases(groupCases(members)) }))
-      .sort((a, b) => b.sales - a.sales || b.completed - a.completed || b.assigned - a.assigned || a.name.localeCompare(b.name, 'ko')),
+      .sort((a, b) => executiveTotalSalesFor(b) - executiveTotalSalesFor(a) || b.completed - a.completed || b.assigned - a.assigned || a.name.localeCompare(b.name, 'ko')),
   }
 }
