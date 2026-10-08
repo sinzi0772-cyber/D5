@@ -1,0 +1,49 @@
+.partner-preview { border: 1px solid #dce7e5; border-radius: 16px; background: #fff; padding: 24px; color: #193c42; }
+.partner-preview-heading { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
+.partner-preview-eyebrow { font-size: 10px; font-weight: 700; letter-spacing: 1.6px; color: #d44150; }
+.partner-preview-heading h2 { margin: 7px 0; font-size: 21px; line-height: 1.4; overflow-wrap: anywhere; }
+.partner-preview-heading p, .partner-preview-section-heading p { margin: 0; color: #687d84; font-size: 13px; line-height: 1.6; }
+.partner-preview-stats { display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 12px; margin-bottom: 20px; }
+.partner-preview-stats > div { border: 1px solid #e0e8e7; border-radius: 10px; padding: 16px; min-width: 0; background: #fbfdfd; }
+.partner-preview-stats span { font-size: 13px; font-weight: 600; }
+.partner-preview-stats strong { display: block; margin-top: 9px; font-size: 28px; line-height: 1.3; overflow-wrap: anywhere; }
+.partner-preview-stats strong small { font-size: 13px; margin-left: 4px; font-weight: 500; }
+.partner-preview-stats p { margin: 7px 0 0; color: #73888e; font-size: 12px; line-height: 1.5; }
+.partner-preview-stats .partner-preview-fee { background: #f1faf7; color: #0b7269; border-color: #cfe5de; }
+.partner-preview-settlement { border-radius: 10px; padding: 16px; margin-bottom: 20px; background: #f5faf8; border: 1px solid #dcece5; }
+.partner-preview-section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+.partner-preview-section-heading h3 { font-size: 15px; margin: 0; }
+.partner-preview-section-heading small { color: #778c92; font-size: 11px; }
+.partner-preview-months { padding: 0; margin: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 8px; }
+.partner-preview-months li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; background: #fff; border-radius: 7px; padding: 12px; border: 1px solid #dfeae5; font-size: 13px; }
+.partner-preview-months small { color: #7a8d91; margin-left: 5px; font-size: 11px; }
+.partner-preview-months strong { color: #087970; font-size: 16px; }
+.partner-preview-undated { margin: 12px 0 0; font-size: 12px; line-height: 1.6; color: #996425; }
+.partner-preview-empty { color: #758990; font-size: 13px; margin: 12px 0; line-height: 1.6; }
+.partner-preview-table-scroll { width: 100%; overflow-x: auto; border: 1px solid #e4eaea; border-radius: 9px; }
+.partner-preview-table-scroll table { min-width: 760px; width: 100%; border-collapse: collapse; font-size: 13px; }
+.partner-preview-table-scroll th { padding: 12px; background: #f6f8fa; font-size: 11px; font-weight: 600; text-align: left; color: #687c83; white-space: nowrap; }
+.partner-preview-table-scroll td { padding: 13px 12px; border-top: 1px solid #edf0f2; white-space: nowrap; }
+.partner-preview table tbody tr { cursor: default; }
+.partner-preview-customer-label { font-weight: 700; }
+.partner-preview-customer-fee { color: #0b7b71; font-weight: 600; }
+.partner-preview-status { display: inline-block; padding: 4px 8px; border-radius: 14px; background: #f0f3fa; color: #647fa1; font-size: 11px; }
+.partner-preview-status.completed { background: #e6f4ee; color: #20835e; }
+@media (max-width: 700px) {
+  .partner-preview { padding: 16px; }
+  .partner-preview-heading { flex-direction: column; gap: 8px; }
+  .partner-preview-heading h2 { font-size: 19px; }
+  .partner-preview-stats { grid-template-columns: 1fr 1fr; }
+  .partner-preview-stats .partner-preview-fee { grid-column: 1 / -1; }
+  .partner-preview-stats strong { font-size: 25px; }
+  .partner-preview-section-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
+}
+@media print {
+  .partner-preview, .partner-preview * { visibility: visible !important; }
+  .partner-preview { position: absolute !important; inset: 0 auto auto 0 !important; width: 100% !important; margin: 0 !important; padding: 12px; border: 0; box-shadow: none; }
+  .partner-preview-table-scroll { overflow: visible; }
+  .partner-preview-table-scroll table { min-width: 0; font-size: 10px; }
+  .partner-preview-table-scroll td, .partner-preview-table-scroll th { padding: 7px; white-space: normal; }
+  .partner-preview-table-scroll tr { break-inside: avoid; }
+  .partner-preview-stats { break-inside: avoid; }
+}

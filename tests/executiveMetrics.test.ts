@@ -80,8 +80,29 @@ assert.equal(partnerBSeptember.current.completed, 0)
 assert.equal(partnerBSeptember.previous.cases, 1)
 assert.deepEqual(getExecutiveMonthLeads(crossPartnerCouple, '2026-08', 'B 업체').map(item => item.id), ['later-partner-b'])
 assert.deepEqual(getExecutiveMonthLeads(crossPartnerCouple, '2026-09', 'B 업체').map(item => item.id), ['active-partner-b'])
-assert.deepEqual(partnerBAugust.actions.unassigned.map(item => item.id), ['active-partner-b'], 'Action queues respect partner scope across intake months')
-assert.deepEqual(partnerBAugust.actions.stale.map(item => item.id), ['active-partner-b'])
+assert.deepEqual(partnerBAugust.actions.unassigned, [], 'Action queues exclude another intake month, even for the same partner')
+assert.deepEqual(partnerBAugust.actions.stale, [])
+assert.deepEqual(partnerBSeptember.actions.unassigned.map(item => item.id), ['active-partner-b'], 'Action queues use the same selected month and partner scope as summary cards')
+assert.deepEqual(partnerBSeptember.actions.stale.map(item => item.id), ['active-partner-b'])
+
+const monthlyActionRows = [
+  lead('prior-month', { registeredAt: '2026-08-29', visitScheduledDate: '2026-09-01' }),
+  lead('selected-month', { registeredAt: '2026-09-15', visitScheduledDate: '2026-09-20' }),
+  lead('next-month', { registeredAt: '2026-10-01', visitScheduledDate: '2026-10-02' }),
+  lead('linked-prior-first', { caseGroupId: 'action-prior-case', registeredAt: '2026-08-31', partnerName: 'A 업체', status: '취소' }),
+  lead('linked-prior-later', { caseGroupId: 'action-prior-case', registeredAt: '2026-09-01', partnerName: 'B 업체', visitScheduledDate: '2026-09-10' }),
+  lead('linked-selected-first', { caseGroupId: 'action-selected-case', registeredAt: '2026-09-30', partnerName: 'A 업체', status: '취소' }),
+  lead('linked-selected-later', { caseGroupId: 'action-selected-case', registeredAt: '2026-10-01', partnerName: 'B 업체', visitScheduledDate: '2026-10-02' }),
+]
+const monthlyActionBefore = JSON.stringify(monthlyActionRows)
+const septemberActions = buildExecutiveMetrics(monthlyActionRows, '2026-09', '2026-10-10').actions
+for (const key of ['unassigned', 'overdue', 'stale'] as const) {
+  assert.deepEqual(septemberActions[key].map(item => item.id), ['selected-month', 'linked-selected-later'], `${key} includes only managing customers whose complete case belongs to September`)
+  assert.deepEqual(buildExecutiveMetrics(monthlyActionRows, '2026-09', '2026-10-10', 'B 업체').actions[key].map(item => item.id), ['linked-selected-later'], `${key} applies company scope after retaining the whole linked case original month`)
+  assert.deepEqual(buildExecutiveMetrics(monthlyActionRows, '2026-08', '2026-10-10', 'B 업체').actions[key].map(item => item.id), ['linked-prior-later'], `${key} includes a later registered customer in its complete case original August month`)
+  assert.deepEqual(buildExecutiveMetrics(monthlyActionRows, '2026-11', '2026-10-10').actions[key], [], `${key} is empty when the selected intake month has no cases`)
+}
+assert.equal(JSON.stringify(monthlyActionRows), monthlyActionBefore, 'Monthly action scoping does not change registration, linked cases, company, status, or memo data')
 
 const allPartnersAugust = buildExecutiveMetrics(crossPartnerCouple, '2026-08', '2026-10-03')
 assert.equal(allPartnersAugust.current.cases, 1, 'A cross-company connected case still counts only once overall')

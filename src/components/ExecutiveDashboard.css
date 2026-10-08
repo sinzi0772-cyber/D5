@@ -125,7 +125,7 @@
 .exec-kpi {
   position: relative;
   min-width: 0;
-  min-height: 136px;
+  min-height: 120px;
   padding: 15px 18px;
   border: 1px solid #dde7e1;
   border-radius: 12px;
@@ -313,6 +313,15 @@
 .exec-footer { margin: 0; color: #80918a; font-size: 12px; line-height: 1.65; }
 .exec-footnote { margin: -3px 0 0; color: #8d9992; font-size: 12px; line-height: 1.65; }
 
+.exec-status-note { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: -6px; }
+.exec-status-note button { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 2px; border: 0; background: transparent; color: #7b8c85; font: inherit; font-size: 12px; }
+.exec-status-note strong { color: #5f7569; font-weight: 700; }
+.exec-status-note button:hover { color: #176d59; text-decoration: underline; text-underline-offset: 3px; }
+.exec-month-detail-body { display: grid; gap: 14px; padding: 16px; background: #fafcfb; }
+.exec-month-detail-body .exec-section-head { margin-top: 0; }
+.exec-month-detail-body .exec-highlight h3 { font-size: 15px; }
+.exec-month-detail-body .exec-footnote { font-size: 11px; }
+
 @media (max-width: 1100px) {
   .exec-dashboard { gap: 16px; padding: 5px; }
   .exec-kpi { padding: 15px; }
@@ -329,7 +338,7 @@
   .exec-heading { gap: 16px; }
   .exec-heading h2 { font-size: 22px; }
   .exec-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .exec-kpi { min-height: 143px; }
+  .exec-kpi { min-height: 128px; }
   .exec-kpi-value strong { font-size: 30px; }
   .exec-outcomes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .exec-actions { gap: 9px; }
@@ -344,16 +353,16 @@
 @media (max-width: 600px) {
   .exec-manager-link { min-height: 44px; }
   .exec-dashboard { padding: 2px; gap: 15px; }
-  .exec-heading { flex-direction: column; gap: 13px; }
+  .exec-heading { flex-direction: row; align-items: center; gap: 12px; }
   .exec-heading h2 { font-size: 22px; }
-  .exec-controls { width: 100%; justify-content: space-between; align-items: flex-end; }
+  .exec-controls { flex: none; width: auto; align-items: center; }
   .exec-period { flex: 1; }
   .exec-period select { min-width: 0; flex: 1; }
   .exec-period>svg { display: none; }
   .exec-scope { gap: 5px 14px; padding-bottom: 11px; }
   .exec-scope span:last-child { margin-left: 0; }
   .exec-kpis { gap: 9px; }
-  .exec-kpi { min-height: 149px; padding: 13px 11px; }
+  .exec-kpi { min-height: 128px; padding: 13px 11px; }
   .exec-kpi-icon { top: 11px; right: 9px; width: 25px; height: 25px; border-radius: 7px; }
   .exec-kpi-icon svg { width: 14px; height: 14px; }
   .exec-kpi-label { padding-right: 24px; font-size: 12px; }
@@ -387,6 +396,8 @@
   .exec-details>summary { grid-template-columns: auto 1fr; padding: 13px 12px; gap: 8px; }
   .exec-details>summary small { grid-column: 2; }
   .exec-drilldown>header { padding: 12px; }
+  .exec-status-note button { min-height: 44px; }
+  .exec-month-detail-body { padding: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -442,6 +453,8 @@
   .exec-details>summary small { margin-left: 12px; font-size: 10px; }
   .exec-details:not([open])>.exec-detail-body { display: block !important; }
   .exec-details::details-content { content-visibility: visible !important; }
+  .exec-month-details:not([open])>.exec-month-detail-body,
+  .exec-month-detail-body { display: grid !important; padding: 10px; gap: 12px; }
   .exec-detail-body { display: block !important; padding: 0 10px 10px; }
   .exec-table-scroll,
   .exec-drill-scroll { max-height: none; overflow: visible; }

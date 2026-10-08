@@ -38,7 +38,7 @@ export interface ExecutiveMetrics {
   previousMonth: string
   current: ExecutivePeriodSummary
   previous: ExecutivePeriodSummary
-  /** These queues cover all currently managed customers, regardless of intake month. */
+  /** Managing customers in the selected intake month and partner scope. */
   actions: {
     unassigned: Lead[]
     overdue: Lead[]
@@ -168,7 +168,7 @@ export const buildExecutiveMetrics = (leads: readonly Lead[], month: string, tod
   const cases = casesForPartner(groupCases(leads), partnerName)
   const monthCases = casesForMonth(cases, month)
   const previousMonth = previousMonthFor(month)
-  const managingLeads = leads.filter(lead => lead.status === '관리중' && (!partnerName || lead.partnerName === partnerName))
+  const managingLeads = monthCases.flatMap(item => item.leads).filter(lead => lead.status === '관리중')
   const todayTime = new Date(`${todayDate}T00:00:00Z`).getTime()
   const overdue = managingLeads.filter(lead => {
     const visitDate = dateOnly(lead.visitScheduledDate)
