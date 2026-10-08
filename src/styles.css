@@ -176,6 +176,9 @@
 .purchase-summary>span{color:#566361;font-size:8px;overflow-wrap:anywhere}
 .purchase-summary small{color:#16816c;font-size:8px;font-weight:700;overflow-wrap:anywhere}
 .purchase-summary em{color:#a36f32;font-size:7px;font-style:normal;line-height:1.35}
+.purchase-summary .purchase-settlement-known{color:#4d7b69}
+.customer .customer-labels{display:grid;gap:2px}.drawer .customer-name-field .customer-name-help{display:block;margin:5px 0 0;color:#6e7e76;font-size:9px;line-height:1.5;font-weight:400}
+.drawer .delivery-schedule-field .delivery-required{color:#ad3c49;font-size:8px;font-weight:700;margin-left:5px}.drawer .delivery-schedule-field .delivery-schedule-help{display:block;color:#6e7e76;font-size:9px;font-weight:400;line-height:1.5;margin:5px 0 0}.drawer .delivery-schedule-field .delivery-schedule-error{color:#b33b48}
 .purchase-empty{color:#a2a8ad}
 .purchase-amount-grid:empty{display:none}
 .rebate-preview{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:10px;margin-top:12px;padding:11px 13px;border:1px solid #cfe5dc;border-radius:9px;background:#eef8f4}

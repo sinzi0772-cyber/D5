@@ -55,6 +55,7 @@ export interface Lead {
   phoneLast4: string
   gender: '남' | '여' | '미입력'
   visitScheduledDate?: string
+  deliveryScheduledDate?: string
   appointmentType?: AppointmentType
   appointmentSourceId?: string
   partnerName: string

@@ -61,10 +61,12 @@ assert.deepEqual(buildSeptemberSyncPlan([sample, source({ partnerName: '다른 �
 
 const manuallyEdited = lead('appointment-202609-test-a', {
   appointmentType: '상담예약(이업종)', visitScheduledDate: '2026-10-10',
+  deliveryScheduledDate: '2026-12-31',
 })
 const deterministicPlan = buildSeptemberSyncPlan([sample], [manuallyEdited])
 assert.deepEqual(deterministicPlan, { entries: [{ source: sample, targetId: manuallyEdited.id, kind: 'existing' }], skipped: 0 })
 assert.deepEqual(septemberExistingPatch(sample, { ...manuallyEdited }), { appointmentSourceId: sample.sourceId }, 'Deterministic existing records retain manual type and date')
+assert.equal(manuallyEdited.deliveryScheduledDate, '2026-12-31', 'RAW appointment refresh never overwrites a manually entered delivery date')
 const sourceLinked = lead('already-linked', {
   appointmentSourceId: sample.sourceId, appointmentType: '상담예약(이업종)', visitScheduledDate: '2026-10-10',
 })

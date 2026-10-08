@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildExecutiveMetrics, getDefaultExecutiveMonth, getExecutiveMonthLeads, getExecutiveMonths } from '../src/lib/executiveMetrics.ts'
+import { buildExecutiveMetrics, getDefaultExecutiveMonth, getExecutiveMonthLeads, getExecutiveMonths, getTopCommissionPartners } from '../src/lib/executiveMetrics.ts'
 import { expectedRebateFor } from '../src/lib/salesFinance.ts'
 import type { Lead, SalesRawPeriod } from '../src/types.ts'
 
@@ -256,6 +256,35 @@ for (const key of ['sales', 'reservedSales', 'expectedCommission', 'customerCoun
   assert.equal(crossCompanyFinancialMetrics.partners.reduce((sum, row) => sum + row[key], 0), crossCompanyFinancialMetrics.current[key], `Company ${key} totals must reconcile with the overall total`)
 }
 assert.equal(JSON.stringify(crossCompanyFinancialRows), crossCompanyFinancialBefore, 'Company scoping must not mutate customer records')
+
+const commissionRankingRow = (name: string, expectedCommission: number, sales: number) => Object.freeze({
+  ...crossCompanyFinancialMetrics.partners[0], name, expectedCommission, sales,
+})
+const rankingRows = Object.freeze([
+  commissionRankingRow('수수료 없는 업체', 0, 999999),
+  commissionRankingRow('음수 수수료 업체', -1, 999999),
+  commissionRankingRow('9원 업체', 9, 9),
+  commissionRankingRow('100원 업체', 100, 100),
+  commissionRankingRow('나 업체', 50, 200),
+  commissionRankingRow('가 업체', 50, 200),
+  commissionRankingRow('판매금액 우선 업체', 50, 300),
+])
+const rankingBefore = JSON.stringify(rankingRows)
+const commissionTop3 = getTopCommissionPartners(rankingRows)
+assert.equal(commissionTop3.length, 3, 'The commission ranking includes at most three companies')
+assert.deepEqual(commissionTop3.map(row => row.name), ['100원 업체', '판매금액 우선 업체', '가 업체'], 'Sort numeric commission descending, then sales descending and Korean name ascending')
+assert.ok(commissionTop3.every(row => row.expectedCommission > 0), 'Zero and negative commissions must not enter the ranking')
+assert.deepEqual(getTopCommissionPartners(rankingRows.slice(0, 2)), [], 'No positive commission produces an empty ranking')
+assert.deepEqual(getTopCommissionPartners(rankingRows.slice(2, 3)), [rankingRows[2]], 'A single positive company remains visible without padding')
+assert.deepEqual(getTopCommissionPartners(rankingRows.slice(4, 6)).map(row => row.name), ['가 업체', '나 업체'], 'Equal commission and sales use stable Korean-name order')
+assert.equal(JSON.stringify(rankingRows), rankingBefore, 'Ranking must not reorder or mutate its immutable input')
+assert.strictEqual(commissionTop3[0], rankingRows[3], 'Ranked companies keep the original exact financial summary objects')
+for (const row of getTopCommissionPartners(crossCompanyFinancialMetrics.partners)) {
+  const original = crossCompanyFinancialMetrics.partners.find(item => item.name === row.name)!
+  assert.strictEqual(row, original, 'The TOP3 card and company details use exactly the same metric row')
+  assert.equal(row.expectedCommission, original.expectedCommission)
+  assert.equal(row.sales, original.sales)
+}
 
 for (const status of ['관리중', '구매완료', '상담 마감', '취소'] as const) {
   const manualSubscription = lead(`manual-subscription-${status}`, { status, manager: '담당', purchaseType: '구독', subscriptionAmount: 100 })

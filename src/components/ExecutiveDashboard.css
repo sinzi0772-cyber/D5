@@ -241,8 +241,9 @@
 .exec-customer-link small { display: block; margin-top: 3px; color: var(--exec-muted); font-weight: 400; }
 .exec-empty { margin: 0; padding: 22px 16px; color: #82908a; text-align: center; font-size: 13px; line-height: 1.6; }
 
-.exec-highlights { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.exec-highlights { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .exec-highlight { min-width: 0; border: 1px solid var(--exec-line); border-radius: 12px; padding: 17px 18px 15px; background: #fff; }
+.exec-highlight-commission { border-color: #cfe2d8; background: #f4faf7; }
 .exec-highlight header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 10px; }
 .exec-highlight h3 { margin: 0; font-size: 16px; letter-spacing: -.3px; }
 .exec-highlight header p { margin: 0; color: #84918b; font-size: 12px; line-height: 1.5; }
@@ -320,7 +321,7 @@
   .exec-kpi-progress .exec-kpi-value strong { font-size: 24px; }
   .exec-kpi-denominator { font-size: 18px; }
   .exec-outcome { padding: 11px 12px; }
-  .exec-highlights { gap: 12px; }
+  .exec-highlights { grid-template-columns: 1fr; gap: 12px; }
   .exec-highlight { padding: 15px; }
 }
 
@@ -421,13 +422,15 @@
   .exec-action-label { grid-row: auto; padding-right: 0; font-size: 11px; }
   .exec-action-count { grid-column: auto; grid-row: auto; font-size: 23px; }
   .exec-action-note { grid-column: auto; font-size: 10px; }
-  .exec-highlights { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .exec-highlights { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
   .exec-highlight { padding: 12px; break-inside: avoid; }
   .exec-highlight h3,
   .exec-section-head h3 { font-size: 13px; }
   .exec-highlight header p,
   .exec-section-head p { font-size: 10px; }
   .exec-ranking-list { gap: 8px; }
+  .exec-ranking>div.exec-ranking-value strong { font-size: 10px; }
+  .exec-ranking>.exec-ranking-identity strong { white-space: normal; overflow-wrap: anywhere; }
   .exec-ranking>div strong,
   .exec-ranking>div small,
   .exec-ranking>strong small { font-size: 10px; }

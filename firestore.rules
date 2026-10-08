@@ -99,8 +99,15 @@ service cloud.firestore {
             || request.resource.data.subscriptionAmount == null
             || (request.resource.data.subscriptionAmount is number && request.resource.data.subscriptionAmount >= 0)
           )
+          && (
+            !request.resource.data.keys().hasAny(['deliveryScheduledDate'])
+            || request.resource.data.deliveryScheduledDate == null
+            || (request.resource.data.deliveryScheduledDate is string
+              && request.resource.data.deliveryScheduledDate.matches('^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'))
+          )
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'visitScheduledDate',
+            'deliveryScheduledDate',
             'appointmentType',
             'status',
             'visitState',

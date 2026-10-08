@@ -1,0 +1,113 @@
+.monthly-commission {
+  min-width: 0;
+  padding: 17px 18px;
+  border: 1px solid #bfd8cf;
+  border-radius: 12px;
+  background: #f3faf7;
+}
+
+.monthly-commission-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.monthly-commission-heading>div { min-width: 0; }
+.monthly-commission-eyebrow { display: flex; align-items: center; gap: 6px; color: #538475; font-size: 10px; font-weight: 800; letter-spacing: 1px; }
+.monthly-commission-heading h3 { margin: 6px 0 5px; color: #1e5144; font-size: 18px; font-weight: 800; letter-spacing: -.4px; }
+.monthly-commission-heading p { max-width: 710px; margin: 0; color: #748b81; font-size: 12px; line-height: 1.65; }
+.monthly-commission-period { display: flex; flex: none; align-items: center; flex-wrap: wrap; gap: 7px; color: #466b5f; font-size: 12px; font-weight: 700; }
+.monthly-commission-period select { min-width: 142px; height: 38px; padding: 0 28px 0 11px; border: 1px solid #c6dcd1; border-radius: 8px; background: #fff; color: #244d41; font: inherit; }
+
+.monthly-commission-summary { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 12px; margin-top: 15px; }
+.monthly-commission-selected,
+.monthly-commission-undated { display: grid; align-content: start; gap: 6px; min-width: 0; padding: 13px 16px; border: 1px solid #d3e5db; border-radius: 10px; background: #fff; }
+.monthly-commission-selected>span,
+.monthly-commission-undated>span { color: #587267; font-size: 12px; font-weight: 700; }
+.monthly-commission-selected>strong { color: #116a54; font-size: 29px; line-height: 1.2; font-weight: 800; letter-spacing: -.7px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.monthly-commission-undated>strong { color: #61766e; font-size: 23px; line-height: 1.35; font-weight: 800; letter-spacing: -.5px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.monthly-commission-selected>small,
+.monthly-commission-undated>small { color: #819188; font-size: 12px; line-height: 1.55; }
+.monthly-commission-undated.needs-input { border-color: #ebd8b5; background: #fffaf1; }
+.monthly-commission-undated.needs-input>span,
+.monthly-commission-undated.needs-input>strong { color: #956826; }
+.monthly-commission-note { margin: 10px 0 12px; color: #7a8e82; font-size: 12px; line-height: 1.65; }
+
+.monthly-commission-details { min-width: 0; margin-top: 8px; border: 1px solid #d9e6dd; border-radius: 8px; background: #fff; overflow: hidden; }
+.monthly-commission-details>summary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px 12px; list-style: none; cursor: pointer; }
+.monthly-commission-details>summary::-webkit-details-marker { display: none; }
+.monthly-commission-details>summary strong { color: #315a4b; font-size: 12px; }
+.monthly-commission-details>summary small { color: #8a9a90; font-size: 11px; line-height: 1.5; }
+.monthly-commission-details>summary .details-toggle-mark { width: 20px; height: 20px; border-color: #c9dcd0; border-radius: 5px; }
+.monthly-commission-details>summary .details-toggle-mark:before,
+.monthly-commission-details>summary .details-toggle-mark:after { top: 9px; left: 5px; right: 5px; height: 1px; background: #658676; }
+.monthly-commission-details[open]>summary { border-bottom: 1px solid #e5ece7; }
+.monthly-commission-details[open]>summary .details-toggle-mark:after { display: none; }
+.monthly-commission-details>summary:hover { background: #f9fcfa; }
+.monthly-commission-missing { border-color: #e9dcc7; }
+.monthly-commission-missing>summary strong { color: #826229; }
+.monthly-commission-table-scroll { max-height: 270px; overflow: auto; }
+.exec-dashboard .monthly-commission-table { width: 100%; min-width: 470px; table-layout: auto; }
+.exec-dashboard .monthly-commission-table caption { padding: 10px 13px; color: #7c8e82; font-size: 11px; line-height: 1.6; text-align: left; caption-side: top; }
+.exec-dashboard .monthly-commission-table th,
+.exec-dashboard .monthly-commission-table td { width: auto; height: auto; padding: 10px 13px; border-bottom: 1px solid #e9eeeb; font-size: 12px; }
+.exec-dashboard .monthly-commission-table thead th { position: sticky; top: 0; z-index: 1; color: #668071; background: #f7faf8; white-space: nowrap; }
+.exec-dashboard .monthly-commission-table td { color: #657e70; }
+.exec-dashboard .monthly-commission-table td:first-child { color: #345947; font-weight: 700; }
+.exec-dashboard .monthly-commission-table tbody tr { cursor: default; }
+.exec-dashboard .monthly-commission-table tfoot th,
+.exec-dashboard .monthly-commission-table tfoot td { background: #edf6f0; border-top: 1px solid #d5e7dc; border-bottom: 0; }
+.exec-dashboard .monthly-commission-table .monthly-commission-money { color: #147358; font-weight: 800; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.exec-dashboard .monthly-commission-customers { min-width: 580px; }
+.monthly-commission-customer { min-height: 34px; padding: 2px 0; border: 0; background: transparent; color: #256a52; text-align: left; font: inherit; font-weight: 700; }
+.monthly-commission-customer>span { display: inline-flex; align-items: center; gap: 5px; }
+.monthly-commission-customer>small { display: block; margin-top: 3px; color: #8c9b91; font-size: 11px; font-weight: 400; }
+.monthly-commission-customer:hover { text-decoration: underline; text-underline-offset: 3px; }
+.monthly-commission-empty { margin: 0; padding: 18px 13px; color: #8a9a90; font-size: 12px; line-height: 1.65; text-align: center; }
+
+@media (max-width: 900px) {
+  .monthly-commission-heading { flex-direction: column; gap: 12px; }
+  .monthly-commission-period { align-self: flex-end; }
+}
+
+@media (max-width: 600px) {
+  .monthly-commission { padding: 14px 12px; }
+  .monthly-commission-heading h3 { font-size: 17px; }
+  .monthly-commission-period { width: 100%; }
+  .monthly-commission-period select { flex: 1; min-width: 0; min-height: 42px; }
+  .monthly-commission-summary { grid-template-columns: 1fr; gap: 8px; margin-top: 12px; }
+  .monthly-commission-selected,
+  .monthly-commission-undated { padding: 12px 13px; }
+  .monthly-commission-selected>strong { font-size: 27px; }
+  .monthly-commission-undated>strong { font-size: 21px; }
+  .monthly-commission-details>summary { grid-template-columns: auto minmax(0, 1fr); gap: 6px 8px; }
+  .monthly-commission-details>summary small { grid-column: 2; }
+  .monthly-commission-customer { min-height: 44px; }
+}
+
+@media print {
+  .monthly-commission { padding: 12px; border-color: #bfd5c8; }
+  .monthly-commission-heading { display: block; }
+  .monthly-commission-heading h3 { font-size: 15px; }
+  .monthly-commission-heading p,
+  .monthly-commission-note { font-size: 10px; }
+  .monthly-commission-period { display: none; }
+  .monthly-commission-summary { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 8px; }
+  .monthly-commission-selected,
+  .monthly-commission-undated { padding: 10px; break-inside: avoid; }
+  .monthly-commission-selected>strong { font-size: 23px; }
+  .monthly-commission-undated>strong { font-size: 19px; }
+  .monthly-commission-selected>small,
+  .monthly-commission-undated>small { font-size: 10px; }
+  .monthly-commission-details { overflow: visible; }
+  .monthly-commission-details>summary { display: block !important; border-bottom: 1px solid #d9e6dd; }
+  .monthly-commission-details>summary .details-toggle-mark { display: none; }
+  .monthly-commission-details>summary small { margin-left: 10px; font-size: 10px; }
+  .monthly-commission-details:not([open])>.monthly-commission-detail-body,
+  .monthly-commission-detail-body { display: block !important; }
+  .monthly-commission-details::details-content { content-visibility: visible !important; }
+  .monthly-commission-table-scroll { max-height: none; overflow: visible; }
+  .exec-dashboard .monthly-commission-table { width: 100%; min-width: 0; }
+  .exec-dashboard .monthly-commission-table caption,
+  .exec-dashboard .monthly-commission-table th,
+  .exec-dashboard .monthly-commission-table td { position: static; padding: 7px 9px; font-size: 9px; }
+  .exec-dashboard .monthly-commission-table tr { break-inside: avoid; }
+  .monthly-commission-customer { min-height: 0; padding: 0; color: inherit; }
+  .monthly-commission-customer svg { display: none; }
+  .monthly-commission-customer>small { font-size: 9px; }
+}

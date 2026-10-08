@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { ArrowUpRight, CalendarDays, CheckCircle2, Clock3, Printer, TrendingUp, UsersRound, X } from 'lucide-react'
-import { buildExecutiveMetrics, getDefaultExecutiveMonth, getExecutiveMonthLeads, getExecutiveMonths, type ExecutivePeriodSummary } from '../lib/executiveMetrics'
+import { buildExecutiveMetrics, getDefaultExecutiveMonth, getExecutiveMonthLeads, getExecutiveMonths, getTopCommissionPartners, type ExecutivePeriodSummary } from '../lib/executiveMetrics'
+import { customerDisplayLabel } from '../lib/customerDisplay'
 import type { Lead } from '../types'
+import { MonthlyCommissionPanel } from './MonthlyCommissionPanel'
 import './ExecutiveDashboard.css'
 
 type SortColumn = 'name' | 'cases' | 'expectedCommission' | 'active' | 'completed' | 'closed' | 'canceled' | 'sales' | 'reservedSales' | 'salesProgress' | 'managementRecords'
@@ -44,6 +46,7 @@ export function ExecutiveDashboard({ leads, partnerLabel, onSelectLead, onSelect
   const uniqueActionCustomers = new Set([...actions.unassigned, ...actions.overdue, ...actions.stale].map(lead => lead.id)).size
   const completedWithAmount = current.completed > 0 && current.missingAmounts > 0
   const sortedPartners = [...metrics.partners].sort((a, b) => b.sales - a.sales || b.completed - a.completed || b.cases - a.cases || a.name.localeCompare(b.name, 'ko'))
+  const topCommissionPartners = getTopCommissionPartners(metrics.partners)
   const sortedManagers = metrics.managers.filter(row => row.name !== '미배정').sort((a, b) => b.completed - a.completed || b.sales - a.sales || b.cases - a.cases || a.name.localeCompare(b.name, 'ko'))
 
   return <section className="exec-dashboard" aria-label="제휴 운영 성과 요약">
@@ -51,7 +54,9 @@ export function ExecutiveDashboard({ leads, partnerLabel, onSelectLead, onSelect
       <div><span className="exec-eyebrow">PARTNER PERFORMANCE</span><h2>제휴 성과, 한눈에</h2><p>접수에서 판매까지, 성과와 놓치고 있는 고객을 함께 확인하세요.</p></div>
       <div className="exec-controls"><label className="exec-period"><CalendarDays size={16}/><span>접수월</span><select aria-label="관리지표 접수월" value={month} onChange={event => { setChosenMonth(event.target.value); setQueue(null) }}>{months.map(value => <option key={value} value={value}>{monthLabel(value)}</option>)}</select></label><button type="button" className="exec-print" onClick={() => window.print()}><Printer size={16}/>출력</button></div>
     </header>
-    <div className="exec-scope"><span>{partnerLabel} · {monthLabel(month)} 접수 기준</span><span>{newest ? `최근 접수일 ${newest.replaceAll('-', '.')}` : '등록된 고객 없음'}</span><span>예상 수수료 총액 <strong>{won(current.expectedCommission)}</strong></span></div>
+    <div className="exec-scope"><span>{partnerLabel} · {monthLabel(month)} 접수 기준</span><span>{newest ? `최근 접수일 ${newest.replaceAll('-', '.')}` : '등록된 고객 없음'}</span><span>선택 접수월 전체 예상 수수료 <strong>{won(current.expectedCommission)}</strong></span></div>
+
+    <MonthlyCommissionPanel leads={leads} partnerName={selectedPartner} today={today} onSelectLead={onSelectLead}/>
 
     <div className="exec-kpis">
       <Kpi label="접수" value={current.cases.toLocaleString('ko-KR')} unit="건" icon={<UsersRound size={19}/>} change={countChange(current.cases, previous.cases, '건')} note={`연결 고객을 1건으로 · 고객 ${current.customerCount}명`}/>
@@ -77,11 +82,12 @@ export function ExecutiveDashboard({ leads, partnerLabel, onSelectLead, onSelect
 
     {queue && <section className="exec-drilldown" aria-label={queueInfo[queue].title}>
       <header><div><h4>{queueInfo[queue].title} <span>{queueRows.length}명</span></h4><p>{queueInfo[queue].note}</p></div><button type="button" onClick={() => setQueue(null)} aria-label="확인 고객 목록 닫기"><X size={18}/></button></header>
-      {queueRows.length ? <div className="exec-drill-scroll"><table><thead><tr><th>고객</th><th>제휴업체</th><th>담당자</th><th>방문 예정일</th><th>최근 관리메모</th></tr></thead><tbody>{queueRows.map(lead => <tr key={lead.id}><td><button type="button" className="exec-customer-link" onClick={() => onSelectLead(lead)}>{lead.customerName}<small>•••• {lead.phoneLast4}</small><ArrowUpRight size={14}/></button></td><td>{lead.partnerName || '미입력'}</td><td>{lead.manager || '미배정'}</td><td>{lead.visitScheduledDate?.replaceAll('-', '.') || '미정'}</td><td>{latestMemoDate(lead)?.replaceAll('-', '.') || '기록 없음'}</td></tr>)}</tbody></table></div> : <p className="exec-empty">해당하는 고객이 없습니다.</p>}
+      {queueRows.length ? <div className="exec-drill-scroll"><table><thead><tr><th>고객</th><th>제휴업체</th><th>담당자</th><th>방문 예정일</th><th>최근 관리메모</th></tr></thead><tbody>{queueRows.map(lead => <tr key={lead.id}><td><button type="button" className="exec-customer-link" onClick={() => onSelectLead(lead)}>{customerDisplayLabel(lead)}<ArrowUpRight size={14} aria-hidden="true"/></button></td><td>{lead.partnerName || '미입력'}</td><td>{lead.manager || '미배정'}</td><td>{lead.visitScheduledDate?.replaceAll('-', '.') || '미정'}</td><td>{latestMemoDate(lead)?.replaceAll('-', '.') || '기록 없음'}</td></tr>)}</tbody></table></div> : <p className="exec-empty">해당하는 고객이 없습니다.</p>}
     </section>}
 
     <div className="exec-highlights">
       <section className="exec-highlight"><header><div><h3>성과를 만드는 제휴업체</h3><p>선택 접수월 · 판매 기준금액 순, 같으면 구매완료 순</p></div><span>TOP 3</span></header><Ranking rows={sortedPartners.slice(0, 3)} kind="partner"/></section>
+      <section className="exec-highlight exec-highlight-commission"><header><div><h3>업체별 예상 수수료</h3><p>선택 접수월 · 정산월 전체 합계 · 금액순</p></div><span>TOP 3</span></header><Ranking rows={topCommissionPartners} kind="commission"/></section>
       <section className="exec-highlight"><header><div><h3>담당자별 판매 성과</h3><p>구매완료 건수 순 · 동률은 판매 기준금액 순 · 이름을 누르면 담당 고객 보기</p></div><span>TOP 3</span></header><Ranking rows={sortedManagers.slice(0, 3)} kind="manager" onSelectManager={onSelectManager}/></section>
     </div>
     <section className="exec-closure-strip"><strong>개별 고객의 종료 결과</strong><button type="button" onClick={() => setQueue('canceled')}>취소 고객 <b>{cohort.filter(lead => lead.status === '취소').length}명</b><ArrowUpRight size={14}/></button><button type="button" onClick={() => setQueue('closed')}>상담마감 고객 <b>{cohort.filter(lead => lead.status === '상담 마감').length}명</b><ArrowUpRight size={14}/></button><span>종료 사유는 고객별 관리메모에서 확인</span></section>
@@ -110,8 +116,8 @@ function ActionCard({ label, value, note, action, selected, onSelect, color }: {
 function ManagerLink({ name, onSelect }: { name: string; onSelect: (name: string) => void }) {
   return <button type="button" className="exec-manager-link" aria-label={`${name} 담당 고객 보기`} title="전체 기간의 담당 고객 보기" onClick={() => onSelect(name)}><span>{name}</span><ArrowUpRight size={14} aria-hidden="true"/></button>
 }
-function Ranking({ rows, kind, onSelectManager }: { rows: PerformanceRow[]; kind: 'partner' | 'manager'; onSelectManager?: (name: string) => void }) {
-  return rows.length ? <div className="exec-ranking-list">{rows.map((row, index) => <div className="exec-ranking" key={row.name}><span>{index + 1}</span><div>{kind === 'manager' && onSelectManager ? <ManagerLink name={row.name} onSelect={onSelectManager}/> : <strong>{row.name}</strong>}<small>{salesProgressLabel(row, kind)}</small></div><div>{kind === 'partner' ? <strong>{won(row.sales)}</strong> : <strong>{row.completed}<small>건 성공</small></strong>}</div></div>)}</div> : <p className="exec-empty">선택한 접수월의 {kind === 'partner' ? '업체' : '담당자'} 데이터가 없습니다.</p>
+function Ranking({ rows, kind, onSelectManager }: { rows: PerformanceRow[]; kind: 'partner' | 'commission' | 'manager'; onSelectManager?: (name: string) => void }) {
+  return rows.length ? <div className="exec-ranking-list">{rows.map((row, index) => <div className="exec-ranking" key={row.name}><span>{index + 1}</span><div className="exec-ranking-identity">{kind === 'manager' && onSelectManager ? <ManagerLink name={row.name} onSelect={onSelectManager}/> : <strong title={row.name}>{row.name}</strong>}<small>{salesProgressLabel(row, kind === 'manager' ? 'manager' : 'partner')}</small></div><div className="exec-ranking-value">{kind === 'manager' ? <strong>{row.completed}<small>건 성공</small></strong> : <strong>{won(kind === 'commission' ? row.expectedCommission : row.sales)}</strong>}</div></div>)}</div> : <p className="exec-empty">{kind === 'commission' ? '선택한 접수월의 예상 수수료가 없습니다.' : `선택한 접수월의 ${kind === 'partner' ? '업체' : '담당자'} 데이터가 없습니다.`}</p>
 }
 function PerformanceTable({ title, rows, month, kind, onSelectManager }: { title: string; rows: PerformanceRow[]; month: string; kind: 'partner' | 'manager'; onSelectManager?: (name: string) => void }) {
   const [sort, setSort] = useState<{ key: SortColumn; direction: 'asc' | 'desc' }>({ key: 'cases', direction: 'desc' })

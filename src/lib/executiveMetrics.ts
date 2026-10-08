@@ -22,6 +22,12 @@ export interface ExecutivePartnerSummary extends ExecutivePeriodSummary {
   name: string
 }
 
+/** Rank positive expected commissions without changing the underlying company summaries. */
+export const getTopCommissionPartners = (rows: readonly ExecutivePartnerSummary[]): ExecutivePartnerSummary[] => rows
+  .filter(row => row.expectedCommission > 0)
+  .sort((a, b) => b.expectedCommission - a.expectedCommission || b.sales - a.sales || a.name.localeCompare(b.name, 'ko'))
+  .slice(0, 3)
+
 export interface ExecutiveManagerSummary extends ExecutivePeriodSummary {
   name: string
   assigned: number
