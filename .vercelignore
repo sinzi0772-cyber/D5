@@ -1,0 +1,23 @@
+# Keep local customer audits, credentials and tool caches out of source uploads.
+private-output
+private-output/**
+.git
+.git/**
+.vercel
+.vercel/**
+node_modules
+node_modules/**
+dist
+dist/**
+.env
+.env.*
+!.env.example
+*.log
+*.csv
+*.xlsx
+*.xls
+*.tsbuildinfo
+service-account*.json
+firebase-admin-key*.json
+scripts/provision-staff.mjs
+src/data.ts
