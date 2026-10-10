@@ -1,15 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowUpRight, Building2, Check, CircleHelp, Clock3,
+  ArrowUpRight, Building2, Check, CircleHelp, Clock3, Eye, EyeOff,
   LogOut, Menu, MoreHorizontal, Plus, Search,
   Settings, Sparkles, UserRound, UsersRound, X,
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from 'firebase/auth'
 import { collection, doc, getDoc, onSnapshot, query as firestoreQuery, runTransaction, setDoc, where, writeBatch, deleteField, increment } from 'firebase/firestore'
 import { auth, db, isDemoMode, isFirebaseConfigured } from './lib/firebase'
-import { septemberAppointments } from './data/septemberAppointments'
+import type { SeptemberAppointment } from './data/septemberAppointments'
 import { ExecutiveDashboard } from './components/ExecutiveDashboard'
 import { PartnerPreview } from './components/PartnerPreview'
+import { PartnerPortal } from './components/PartnerPortal'
+import { SettlementGuideModal } from './components/SettlementGuideModal'
+import { buildPartnerPublication, IWEDDING_PARTNER_ID } from './lib/partnerPublication'
+import { leadFromDocument } from './lib/leadDocument'
+import { parseSeptemberSource } from './lib/septemberSource'
 import { buildPartnerPreview, canPreviewPartner } from './lib/partnerPreview'
 import { getDefaultExecutiveMonth, getExecutiveMonthLeads, getExecutiveMonths } from './lib/executiveMetrics'
 import './AppView.css'
@@ -21,7 +26,10 @@ import { customerDisplayLabel, customerDisplayName, phoneLast4Display } from './
 import { buildCommissionSettlementMetrics, deliveryDateValidationMessage, expectedSettlementMonthFor } from './lib/commissionSettlement'
 import { comparePurchaseAmounts, getVisiblePurchaseMembers, purchaseSortValue } from './lib/customerSorting'
 import { buildSeptemberSyncPlan, canStartSeptemberSync, septemberExistingPatch } from './lib/septemberSync'
-import { accountAccessError, SHARED_ACCOUNT_EMPLOYEE_NO, SHARED_ACCOUNT_MESSAGE } from './lib/accountAccess'
+import { accountAccessError, checkedPartnerIdentity, SHARED_ACCOUNT_EMPLOYEE_NO, SHARED_ACCOUNT_MESSAGE } from './lib/accountAccess'
+import { firebasePasswordForLogin, loginEmailFor, loginIdInputMessage, normalizeLoginId } from './lib/loginIdentity'
+import { PARTNER_ACCOUNTS } from './lib/partnerIdentity'
+import { loginFailureFor } from './lib/loginError'
 import { STATUSES, type AppointmentType, type Lead, type LeadStatus, type MemoEntry, type PurchaseType, type VisitState } from './types'
 
 type SortKey = 'customerName' | 'registeredAt' | 'partnerName' | 'manager' | 'visitDate' | 'status' | 'management' | 'updatedAt' | 'purchase'
@@ -151,11 +159,11 @@ const managers: Staff[] = [
 const approvedStaff = [
   ...managers.map(member => ({ employeeNo: member.employeeNo, displayName: member.name, role: member.role === '지점장' ? 'store_manager' : member.role === '부지점장' ? 'assistant_manager' : 'manager' })),
 ]
-type AppUser = { id: string; loginId: string; name: string; role: string; mustChangePassword: boolean }
+type AppUser = { id: string; loginId: string; name: string; role: string; mustChangePassword: boolean; partnerId?: string; partnerName?: string }
 type UsageRow = { userId: string; employeeNo: string; displayName: string; role: string; firstSeenAt: string; lastSeenAt: string; lastSeenDate: string; visitCount: number }
 const appUserFromSession = (user: User): AppUser => ({
   id: user.uid,
-  loginId: user.email?.split('@')[0] || '',
+  loginId: user.email?.split('@')[0]?.toUpperCase() || '',
   name: user.displayName || user.email?.split('@')[0] || 'D5 사용자',
   role: 'manager',
   mustChangePassword: false,
@@ -243,9 +251,12 @@ export default function App() {
   const [serverConfirmed, setServerConfirmed] = useState(false)
   const [usageRows, setUsageRows] = useState<UsageRow[]>([])
   const [settlementGuideOpen, setSettlementGuideOpen] = useState(false)
+  const closeSettlementGuide = useCallback(() => setSettlementGuideOpen(false), [])
+  const [septemberSource, setSeptemberSource] = useState<readonly SeptemberAppointment[] | null>(null)
+  const publishedRevision = useRef('')
   const referralReadiness = useRef<ReferralReadiness | null>(null)
   const septemberSyncRun = useRef<{ readiness: ReferralReadiness } | null>(null)
-  const sessionKey = JSON.stringify([currentUser?.id, currentUser?.loginId, currentUser?.role, currentUser?.mustChangePassword])
+  const sessionKey = JSON.stringify([currentUser?.id, currentUser?.loginId, currentUser?.role, currentUser?.mustChangePassword, currentUser?.partnerId])
   const latestSessionKey = useRef(sessionKey)
   latestSessionKey.current = sessionKey
   const customerPanelRef = useRef<HTMLDivElement>(null)
@@ -262,6 +273,11 @@ export default function App() {
       const isCurrentSession = () => active && currentRevision === revision && firebaseAuth.currentUser?.uid === firebaseUser?.uid
       setCurrentUser(null)
       setLeads([])
+      setUsageRows([])
+      setSeptemberSource(null)
+      setServerConfirmed(false)
+      referralReadiness.current = null
+      publishedRevision.current = ''
       setActive(null)
       setCreating(false)
       setQuery('')
@@ -288,7 +304,8 @@ export default function App() {
         const accessError = accountAccessError(baseUser.loginId, profile)
         if (accessError) { denialMessage = accessError; throw new Error(accessError) }
         setAuthError('')
-        setCurrentUser({ ...baseUser, name: String(profile?.displayName || baseUser.name), role: String(profile?.role), mustChangePassword: Boolean(profile?.mustChangePassword) })
+        const partner = checkedPartnerIdentity(baseUser.loginId, profile)
+        setCurrentUser({ ...baseUser, name: String(profile?.displayName || baseUser.name), role: String(profile?.role), mustChangePassword: Boolean(profile?.mustChangePassword), ...(partner ? { partnerId: partner.partnerId, partnerName: partner.partnerName } : {}) })
       } catch {
         if (!isCurrentSession()) return
         setAuthError(denialMessage || '사용자 권한을 확인하지 못했습니다. 다시 로그인해주세요.')
@@ -307,7 +324,7 @@ export default function App() {
     referralReadiness.current = readiness
     septemberSyncRun.current = null
     setServerConfirmed(false)
-    if (!db || !currentUser || currentUser.mustChangePassword) return
+    if (!db || !currentUser || currentUser.mustChangePassword || !canPreviewPartner(currentUser.role)) { setLeads([]); return }
     let active = true
     setDataReady(false); setDataError(''); setLeads([])
     const canReadAll = ['admin', 'store_manager', 'assistant_manager'].includes(currentUser.role)
@@ -317,25 +334,7 @@ export default function App() {
       if (!active) return
       readiness.serverConfirmed = !snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites
       setServerConfirmed(readiness.serverConfirmed)
-      setLeads(snapshot.docs.map(item => {
-        const row = item.data()
-        const purchaseType: PurchaseType = ['일시불', '구독', '일시불+구독'].includes(row.purchaseType) ? row.purchaseType : '미선택'
-        const legacyAmount = typeof row.purchaseAmount === 'number' && row.purchaseAmount >= 0 ? row.purchaseAmount : undefined
-        return {
-          id: item.id, registeredAt: row.registeredAt, customerName: row.customerName,
-          phoneLast4: row.phoneLast4, gender: row.gender, visitScheduledDate: row.visitScheduledDate || undefined,
-          deliveryScheduledDate: typeof row.deliveryScheduledDate === 'string' ? row.deliveryScheduledDate : undefined,
-          appointmentType: ['상담예약(이업종)', '이업종제휴'].includes(row.appointmentType) ? row.appointmentType : '미선택', appointmentSourceId: row.appointmentSourceId || undefined,
-          partnerName: canonicalPartnerName(row.partnerName || ''), billToCode: row.billToCode || undefined, lgeSubchannel: row.lgeSubchannel || undefined,
-          manager: row.manager || undefined, managerEmployeeNo: row.managerEmployeeNo || undefined, plannerName: row.plannerName || undefined, caseGroupId: row.caseGroupId || undefined, status: normalizeStatus(row.status),
-          visitState: row.visitState, purchaseType, purchaseAmount: legacyAmount,
-          lumpSumAmount: typeof row.lumpSumAmount === 'number' && row.lumpSumAmount >= 0 ? row.lumpSumAmount : (purchaseType === '일시불' ? legacyAmount : undefined),
-          subscriptionAmount: typeof row.subscriptionAmount === 'number' && row.subscriptionAmount >= 0 ? row.subscriptionAmount : (purchaseType === '구독' ? legacyAmount : undefined),
-          salesRawPeriods: row.salesRawPeriods || undefined,
-          subscriptionRawPeriods: row.subscriptionRawPeriods || undefined,
-          note: row.note || undefined, memoHistory: row.memoHistory || [], updatedAt: row.updatedAt,
-        } as Lead
-      }))
+      setLeads(snapshot.docs.map(item => leadFromDocument(item.id, item.data())))
       setDataError(''); setDataReady(true)
     }, error => {
       if (!active) return
@@ -348,7 +347,7 @@ export default function App() {
     return () => { active = false; readiness.serverConfirmed = false; unsubscribe() }
   }, [currentUser?.id, currentUser?.loginId, currentUser?.role, currentUser?.mustChangePassword])
   useEffect(() => {
-    if (!db || !currentUser || currentUser.mustChangePassword || isDemoMode || currentUser.loginId === '12784') return
+    if (!db || !currentUser || currentUser.mustChangePassword || !canPreviewPartner(currentUser.role) || isDemoMode || currentUser.loginId === '12784') return
     const firestoreDb = db
     const recordUsage = async () => {
       const usageRef = doc(firestoreDb, 'usage', currentUser.id)
@@ -366,16 +365,30 @@ export default function App() {
       }, { merge: true })
     }
     recordUsage().catch(() => undefined)
-  }, [currentUser?.id, currentUser?.mustChangePassword])
+  }, [currentUser?.id, currentUser?.role, currentUser?.loginId, currentUser?.mustChangePassword])
 
   useEffect(() => {
-    if (!db || !currentUser || !canStartSeptemberSync({ role: currentUser.role, mustChangePassword: currentUser.mustChangePassword, dataReady, serverConfirmed, dataError, isDemoMode })) return
+    setSeptemberSource(null)
+    if (!db || !currentUser || currentUser.mustChangePassword || !['admin', 'store_manager', 'assistant_manager'].includes(currentUser.role)) return
+    let active = true
+    const ownSession = sessionKey
+    getDoc(doc(db, 'adminSources', 'septemberAppointments')).then(snapshot => {
+      if (!active || latestSessionKey.current !== ownSession) return
+      const sources = snapshot.exists() ? parseSeptemberSource(snapshot.data()) : null
+      if (sources) setSeptemberSource(sources)
+      else setToast('보호된 9월 자료가 준비되지 않아 자동 갱신을 보류했습니다.')
+    }).catch(() => { if (active && latestSessionKey.current === ownSession) setToast('9월 자료의 관리자 조회 권한을 확인해 주세요.') })
+    return () => { active = false }
+  }, [sessionKey])
+
+  useEffect(() => {
+    if (!db || !currentUser || !septemberSource || !canStartSeptemberSync({ role: currentUser.role, mustChangePassword: currentUser.mustChangePassword, dataReady, serverConfirmed, dataError, isDemoMode })) return
     const readiness = referralReadiness.current
     if (!readiness || !readiness.serverConfirmed || readiness.sessionKey !== sessionKey || septemberSyncRun.current?.readiness === readiness) return
     const run = { readiness }
     septemberSyncRun.current = run
     const firestoreDb = db
-    const plan = buildSeptemberSyncPlan(septemberAppointments, leads)
+    const plan = buildSeptemberSyncPlan(septemberSource, leads)
     const currentById = new Map(leads.map(lead => [lead.id, lead]))
     const entries = plan.entries.filter(entry => {
       if (entry.kind === 'new') return true
@@ -458,10 +471,29 @@ export default function App() {
       setToast(`9월 로우를 갱신하지 못했습니다: ${error instanceof Error ? error.message : 'Firebase 오류'}`)
       window.setTimeout(() => setToast(''), 4200)
     })
-  }, [currentUser?.id, currentUser?.role, currentUser?.mustChangePassword, dataReady, serverConfirmed, dataError, leads])
+  }, [currentUser?.id, currentUser?.role, currentUser?.mustChangePassword, dataReady, serverConfirmed, dataError, leads, septemberSource])
 
   useEffect(() => {
-    if (!db || !currentUser || currentUser.mustChangePassword) {
+    if (!db || !currentUser || !['admin', 'store_manager', 'assistant_manager'].includes(currentUser.role) || currentUser.mustChangePassword || !dataReady || !serverConfirmed || dataError || isDemoMode) return
+    const ownSession = sessionKey
+    const firestoreDb = db
+    const timer = window.setTimeout(async () => {
+      if (latestSessionKey.current !== ownSession || auth?.currentUser?.uid !== currentUser.id || !referralReadiness.current?.serverConfirmed) return
+      try {
+        const publication = buildPartnerPublication(leads, IWEDDING_PARTNER_ID, new Date().toISOString())
+        const content = JSON.stringify(publication.months)
+        if (publishedRevision.current === content) return
+        await setDoc(doc(firestoreDb, 'partnerViews', IWEDDING_PARTNER_ID), publication)
+        if (latestSessionKey.current === ownSession) publishedRevision.current = content
+      } catch {
+        if (latestSessionKey.current === ownSession) setToast('업체 자료 게시본을 갱신하지 못했습니다. 관리자 권한을 확인해 주세요.')
+      }
+    }, 800)
+    return () => window.clearTimeout(timer)
+  }, [sessionKey, leads, dataReady, serverConfirmed, dataError])
+
+  useEffect(() => {
+    if (!db || !currentUser || currentUser.mustChangePassword || !canPreviewPartner(currentUser.role)) {
       setUsageRows([]); return
     }
     const unsubscribeUsage = onSnapshot(collection(db, 'usage'), snapshot => setUsageRows(snapshot.docs.map(item => item.data() as UsageRow)))
@@ -618,14 +650,15 @@ export default function App() {
   if (!isFirebaseConfigured && !isDemoMode) return <SetupRequired/>
   if (!authReady) return <div className="loading-screen"><div className="brand-mark">D5</div><p>안전하게 연결하는 중...</p></div>
   if (!currentUser) return <LoginScreen accountError={authError} onLoginStart={() => setAuthError('')}/>
-  if (currentUser.mustChangePassword) return <PasswordChangeScreen onComplete={() => setCurrentUser(user => user ? { ...user, mustChangePassword: false } : user)}/>
+  if (currentUser.mustChangePassword) return <PasswordChangeScreen key={currentUser.id} onComplete={userId => setCurrentUser(user => user?.id === userId && auth?.currentUser?.uid === userId ? { ...user, mustChangePassword: false } : user)}/>
+  if (currentUser.role === 'partner') return currentUser.partnerId ? <PartnerPortal userId={currentUser.id} loginId={currentUser.loginId} partnerId={currentUser.partnerId}/> : <div className="loading-screen"><p>업체 연결 정보를 확인해 주세요.</p><button onClick={() => auth && signOut(auth)}>로그아웃</button></div>
   if (!dataReady) return <div className="loading-screen"><div className="brand-mark">D5</div><p>안전하게 연결하는 중...</p></div>
 
   return <div className="app-shell">
 
     <main>
       <section className="content">
-        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>{isPartnerPreview ? '연결 고객, 한눈에.' : '좋은 인연을, 놓치지 않도록.'}</h1><p>{isPartnerPreview ? '업체별 고객 진행 현황과 예상 정산을 확인하세요.' : '제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.'}</p></div><div className="heading-actions"><button className="btn guide-button" onClick={()=>setSettlementGuideOpen(true)}><CircleHelp size={16}/>제휴·정산 안내</button>{canManageAll && !isPartnerPreview ? <button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button> : null}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
+        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>{isPartnerPreview ? '연결 고객, 한눈에.' : '좋은 인연을, 놓치지 않도록.'}</h1><p>{isPartnerPreview ? '업체별 고객 진행 현황과 예상 정산을 확인하세요.' : '제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.'}</p></div><div className="heading-actions"><button type="button" className="btn guide-button" aria-haspopup="dialog" aria-expanded={settlementGuideOpen} onClick={()=>setSettlementGuideOpen(true)}><CircleHelp size={16}/>제휴·정산 안내</button>{canManageAll && !isPartnerPreview ? <button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button> : null}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
 
         {dataError&&<div className="data-alert"><CircleHelp size={18}/><div><strong>데이터를 불러오지 못했습니다.</strong><span>{dataError}</span></div><button onClick={()=>window.location.reload()}>다시 시도</button></div>}
 
@@ -688,7 +721,7 @@ export default function App() {
     </main>
 
     {!isPartnerPreview && active && <LeadDrawer lead={active} linkedLeads={active.caseGroupId ? leads.filter(lead => lead.caseGroupId === active.caseGroupId) : []} allLeads={leads} onSelectLinked={setActive} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer} onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false) }} onSave={saveLead} onUnlink={unlinkCase} remoteChanged={!creating && Boolean(leads.find(item => item.id === active.id && (item.updatedAt !== active.updatedAt || item.caseGroupId !== active.caseGroupId || rawRevisionFor(item) !== rawRevisionFor(active) || assignmentRevisionFor(item) !== assignmentRevisionFor(active))))}/>}
-    {settlementGuideOpen && <SettlementGuideModal onClose={()=>setSettlementGuideOpen(false)}/>}
+    {settlementGuideOpen ? <SettlementGuideModal onClose={closeSettlementGuide}/> : null}
     {!isPartnerPreview && toast ? <div className="toast"><Check size={17}/>{toast}</div> : null}
   </div>
 }
@@ -721,9 +754,6 @@ function DuplicateIntakeHelp({lead,leads}:{lead:Lead,leads:Lead[]}) {
   return <span className="duplicate-intake-help" title="동일한 이름과 연락처가 상담예약(이업종)과 이업종제휴에 각각 접수되었습니다. 정산 확인을 위해 두 기록을 모두 유지합니다."><CircleHelp size={11}/>두 방식 중복 접수</span>
 }
 
-function SettlementGuideModal({onClose}:{onClose:()=>void}) {
-  return <div className="guide-overlay"><button className="guide-scrim" onClick={onClose} aria-label="제휴·정산 안내 닫기"/><section className="guide-modal" role="dialog" aria-modal="true" aria-label="제휴 접수 및 정산 안내"><header><div><span>PARTNER GUIDE</span><h2>제휴 접수·정산 기준 안내</h2></div><button onClick={onClose} aria-label="닫기"><X size={18}/></button></header><div className="guide-intro"><span>고객 접수방법 2가지</span><strong>이업종제휴 접수를 우선으로 확인해주세요.</strong></div><div className="guide-types"><article className="primary"><b>01</b><div><strong>이업종제휴 <em>우선 접수</em></strong><p>제휴업체가 고객을 매장에 직접 연결해 접수하는 방식입니다.</p><a href="https://newbest.lge.com" target="_blank" rel="noreferrer">이업종제휴 접수 주소 <span>newbest.lge.com →</span></a></div></article><article><b>02</b><div><strong>상담예약(이업종)</strong><p>고객이 전용 URL을 통해 직접 상담을 접수하는 방식입니다.</p></div></article></div><div className="guide-policy"><h3>LG 제휴 수수료 정산 기준</h3><ul><li><strong>연결 매장과 구매 매장이 같아야 합니다.</strong><span>업체가 A지점으로 연결한 고객은 A지점에서 구매해야 정산 대상입니다.</span></li><li><strong>다른 지점에서 구매하면 정산 대상이 아닙니다.</strong><span>A지점으로 연결됐지만 B지점에서 구매한 경우에는 제외됩니다.</span></li><li><strong>비교 방문 매장이 2곳 이상이면 각각 접수해야 합니다.</strong><span>업체등록과 고객등록(URL 접수), 두 가지 방법으로 매장별 접수를 남겨야 합니다.</span></li><li><strong>제품 수령월 기준 익익월 중순에 입금됩니다.</strong><span>제휴 수수료는 고객이 제품을 받은 달로부터 두 달 뒤 중순에 정산됩니다.</span></li></ul></div><footer><button className="btn primary" onClick={onClose}><Check size={16}/>확인했습니다</button></footer></section></div>
-}
 
 function ManagementSummary({lead,onOpen}:{lead:Lead,onOpen:()=>void}) {
   const entries = memoEntriesFor(lead)
@@ -836,43 +866,63 @@ function SetupRequired() {
   return <div className="login-screen"><div className="login-card setup-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">DEPLOYMENT SETUP</p><h1>운영 연결이 필요합니다</h1><p className="login-copy">고객정보 보호를 위해 데이터베이스가 연결되지 않은 배포에서는 화면을 열지 않습니다.</p><div className="setup-steps"><span>1</span><p>Vercel에 Firebase 웹 앱 환경변수를 등록하세요.</p><span>2</span><p>환경변수 등록 후 다시 배포하세요.</p></div></div></div>
 }
 
-function PasswordChangeScreen({onComplete}:{onComplete:()=>void}) {
+function PasswordChangeScreen({onComplete}:{onComplete:(userId:string)=>void}) {
   const [password,setPassword]=useState('')
   const [confirmPassword,setConfirmPassword]=useState('')
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const save=async(e:React.FormEvent)=>{
     e.preventDefault(); setError('')
+    if (busy) return
     if(password.length<10 || !/[A-Za-z]/.test(password) || !/\d/.test(password)){setError('영문과 숫자를 포함해 10자 이상 입력해주세요.');return}
     if(password!==confirmPassword){setError('새 비밀번호가 서로 일치하지 않습니다.');return}
     if(!auth?.currentUser || !db){setError('Firebase 연결을 확인해주세요.');return}
+    const firebaseAuth = auth
+    const targetUser = firebaseAuth.currentUser
+    const firestoreDb = db
+    if (!targetUser) return
+    const sameSession = () => mounted.current && firebaseAuth.currentUser === targetUser
     setBusy(true)
     try {
-      await updatePassword(auth.currentUser,password)
+      await updatePassword(targetUser,password)
+      if (!sameSession()) return
       const now=new Date().toISOString()
-      await setDoc(doc(db,'profiles',auth.currentUser.uid),{mustChangePassword:false,passwordChangedAt:now,updatedAt:now},{merge:true})
-      onComplete()
+      await setDoc(doc(firestoreDb,'profiles',targetUser.uid),{mustChangePassword:false,passwordChangedAt:now,updatedAt:now},{merge:true})
+      if (!sameSession()) return
+      setPassword(''); setConfirmPassword('')
+      onComplete(targetUser.uid)
     } catch {
-      setError('비밀번호를 변경하지 못했습니다. 다시 로그인한 후 시도해주세요.')
-    } finally { setBusy(false) }
+      if (sameSession()) setError('비밀번호를 변경하지 못했습니다. 다시 로그인한 후 시도해주세요.')
+    } finally { if (mounted.current) setBusy(false) }
   }
-  return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">FIRST LOGIN</p><h1>새 비밀번호 설정</h1><p className="login-copy">초기 비밀번호를 본인만 아는 비밀번호로 변경해주세요.</p><form onSubmit={save}><label>새 비밀번호<input type="password" autoComplete="new-password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="영문·숫자 포함 10자 이상"/></label><label>새 비밀번호 확인<input type="password" autoComplete="new-password" required value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} placeholder="한 번 더 입력"/></label>{error&&<p className="login-error">{error}</p>}<button className="btn primary" disabled={busy}>{busy?'변경 중...':'비밀번호 변경'}</button><button type="button" className="btn secondary" onClick={()=>auth&&signOut(auth)}>다른 계정으로 로그인</button></form><div className="login-safe"><Sparkles size={15}/> 최초 로그인 보안 설정</div></div></div>
+  return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">FIRST LOGIN</p><h1>새 비밀번호 설정</h1><p className="login-copy">초기 비밀번호를 본인만 아는 비밀번호로 변경해주세요.</p><form onSubmit={save}><label>새 비밀번호<input type="password" autoComplete="new-password" required disabled={busy} value={password} onChange={e=>setPassword(e.target.value)} placeholder="영문·숫자 포함 10자 이상"/></label><label>새 비밀번호 확인<input type="password" autoComplete="new-password" required disabled={busy} value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} placeholder="한 번 더 입력"/></label>{error ? <p className="login-error" role="alert">{error}</p> : null}<button className="btn primary" disabled={busy}>{busy?'변경 중...':'비밀번호 변경'}</button><button type="button" className="btn secondary" disabled={busy} onClick={()=>auth&&signOut(auth)}>다른 계정으로 로그인</button></form><div className="login-safe"><Sparkles size={15}/> 최초 로그인 보안 설정</div></div></div>
 }
 function LoginScreen({accountError,onLoginStart}:{accountError:string;onLoginStart:()=>void}) {
-  const [loginId,setLoginId]=useState('')
+  const loginIdInput = useRef<HTMLInputElement>(null)
   const [password,setPassword]=useState('')
   const [error,setError]=useState('')
+  const [failureCode,setFailureCode]=useState<string | undefined>()
+  const [showPassword,setShowPassword]=useState(false)
   const [busy,setBusy]=useState(false)
+  const idComposing = useRef(false)
   const login=async(e:React.FormEvent)=>{
-    e.preventDefault(); setError(''); onLoginStart()
-    if(loginId===SHARED_ACCOUNT_EMPLOYEE_NO){setError(SHARED_ACCOUNT_MESSAGE);return}
+    e.preventDefault()
+    if (busy || idComposing.current) return
+    setError(''); setFailureCode(undefined); onLoginStart()
+    const loginId = loginIdInput.current?.value || ''
+    const inputMessage = loginIdInputMessage(loginId)
+    if (inputMessage) { setError(inputMessage); return }
+    const normalizedId = normalizeLoginId(loginId.trim())
+    if(normalizedId===SHARED_ACCOUNT_EMPLOYEE_NO){setError(SHARED_ACCOUNT_MESSAGE);return}
     setBusy(true)
     if(!auth){setError('Firebase 연결이 필요합니다.');setBusy(false);return}
-    const firebasePassword = password === loginId ? `D5${loginId}` : password
-    try { await signInWithEmailAndPassword(auth, loginId+'@d5.local',firebasePassword) }
-    catch (error) { setError(error instanceof Error && 'code' in error && error.code==='auth/user-disabled' ? '사용이 중지된 계정입니다. 본인 사번으로 로그인해주세요.' : '사번 또는 비밀번호를 확인해주세요.') }
+    const firebasePassword = firebasePasswordForLogin(normalizedId, password, [PARTNER_ACCOUNTS.iwedding.loginId])
+    try { await signInWithEmailAndPassword(auth, loginEmailFor(normalizedId),firebasePassword) }
+    catch (error) { const failure = loginFailureFor(error); setError(failure.message); setFailureCode(failure.code) }
     setBusy(false)
   }
-  return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">SECURE WORKSPACE</p><h1>D5 제휴고객 관리</h1><p className="login-copy">본인 사번과 기존 비밀번호로 로그인해주세요.</p><form onSubmit={login}><label>사번<input inputMode="numeric" autoComplete="username" required value={loginId} onChange={e=>setLoginId(e.target.value.replace(/\D/g,''))} placeholder="본인 사번"/></label><label>비밀번호<input type="password" autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="기존 비밀번호"/></label>{(error||accountError)&&<p className="login-error" role="alert">{error||accountError}</p>}<button className="btn primary" disabled={busy}>{busy?'접속 중...':'로그인'}</button></form><div className="login-safe"><Sparkles size={15}/> Firebase 보안 인증</div></div></div>
+  return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">SECURE WORKSPACE</p><h1>D5 제휴고객 관리</h1><p className="login-copy">ID와 비밀번호로 로그인해주세요.</p><form onSubmit={login}><label htmlFor="login-id">ID<input ref={loginIdInput} id="login-id" name="loginId" aria-label="ID" aria-describedby="login-id-help" type="text" inputMode="text" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="username" required defaultValue="" onCompositionStart={() => { idComposing.current = true }} onCompositionEnd={() => { idComposing.current = false }} onBlur={() => { idComposing.current = false }} onKeyDown={event => { if (event.key === 'Enter' && (idComposing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault() }} placeholder="ID를 입력하세요"/><small id="login-id-help" className="login-id-help">ID는 영문·숫자이며 대소문자를 구분하지 않습니다.</small></label><label>비밀번호<input id="login-password" aria-label="비밀번호" type={showPassword ? 'text' : 'password'} autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="기존 비밀번호"/></label><div className="login-password-options"><span>현재 업체 임시 비밀번호는 E/e를 구분하지 않습니다.<br/>일반 비밀번호는 대소문자를 구분합니다.</span><button type="button" className="login-password-toggle" aria-controls="login-password" aria-pressed={showPassword} aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={14}/> : <Eye size={14}/>}<span>{showPassword ? '숨기기' : '보기'}</span></button></div>{(error||accountError) ? <p className="login-error" role="alert">{error||accountError}{error && failureCode ? <small className="login-error-code">{failureCode}</small> : null}</p> : null}<button className="btn primary" disabled={busy}>{busy?'접속 중...':'로그인'}</button></form><div className="login-safe"><Sparkles size={15}/> Firebase 보안 인증</div></div></div>
 }
 

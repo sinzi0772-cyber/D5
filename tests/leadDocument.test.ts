@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict'
+import { leadFromDocument, normalizedLeadStatus } from '../src/lib/leadDocument'
+import { parseSeptemberSource } from '../src/lib/septemberSource'
+
+const raw = Object.freeze({ registeredAt: '2026-09-01', customerName: '김*수', phoneLast4: '0023', partnerName: '아이웨딩', gender: '남', status: '계약완료', purchaseType: '일시불', purchaseAmount: 200000, managerEmployeeNo: '0023', note: '직원용 기록', updatedAt: '2026-09-01T01:00:00Z' })
+const lead = leadFromDocument('saved-id', raw)
+assert.equal(lead.partnerName, '(주)아이패밀리에스씨')
+assert.equal(lead.phoneLast4, '0023')
+assert.equal(lead.managerEmployeeNo, '0023')
+assert.equal(lead.status, '구매완료')
+assert.equal(lead.lumpSumAmount, 200000)
+assert.equal(lead.subscriptionAmount, undefined)
+assert.equal(lead.note, raw.note, 'The staff mapper does not pretend to be a partner projection')
+assert.equal(leadFromDocument('id', { ...raw, lumpSumAmount: 0 }).lumpSumAmount, 0)
+assert.equal(leadFromDocument('id', { ...raw, purchaseType: '일시불+구독' }).lumpSumAmount, undefined)
+assert.equal(leadFromDocument('id', { purchaseAmount: Infinity, salesRawPeriods: [] }).purchaseAmount, undefined)
+assert.equal(leadFromDocument('id', {}).visitState, '미정')
+assert.equal(normalizedLeadStatus('상담마감'), '상담 마감')
+assert.equal(normalizedLeadStatus('종결'), '취소')
+
+const source = Object.freeze({ sourceId: 'test-001', registeredAt: '2026-09-01', visitScheduledDate: '2026-09-02', appointmentType: '이업종제휴', customerName: '김*수', phoneLast4: '0023', partnerName: '아이웨딩', appointmentStatus: '완료' })
+const parsed = parseSeptemberSource({ schemaVersion: 1, sources: [source] })
+assert.equal(parsed?.[0].phoneLast4, '0023')
+assert.notEqual(parsed?.[0], source, 'The protected document is copied into an explicit allowlist')
+assert.equal(parseSeptemberSource({ schemaVersion: 2, sources: [] }), null)
+assert.equal(parseSeptemberSource({ schemaVersion: 1, sources: [], extra: true }), null)
+assert.equal(parseSeptemberSource({ schemaVersion: 1, sources: [source, source] }), null)
+assert.equal(parseSeptemberSource({ schemaVersion: 1, sources: [{ ...source, password: 'synthetic-only' }] }), null)
+assert.equal(parseSeptemberSource({ schemaVersion: 1, sources: [{ ...source, phoneLast4: '123' }] }), null)
+assert.equal(parseSeptemberSource({ schemaVersion: 1, sources: [{ ...source, visitScheduledDate: '2026-02-30' }] }), null)
+assert.deepEqual(parseSeptemberSource({ schemaVersion: 1, sources: [] }), [])
+console.log('leadDocument and protected source tests passed')

@@ -10,15 +10,36 @@
 .partner-preview-stats strong small { font-size: 13px; margin-left: 4px; font-weight: 500; }
 .partner-preview-stats p { margin: 7px 0 0; color: #73888e; font-size: 12px; line-height: 1.5; }
 .partner-preview-stats .partner-preview-fee { background: #f1faf7; color: #0b7269; border-color: #cfe5de; }
+.partner-preview-fee-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.partner-preview-fee-period { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.partner-preview-fee-period span { font-size: 11px; }
+.partner-preview .partner-preview-fee-period select { min-width: 0; max-width: 100%; border: 1px solid #c8dfd9; border-radius: 6px; background: #fff; color: #285d58; font: inherit; font-size: 12px; padding: 5px 7px; }
+.partner-preview-fee-period select:focus-visible { outline: 2px solid #208d80; outline-offset: 2px; }
+.partner-preview .partner-preview-month-select:focus-visible { outline: 2px solid #208d80; outline-offset: -3px; }
+.partner-preview .partner-preview-sort-button { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-height: 28px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: inherit; font: inherit; font-weight: inherit; line-height: 1.4; white-space: nowrap; cursor: pointer; }
+.partner-preview-sort-button::after { content: '↕'; color: #96a9a4; font-size: 10px; }
+.partner-preview-sort-button[data-direction='asc']::after { content: '↑'; color: #0b7269; }
+.partner-preview-sort-button[data-direction='desc']::after { content: '↓'; color: #0b7269; }
+.partner-preview .partner-preview-sort-button:not([data-direction='none']) { color: #0b7269; font-weight: 700; }
+.partner-preview .partner-preview-sort-button:hover { color: #0b7269; text-decoration: underline; text-underline-offset: 3px; }
+.partner-preview .partner-preview-sort-button:focus-visible { outline: 2px solid #208d80; outline-offset: 2px; }
 .partner-preview-settlement { border-radius: 10px; padding: 16px; margin-bottom: 20px; background: #f5faf8; border: 1px solid #dcece5; }
 .partner-preview-section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
-.partner-preview-section-heading h3 { font-size: 15px; margin: 0; }
+.partner-preview-section-heading h2, .partner-preview-section-heading h3 { font-size: 15px; margin: 0; }
 .partner-preview-section-heading small { color: #778c92; font-size: 11px; }
-.partner-preview-months { padding: 0; margin: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 8px; }
-.partner-preview-months li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; background: #fff; border-radius: 7px; padding: 12px; border: 1px solid #dfeae5; font-size: 13px; }
-.partner-preview-months small { color: #7a8d91; margin-left: 5px; font-size: 11px; }
-.partner-preview-months strong { color: #087970; font-size: 16px; }
-.partner-preview-undated { margin: 12px 0 0; font-size: 12px; line-height: 1.6; color: #996425; }
+.partner-preview-settlement-table { border: 1px solid #dfeae5; border-radius: 8px; overflow: hidden; background: #fff; }
+.partner-preview-settlement-table table { width: 100%; min-width: 0; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.partner-preview-settlement-table th, .partner-preview-settlement-table td { width: auto; height: auto; padding: 10px 12px; border: 0; border-top: 1px solid #e5eeea; vertical-align: middle; font-size: 13px; }
+.partner-preview-settlement-table thead th { background: #f8fbfa; border-top: 0; color: #687d84; font-size: 11px; font-weight: 600; text-align: left; }
+.partner-preview-settlement-table th:first-child { width: 44%; }
+.partner-preview-settlement-table th:nth-child(2), .partner-preview-settlement-table td:nth-child(2) { width: 20%; text-align: center; white-space: nowrap; }
+.partner-preview-settlement-table th:last-child, .partner-preview-settlement-table td:last-child { width: 36%; text-align: right; }
+.partner-preview-settlement-table tbody th { padding: 0; background: transparent; font-weight: 500; text-align: left; }
+.partner-preview-settlement-table tr.is-selected { background: #eef9f5; }
+.partner-preview-settlement-table strong { color: #087970; font-size: 15px; overflow-wrap: anywhere; }
+.partner-preview .partner-preview-month-select { display: block; width: 100%; min-height: 42px; padding: 10px 12px; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; font-weight: inherit; line-height: 1.6; text-align: left; cursor: pointer; }
+.partner-preview-settlement-table small { display: block; font-size: 11px; font-weight: 400; }
+.partner-preview-settlement-table .partner-preview-undated-row, .partner-preview-settlement-table .partner-preview-undated-row strong { color: #996425; }
 .partner-preview-empty { color: #758990; font-size: 13px; margin: 12px 0; line-height: 1.6; }
 .partner-preview-table-scroll { width: 100%; overflow-x: auto; border: 1px solid #e4eaea; border-radius: 9px; }
 .partner-preview-table-scroll table { min-width: 760px; width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -29,6 +50,19 @@
 .partner-preview-customer-fee { color: #0b7b71; font-weight: 600; }
 .partner-preview-status { display: inline-block; padding: 4px 8px; border-radius: 14px; background: #f0f3fa; color: #647fa1; font-size: 11px; }
 .partner-preview-status.completed { background: #e6f4ee; color: #20835e; }
+.partner-preview-portal { border: 0; border-radius: 0; background: transparent; padding: 0; }
+.partner-preview-portal > .partner-preview-heading { display: none; }
+.partner-preview-portal .partner-preview-stats { margin-bottom: 24px; padding: 8px 0 24px; border-bottom: 1px solid #e6eeeb; }
+.partner-preview-portal .partner-preview-stats > div { padding: 0 20px; border: 0; border-radius: 0; background: transparent; }
+.partner-preview-portal .partner-preview-stats > div:first-child { padding-left: 0; }
+.partner-preview-portal .partner-preview-stats > div + div { border-left: 1px solid #e6eeeb; }
+.partner-preview-portal .partner-preview-stats strong { font-size: 26px; }
+.partner-preview-portal .partner-preview-stats .partner-preview-fee { background: transparent; color: #0b7269; }
+.partner-preview-portal .partner-preview-fee > strong { font-size: 30px; }
+.partner-preview-portal .partner-preview-settlement { padding: 0; border: 0; border-radius: 0; background: transparent; margin-bottom: 28px; }
+.partner-preview-portal .partner-preview-section-heading h2, .partner-preview-portal .partner-preview-section-heading h3 { font-size: 16px; }
+.partner-preview-portal .partner-preview-section-heading p { font-size: 12px; }
+.partner-preview-portal .partner-preview-table-scroll td { font-size: 13px; }
 @media (max-width: 700px) {
   .partner-preview { padding: 16px; }
   .partner-preview-heading { flex-direction: column; gap: 8px; }
@@ -37,6 +71,16 @@
   .partner-preview-stats .partner-preview-fee { grid-column: 1 / -1; }
   .partner-preview-stats strong { font-size: 25px; }
   .partner-preview-section-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .partner-preview-settlement-table th, .partner-preview-settlement-table td { padding: 9px 8px; font-size: 12px; }
+  .partner-preview-settlement-table tbody th { padding: 0; }
+  .partner-preview .partner-preview-month-select { padding: 9px 8px; }
+  .partner-preview-settlement-table strong { font-size: 13px; }
+  .partner-preview-portal { padding: 0; }
+  .partner-preview-portal .partner-preview-stats { padding: 6px 0 20px; gap: 18px 0; }
+  .partner-preview-portal .partner-preview-stats > div { padding: 0 16px; }
+  .partner-preview-portal .partner-preview-stats .partner-preview-fee { border-left: 0; border-top: 1px solid #e6eeeb; padding: 16px 0 0; }
+  .partner-preview-portal .partner-preview-stats strong { font-size: 24px; }
+  .partner-preview-portal .partner-preview-fee > strong { font-size: 28px; }
 }
 @media print {
   .partner-preview, .partner-preview * { visibility: visible !important; }
@@ -46,4 +90,5 @@
   .partner-preview-table-scroll td, .partner-preview-table-scroll th { padding: 7px; white-space: normal; }
   .partner-preview-table-scroll tr { break-inside: avoid; }
   .partner-preview-stats { break-inside: avoid; }
+  .partner-preview-portal > .partner-preview-heading { display: flex; }
 }

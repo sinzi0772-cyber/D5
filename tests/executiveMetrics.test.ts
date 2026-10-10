@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildExecutiveMetrics, executiveTotalSalesFor, getDefaultExecutiveMonth, getExecutiveMonthLeads, getExecutiveMonths, getTopCommissionPartners } from '../src/lib/executiveMetrics.ts'
+import { buildExecutiveMetrics, executiveTotalSalesFor, getDefaultExecutiveMonth, getExecutiveMonthLeads, getExecutiveMonths, getTopCommissionPartners, getTopReferralPartners, type ExecutivePartnerSummary } from '../src/lib/executiveMetrics.ts'
 import { expectedRebateFor } from '../src/lib/salesFinance.ts'
 import type { Lead, SalesRawPeriod } from '../src/types.ts'
 
@@ -327,6 +327,60 @@ const pendingTieRows = Object.freeze([
 const pendingTieBefore = JSON.stringify(pendingTieRows)
 assert.deepEqual(getTopCommissionPartners(pendingTieRows).map(row => row.name), ['수수료 우선 업체', '가 합계 동률 업체', '출하대기 포함 큰 업체'], 'Commission stays the primary order; equal fees use total sales including pending money, then Korean name')
 assert.equal(JSON.stringify(pendingTieRows), pendingTieBefore, 'Total-sales tie ranking must not reorder or mutate source summaries')
+
+const referralRankingRow = (name: string, cases: number, changes: Partial<ExecutivePartnerSummary> = {}) => Object.freeze({
+  ...crossCompanyFinancialMetrics.partners[0], name, cases, ...changes,
+})
+const referralRankingRows = Object.freeze([
+  referralRankingRow('접수 4 업체', 4, { sales: 999999999, expectedCommission: 999999, completed: 4 }),
+  referralRankingRow('접수 49 업체', 49, { sales: 0, reservedSales: 0, expectedCommission: 0, completed: 0 }),
+  referralRankingRow('접수 20 업체', 20, { sales: 1, expectedCommission: 1, completed: 1 }),
+  referralRankingRow('접수 3 업체', 3),
+])
+const referralRankingBefore = JSON.stringify(referralRankingRows)
+const referralTop3 = getTopReferralPartners(referralRankingRows)
+assert.deepEqual(referralTop3.map(row => row.cases), [49, 20, 4], 'Referral TOP3 uses numeric intake counts, not string, sales, commission or completion order')
+assert.equal(referralTop3.length, 3)
+for (const [index, inputIndex] of [1, 2, 0].entries()) assert.strictEqual(referralTop3[index], referralRankingRows[inputIndex], 'Referral ranking retains exact existing summary objects')
+assert.equal(JSON.stringify(referralRankingRows), referralRankingBefore, 'Frozen referral inputs must not be reordered or mutated')
+
+const referralTieRows = Object.freeze([
+  referralRankingRow('나 업체', 4, { sales: 999999999, reservedSales: 999999, expectedCommission: 999999, completed: 4 }),
+  referralRankingRow('가 업체', 4, { sales: 0, reservedSales: 0, expectedCommission: 0, completed: 0 }),
+  referralRankingRow('다 업체', 4, { sales: 1, reservedSales: 1, expectedCommission: 1, completed: 1 }),
+])
+const referralTieBefore = JSON.stringify(referralTieRows)
+assert.deepEqual(getTopReferralPartners(referralTieRows).map(row => row.name), ['가 업체', '나 업체', '다 업체'], 'Equal referral counts use only Korean name order, independent of money and completion')
+assert.equal(JSON.stringify(referralTieRows), referralTieBefore)
+const excludedReferralRows = Object.freeze([
+  referralRankingRow('', 999), referralRankingRow('   ', 999),
+  referralRankingRow('업체 미입력', 999), referralRankingRow(' 업체 미입력 ', 999),
+  referralRankingRow('접수 없는 업체', 0), referralRankingRow('음수 접수 업체', -1),
+])
+assert.deepEqual(getTopReferralPartners(excludedReferralRows), [], 'Blank names, exact missing-company placeholder and nonpositive counts must be omitted')
+assert.deepEqual(getTopReferralPartners([]), [], 'No companies produces no placeholder ranking rows')
+assert.deepEqual(getTopReferralPartners([excludedReferralRows[0], referralRankingRows[0]]), [referralRankingRows[0]], 'A single real referring company remains visible without padding')
+assert.deepEqual(getTopReferralPartners([referralRankingRows[0], referralRankingRows[2]]), [referralRankingRows[2], referralRankingRows[0]], 'Fewer than three companies stay correctly ordered without padding')
+
+const linkedReferralBefore = JSON.stringify(crossPartnerCouple)
+const augustReferringPartners = getTopReferralPartners(allPartnersAugust.partners)
+assert.deepEqual(augustReferringPartners.map(row => row.name), ['A 업체', 'B 업체'], 'Companies tied on a linked intake case use Korean name order')
+assert.ok(augustReferringPartners.every(row => row.cases === 1), 'Each company counts the linked intake case once, not the two customer records')
+for (const row of augustReferringPartners) assert.strictEqual(row, allPartnersAugust.partners.find(original => original.name === row.name), 'Linked referral TOP3 uses the exact monthly company summary')
+assert.deepEqual(getTopReferralPartners(partnerBAugust.partners), [partnerBAugust.partners[0]], 'Company scope retains the original August intake month for its later registered linked customer')
+assert.deepEqual(getTopReferralPartners(partnerBSeptember.partners), [partnerBSeptember.partners[0]], 'September ranking includes only the separate September company case')
+assert.equal(getTopReferralPartners(partnerBSeptember.partners)[0].cases, 1, 'The later August-linked customer cannot increase September referral counts')
+assert.deepEqual(getTopReferralPartners(buildExecutiveMetrics(crossPartnerCouple, '2026-10', '2026-10-03', 'B 업체').partners), [], 'An empty scoped intake month has no referring companies')
+assert.equal(JSON.stringify(crossPartnerCouple), linkedReferralBefore, 'Ranking never changes linked customer, company, registration, status or amounts')
+for (const row of getTopReferralPartners(crossCompanyFinancialMetrics.partners)) {
+  assert.strictEqual(row, crossCompanyFinancialMetrics.partners.find(original => original.name === row.name))
+  assert.equal(row.cases, 1)
+  assert.equal(row.sales, 60)
+  assert.equal(row.reservedSales, 16)
+  assert.equal(row.expectedCommission, 2, 'Adding referral ranking must preserve existing money and fee summaries exactly')
+}
+assert.deepEqual(getTopReferralPartners(buildExecutiveMetrics(crossCompanyFinancialRows, '2026-10', '2026-10-07').partners), [], 'Cross-month linked company referrals remain in their first intake month')
+
 for (const row of getTopCommissionPartners(crossCompanyFinancialMetrics.partners)) {
   const original = crossCompanyFinancialMetrics.partners.find(item => item.name === row.name)!
   assert.strictEqual(row, original, 'The TOP3 card and company details use exactly the same metric row')

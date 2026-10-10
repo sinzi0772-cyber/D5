@@ -25,6 +25,12 @@ export interface ExecutivePartnerSummary extends ExecutivePeriodSummary {
 /** Display aggregate only: preserve confirmed/completed and pending bases separately. */
 export const executiveTotalSalesFor = (row: Pick<ExecutivePeriodSummary, 'sales' | 'reservedSales'>): number => row.sales + row.reservedSales
 
+/** Rank referring companies by intake cases without changing source summaries. */
+export const getTopReferralPartners = (rows: readonly ExecutivePartnerSummary[]): ExecutivePartnerSummary[] => rows
+  .filter(row => row.cases > 0 && row.name.trim().length > 0 && row.name.trim() !== '업체 미입력')
+  .sort((a, b) => b.cases - a.cases || a.name.localeCompare(b.name, 'ko'))
+  .slice(0, 3)
+
 /** Rank positive expected commissions without changing the underlying company summaries. */
 export const getTopCommissionPartners = (rows: readonly ExecutivePartnerSummary[]): ExecutivePartnerSummary[] => rows
   .filter(row => row.expectedCommission > 0)

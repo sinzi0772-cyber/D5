@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ArrowUpRight, CheckCircle2, Clock3, Printer, UsersRound, X } from 'lucide-react'
-import { buildExecutiveMetrics, executiveTotalSalesFor, getExecutiveMonthLeads, getTopCommissionPartners, type ExecutivePeriodSummary } from '../lib/executiveMetrics'
+import { buildExecutiveMetrics, executiveTotalSalesFor, getExecutiveMonthLeads, getTopCommissionPartners, getTopReferralPartners, type ExecutivePeriodSummary } from '../lib/executiveMetrics'
 import { customerDisplayLabel } from '../lib/customerDisplay'
 import type { Lead } from '../types'
 import { MonthlyCommissionPanel } from './MonthlyCommissionPanel'
@@ -42,6 +42,7 @@ export function ExecutiveDashboard({ leads, partnerLabel, month, onSelectLead, o
   const uniqueActionCustomers = new Set([...actions.unassigned, ...actions.overdue, ...actions.stale].map(lead => lead.id)).size
   const sortedPartners = [...metrics.partners].sort((a, b) => executiveTotalSalesFor(b) - executiveTotalSalesFor(a) || b.completed - a.completed || b.cases - a.cases || a.name.localeCompare(b.name, 'ko'))
   const topCommissionPartners = getTopCommissionPartners(metrics.partners)
+  const topReferralPartners = getTopReferralPartners(metrics.partners)
   const sortedManagers = metrics.managers.filter(row => row.name !== '미배정').sort((a, b) => b.completed - a.completed || executiveTotalSalesFor(b) - executiveTotalSalesFor(a) || b.cases - a.cases || a.name.localeCompare(b.name, 'ko'))
   const showQueue = (value: Queue) => { setQueue(value); setDetailsOpen(true) }
 
@@ -83,6 +84,7 @@ export function ExecutiveDashboard({ leads, partnerLabel, month, onSelectLead, o
     </section> : null}
 
     <div className="exec-highlights">
+      <section className="exec-highlight exec-highlight-referral" aria-label="접수 많은 업체 TOP 3"><header><div><h3>접수 많은 업체</h3><p>{monthLabel(month)} 접수 · 접수 건수순</p></div><span>TOP 3</span></header><Ranking rows={topReferralPartners} kind="referral"/></section>
       <section className="exec-highlight"><header><div><h3>업체 판매</h3><p>{monthLabel(month)} 접수 · 총판매금액 순</p></div><span>TOP 3</span></header><Ranking rows={sortedPartners.slice(0, 3)} kind="partner"/></section>
       <section className="exec-highlight exec-highlight-commission"><header><div><h3>업체 예상 수수료</h3><p>{monthLabel(month)} 접수 · 정산월 전체 합계</p></div><span>TOP 3</span></header><Ranking rows={topCommissionPartners} kind="commission"/></section>
       <section className="exec-highlight"><header><div><h3>담당자 판매</h3><p>{monthLabel(month)} 접수 · 구매완료 건수 순, 동률은 총판매금액 순</p></div><span>TOP 3</span></header><Ranking rows={sortedManagers.slice(0, 3)} kind="manager" onSelectManager={onSelectManager}/></section>
@@ -114,8 +116,21 @@ function ActionCard({ label, value, note, action, selected, onSelect, color }: {
 function ManagerLink({ name, onSelect }: { name: string; onSelect: (name: string) => void }) {
   return <button type="button" className="exec-manager-link" aria-label={`${name} 담당 고객 보기`} title="선택한 접수월의 담당 고객 보기" onClick={() => onSelect(name)}><span>{name}</span><ArrowUpRight size={14} aria-hidden="true"/></button>
 }
-function Ranking({ rows, kind, onSelectManager }: { rows: PerformanceRow[]; kind: 'partner' | 'commission' | 'manager'; onSelectManager?: (name: string) => void }) {
-  return rows.length ? <div className="exec-ranking-list">{rows.map((row, index) => <div className="exec-ranking" key={row.name}><span>{index + 1}</span><div className="exec-ranking-identity">{kind === 'manager' && onSelectManager ? <ManagerLink name={row.name} onSelect={onSelectManager}/> : <strong title={row.name}>{row.name}</strong>}<small>{salesProgressLabel(row, kind === 'manager' ? 'manager' : 'partner')}</small></div><div className="exec-ranking-value">{kind === 'manager' ? <strong>{row.completed}<small>건 성공</small></strong> : <strong>{won(kind === 'commission' ? row.expectedCommission : executiveTotalSalesFor(row))}</strong>}</div></div>)}</div> : <p className="exec-empty">{kind === 'commission' ? '선택한 접수월의 예상 수수료가 없습니다.' : `선택한 접수월의 ${kind === 'partner' ? '업체' : '담당자'} 데이터가 없습니다.`}</p>
+function Ranking({ rows, kind, onSelectManager }: { rows: PerformanceRow[]; kind: 'partner' | 'commission' | 'manager' | 'referral'; onSelectManager?: (name: string) => void }) {
+  const emptyMessage = kind === 'commission' ? '선택한 접수월의 예상 수수료가 없습니다.'
+    : kind === 'referral' ? '선택한 접수월에 등록된 업체 접수가 없습니다.'
+    : `선택한 접수월의 ${kind === 'partner' ? '업체' : '담당자'} 데이터가 없습니다.`
+  return rows.length > 0 ? <div className="exec-ranking-list">{rows.map((row, index) => <div className="exec-ranking" key={row.name}>
+    <span>{index + 1}</span>
+    <div className="exec-ranking-identity">
+      {kind === 'manager' && onSelectManager ? <ManagerLink name={row.name} onSelect={onSelectManager}/> : <strong title={row.name}>{row.name}</strong>}
+      <small>{kind === 'referral' ? `구매완료 ${row.completed.toLocaleString('ko-KR')}건` : salesProgressLabel(row, kind === 'manager' ? 'manager' : 'partner')}</small>
+    </div>
+    <div className="exec-ranking-value">{kind === 'manager' ? <strong>{row.completed}<small>건 성공</small></strong>
+      : kind === 'referral' ? <strong>{row.cases.toLocaleString('ko-KR')}<small>건 접수</small></strong>
+      : <strong>{won(kind === 'commission' ? row.expectedCommission : executiveTotalSalesFor(row))}</strong>}
+    </div>
+  </div>)}</div> : <p className="exec-empty">{emptyMessage}</p>
 }
 function PerformanceTable({ title, rows, month, kind, onSelectManager }: { title: string; rows: PerformanceRow[]; month: string; kind: 'partner' | 'manager'; onSelectManager?: (name: string) => void }) {
   const [sort, setSort] = useState<{ key: SortColumn; direction: 'asc' | 'desc' }>({ key: 'cases', direction: 'desc' })

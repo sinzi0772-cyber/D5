@@ -10,12 +10,34 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data;
     }
 
+    function enabledProfile() {
+      let profile = myProfile();
+      return (!profile.keys().hasAny(['disabled']) || profile.disabled != true)
+        && (!profile.keys().hasAny(['active']) || profile.active != false)
+        && (!profile.keys().hasAny(['approved']) || profile.approved != false)
+        && (!profile.keys().hasAny(['status']) || !(profile.status in ['inactive', 'disabled', 'suspended']));
+    }
+
+    function isStaff() {
+      return signedIn() && enabledProfile()
+        && myProfile().role in ['admin', 'store_manager', 'assistant_manager', 'manager']
+        && myProfile().employeeNo is string && myProfile().employeeNo != '1292';
+    }
+
+    function isPartner() {
+      return signedIn() && enabledProfile() && myProfile().role == 'partner'
+        && myProfile().active == true && myProfile().approved == true
+        && myProfile().loginId == 'E90227' && myProfile().partnerId == 'iwedding'
+        && myProfile().partnerName == '(주)아이패밀리에스씨'
+        && request.auth.token.email == 'e90227@d5.local';
+    }
+
     function canManageAll() {
-      return signedIn() && myProfile().role in ['admin', 'store_manager', 'assistant_manager'];
+      return isStaff() && myProfile().role in ['admin', 'store_manager', 'assistant_manager'];
     }
 
     function canViewUsage() {
-      return signedIn() && myProfile().role in ['admin', 'store_manager', 'assistant_manager', 'manager'];
+      return isStaff();
     }
 
     function myEmployeeNo() {
@@ -26,9 +48,10 @@ service cloud.firestore {
       allow read: if signedIn() && (request.auth.uid == userId || canManageAll());
       allow create: if false;
       allow update: if signedIn() && (
-        myProfile().role == 'admin'
+        (isStaff() && myProfile().role == 'admin')
         || (
           request.auth.uid == userId
+          && (isStaff() || isPartner())
           && request.resource.data.mustChangePassword == false
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'mustChangePassword',
@@ -42,7 +65,7 @@ service cloud.firestore {
 
     match /usage/{userId} {
       allow read: if canViewUsage();
-      allow create: if signedIn()
+      allow create: if isStaff()
         && request.auth.uid == userId
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.employeeNo == myProfile().employeeNo
@@ -52,7 +75,7 @@ service cloud.firestore {
           'userId', 'employeeNo', 'displayName', 'role',
           'firstSeenAt', 'lastSeenAt', 'lastSeenDate', 'visitCount'
         ]);
-      allow update: if signedIn()
+      allow update: if isStaff()
         && request.auth.uid == userId
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.employeeNo == myProfile().employeeNo
@@ -64,16 +87,33 @@ service cloud.firestore {
         ]);
       allow delete: if false;
     }
+    match /adminSources/{sourceId} {
+      allow read: if canManageAll();
+      allow write: if false;
+    }
+    match /partnerViews/{partnerId} {
+      allow read: if canManageAll()
+        || (isPartner() && myProfile().mustChangePassword == false && partnerId == myProfile().partnerId);
+      allow create, update: if canManageAll()
+        && partnerId == 'iwedding'
+        && request.resource.data.keys().hasOnly(['schemaVersion', 'partnerId', 'partnerName', 'publishedAt', 'months'])
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.partnerId == partnerId
+        && request.resource.data.partnerName == '(주)아이패밀리에스씨'
+        && request.resource.data.publishedAt is string
+        && request.resource.data.months is list;
+      allow delete: if false;
+    }
     match /referrals/{referralId} {
-      allow read: if signedIn()
-        && (canManageAll() || resource.data.managerEmployeeNo == myEmployeeNo());
+      allow read: if canManageAll()
+        || (isStaff() && myProfile().role == 'manager' && resource.data.managerEmployeeNo == myEmployeeNo());
 
       allow create: if canManageAll()
         && request.resource.data.createdBy == request.auth.uid;
 
       allow update: if canManageAll()
         || (
-          signedIn()
+          isStaff() && myProfile().role == 'manager'
           && resource.data.managerEmployeeNo == myEmployeeNo()
           && request.resource.data.managerEmployeeNo == myEmployeeNo()
           && (
