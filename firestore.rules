@@ -44,6 +44,285 @@ service cloud.firestore {
       return myProfile().employeeNo;
     }
 
+    function validCaseId(value) {
+      return value is string && value.size() > 0 && value.size() <= 200
+        && value.trim() == value && !value.matches('.*[/].*');
+    }
+
+    function grouped(data) {
+      let groupId = data.get('caseGroupId', null);
+      return groupId is string && groupId.size() > 0;
+    }
+
+    function sharedControlChanged(before, after) {
+      return after.diff(before).affectedKeys().hasAny([
+        'caseGroupId', 'caseBasisLeadId', 'caseMergeMemberIds', 'manager', 'managerEmployeeNo', 'purchaseType', 'purchaseAmount',
+        'lumpSumAmount', 'subscriptionAmount', 'lumpSumSourceId', 'subscriptionSourceId', 'caseSharingHistory'
+      ]);
+    }
+
+    function guardBumped(groupId) {
+      let previousRevision = exists(/databases/$(database)/documents/caseGroups/$(groupId))
+        ? get(/databases/$(database)/documents/caseGroups/$(groupId)).data.revision : 0;
+      let next = getAfter(/databases/$(database)/documents/caseGroups/$(groupId)).data;
+      return validCaseId(groupId) && next.revision == previousRevision + 1
+        && next.updatedBy == request.auth.uid;
+    }
+
+    function guardedMember(groupId, referralId) {
+      return guardBumped(groupId)
+        && getAfter(/databases/$(database)/documents/caseGroups/$(groupId)).data.memberIds.hasAny([referralId]);
+    }
+
+    function guardedRemoval(groupId, referralId) {
+      return guardBumped(groupId)
+        && !getAfter(/databases/$(database)/documents/caseGroups/$(groupId)).data.memberIds.hasAny([referralId]);
+    }
+
+    function linkedCreateAllowed(data, referralId) {
+      return (!grouped(data) && data.get('caseBasisLeadId', null) == null && data.get('caseMergeMemberIds', null) == null)
+        || (grouped(data) && guardedMember(data.caseGroupId, referralId));
+    }
+
+    function orderedCaseMergeAt(ids, index) {
+      return ids.size() <= index || (validCaseId(ids[index]) && (index == 0 || ids[index - 1] < ids[index]));
+    }
+
+    function validCaseMergeIds(ids) {
+      return ids is list && ids.size() >= 2 && ids.size() <= 8
+        && orderedCaseMergeAt(ids, 0) && orderedCaseMergeAt(ids, 1)
+        && orderedCaseMergeAt(ids, 2) && orderedCaseMergeAt(ids, 3)
+        && orderedCaseMergeAt(ids, 4) && orderedCaseMergeAt(ids, 5)
+        && orderedCaseMergeAt(ids, 6) && orderedCaseMergeAt(ids, 7);
+    }
+
+    function sameCaseMergeIds(left, right) {
+      return (left == null && right == null)
+        || (validCaseMergeIds(left) && validCaseMergeIds(right) && left.size() == right.size() && left.hasAll(right));
+    }
+
+    function mergeChangeAllowed(before, after) {
+      let oldMerge = before.get('caseMergeMemberIds', null);
+      let newMerge = after.get('caseMergeMemberIds', null);
+      return sameCaseMergeIds(oldMerge, newMerge) || (canManageAll()
+        && ((!grouped(after) && newMerge == null)
+          || (grouped(after) && sameCaseMergeIds(newMerge,
+            getAfter(/databases/$(database)/documents/caseGroups/$(after.caseGroupId)).data.get('mergeMemberIds', null)))));
+    }
+
+    function basisChangeAllowed(before, after) {
+      let oldBasis = before.get('caseBasisLeadId', null);
+      let newBasis = after.get('caseBasisLeadId', null);
+      return oldBasis == newBasis || (canManageAll()
+        && ((!grouped(after) && newBasis == null)
+          || (grouped(after) && newBasis == getAfter(/databases/$(database)/documents/caseGroups/$(after.caseGroupId)).data.get('basisLeadId', null))));
+    }
+
+    function establishedBasisForEdit(before, after) {
+      return !grouped(before) || !grouped(after) || before.caseGroupId != after.caseGroupId
+        || !after.diff(before).affectedKeys().hasAny(['manager', 'managerEmployeeNo', 'purchaseType', 'purchaseAmount', 'lumpSumAmount', 'subscriptionAmount'])
+        || getAfter(/databases/$(database)/documents/caseGroups/$(after.caseGroupId)).data.get('basisLeadId', null) != null;
+    }
+
+    function linkedUpdateAllowed(before, after, referralId) {
+      return !sharedControlChanged(before, after)
+        || (
+          (!grouped(after) || guardedMember(after.caseGroupId, referralId))
+          && (!grouped(before) || (grouped(after) && before.caseGroupId == after.caseGroupId)
+            || guardedRemoval(before.caseGroupId, referralId))
+        );
+    }
+
+    function canonicalCasePartner(value) {
+      let name = value.trim();
+      let key = name.replace('㈜', '(주)').replace('（', '(').replace('）', ')')
+        .replace('^(주식회사|\\(주\\))\\s*', '')
+        .replace('\\s*(주식회사|\\(주\\))$', '').replace('\\s+', '');
+      return key in ['아이웨딩', '아이패밀리에스씨'] ? '(주)아이패밀리에스씨'
+        : name == '(주)' ? name : name.replace('^\\(주\\)\\s*', '(주) ');
+    }
+
+    function sameCasePartner(left, right) {
+      let leftName = left.get('partnerName', null);
+      let rightName = right.get('partnerName', null);
+      return leftName is string && rightName is string && leftName.trim().size() > 0
+        && canonicalCasePartner(leftName) == canonicalCasePartner(rightName);
+    }
+
+    function sourceField(kind) {
+      return kind == 'lumpSum' ? 'lumpSumSourceId' : 'subscriptionSourceId';
+    }
+
+    function caseAmount(data, kind) {
+      let value = data.get(kind == 'lumpSum' ? 'lumpSumAmount' : 'subscriptionAmount', null);
+      let singleType = kind == 'lumpSum' ? '일시불' : '구독';
+      return value != null ? value : data.get('purchaseType', null) == singleType ? data.get('purchaseAmount', null) : null;
+    }
+
+    function sourceHasEvidence(data, kind) {
+      let amount = caseAmount(data, kind);
+      let raw = data.get(kind == 'lumpSum' ? 'salesRawPeriods' : 'subscriptionRawPeriods', null);
+      return (amount is number && amount >= 0) || (raw is map && raw.keys().size() > 0);
+    }
+
+    function sourceMatches(groupId, memberIds, recipient, sourceId, kind) {
+      let owner = getAfter(/databases/$(database)/documents/referrals/$(sourceId)).data;
+      let ownerSource = owner.get(sourceField(kind), null);
+      return memberIds.hasAny([sourceId]) && owner.get('caseGroupId', null) == groupId
+        && sameCasePartner(recipient, owner) && (ownerSource == null || ownerSource == sourceId)
+        && sourceHasEvidence(owner, kind) && caseAmount(recipient, kind) == caseAmount(owner, kind);
+    }
+
+    function guardSourceValid(groupId, memberIds, referralId, data, kind) {
+      let source = data.get(sourceField(kind), null);
+      // An unchanged source may remain outside the group after an unlink.
+      // Referral write checks below reject newly injected external pointers.
+      return source == null || source == referralId
+        || (validCaseId(source) && (!memberIds.hasAny([source])
+          || sourceMatches(groupId, memberIds, data, source, kind)));
+    }
+
+    function guardMemberValid(groupId, guard, referralId) {
+      let member = getAfter(/databases/$(database)/documents/referrals/$(referralId)).data;
+      return member.get('caseGroupId', null) == groupId
+        && member.get('caseBasisLeadId', null) == guard.get('basisLeadId', null)
+        && sameCaseMergeIds(member.get('caseMergeMemberIds', null), guard.get('mergeMemberIds', null))
+        && (guard.get('mergeMemberIds', null) == null || sameCasePartner(member,
+          getAfter(/databases/$(database)/documents/referrals/$(guard.basisLeadId)).data))
+        && (guard.managerEmployeeNo == null || member.get('managerEmployeeNo', null) == guard.managerEmployeeNo)
+        && guardSourceValid(groupId, guard.memberIds, referralId, member, 'lumpSum')
+        && guardSourceValid(groupId, guard.memberIds, referralId, member, 'subscription');
+    }
+
+    function guardMemberAtValid(groupId, guard, index) {
+      return guard.memberIds.size() <= index
+        || (validCaseId(guard.memberIds[index]) && guardMemberValid(groupId, guard, guard.memberIds[index]));
+    }
+
+    function validCaseGuard(groupId, guard) {
+      return validCaseId(groupId)
+        && guard.keys().hasOnly(['memberIds', 'revision', 'managerEmployeeNo', 'basisLeadId', 'mergeMemberIds', 'updatedAt', 'updatedBy'])
+        && guard.keys().hasAll(['memberIds', 'revision', 'managerEmployeeNo', 'updatedAt', 'updatedBy'])
+        && guard.memberIds is list && guard.memberIds.size() <= 8
+        && guard.memberIds.toSet().size() == guard.memberIds.size()
+        && guard.revision is int && guard.revision >= 0
+        && (guard.managerEmployeeNo == null || validCaseId(guard.managerEmployeeNo))
+        && (guard.get('basisLeadId', null) == null || (validCaseId(guard.basisLeadId) && guard.memberIds.hasAny([guard.basisLeadId])))
+        && (guard.get('mergeMemberIds', null) == null || (guard.get('basisLeadId', null) != null
+          && validCaseMergeIds(guard.mergeMemberIds) && guard.mergeMemberIds.size() == guard.memberIds.size()
+          && guard.mergeMemberIds.hasAll(guard.memberIds)))
+        && guard.updatedAt is string && guard.updatedBy == request.auth.uid
+        && (guard.memberIds.size() > 0 || (guard.managerEmployeeNo == null && guard.get('basisLeadId', null) == null))
+        && guardMemberAtValid(groupId, guard, 0) && guardMemberAtValid(groupId, guard, 1)
+        && guardMemberAtValid(groupId, guard, 2) && guardMemberAtValid(groupId, guard, 3)
+        && guardMemberAtValid(groupId, guard, 4) && guardMemberAtValid(groupId, guard, 5)
+        && guardMemberAtValid(groupId, guard, 6) && guardMemberAtValid(groupId, guard, 7);
+    }
+
+    function removedMemberUnlinked(groupId, referralId) {
+      let member = getAfter(/databases/$(database)/documents/referrals/$(referralId));
+      return member == null || member.data.get('caseGroupId', null) != groupId;
+    }
+
+    function removedMemberAtValid(groupId, before, after, index) {
+      return before.memberIds.size() <= index || after.memberIds.hasAny([before.memberIds[index]])
+        || (validCaseId(before.memberIds[index]) && removedMemberUnlinked(groupId, before.memberIds[index]));
+    }
+
+    function guardRemovalsValid(groupId, before, after) {
+      return before.memberIds is list && before.memberIds.size() <= 8
+        && before.memberIds.toSet().union(after.memberIds.toSet()).size() <= 8
+        && removedMemberAtValid(groupId, before, after, 0) && removedMemberAtValid(groupId, before, after, 1)
+        && removedMemberAtValid(groupId, before, after, 2) && removedMemberAtValid(groupId, before, after, 3)
+        && removedMemberAtValid(groupId, before, after, 4) && removedMemberAtValid(groupId, before, after, 5)
+        && removedMemberAtValid(groupId, before, after, 6) && removedMemberAtValid(groupId, before, after, 7);
+    }
+
+    function changedSourceValid(after, referralId, kind) {
+      let source = after.get(sourceField(kind), null);
+      return source == null || source == referralId
+        || (validCaseId(source) && grouped(after)
+          && sourceMatches(after.caseGroupId,
+            getAfter(/databases/$(database)/documents/caseGroups/$(after.caseGroupId)).data.memberIds,
+            after, source, kind));
+    }
+
+    function establishedSourceCleared(before, after, referralId, kind) {
+      let previousSource = before.get(sourceField(kind), null);
+      let retainedRaw = before.get(kind == 'lumpSum' ? 'salesRawPeriods' : 'subscriptionRawPeriods', null);
+      return after.get(sourceField(kind), null) == null && caseAmount(after, kind) == null
+        && (previousSource == referralId
+          || (validCaseId(previousSource) && grouped(before) && grouped(after)
+            && before.caseGroupId == after.caseGroupId
+            && (retainedRaw == null || (retainedRaw is map && retainedRaw.keys().size() == 0))
+            && caseAmount(getAfter(/databases/$(database)/documents/referrals/$(previousSource)).data, kind) == null));
+    }
+
+    function approvedMergedPrimaryTransfer(before, after, referralId, nextSource) {
+      let previousMerge = before.get('caseMergeMemberIds', null);
+      let nextMerge = after.get('caseMergeMemberIds', null);
+      let previousBasis = before.get('caseBasisLeadId', null);
+      let nextBasis = after.get('caseBasisLeadId', null);
+      let previousGuard = get(/databases/$(database)/documents/caseGroups/$(before.caseGroupId)).data;
+      let nextGuard = getAfter(/databases/$(database)/documents/caseGroups/$(after.caseGroupId)).data;
+      // Only an already approved, unchanged full merge may replace a total
+      // using its existing primary. A fresh choice or roster change is not
+      // approval, and normal referral/guard ownership checks still apply.
+      return grouped(before) && grouped(after) && before.caseGroupId == after.caseGroupId
+        && validCaseId(previousBasis) && previousBasis == nextBasis && nextSource == nextBasis && nextSource != referralId
+        && previousGuard.get('basisLeadId', null) == previousBasis && nextGuard.get('basisLeadId', null) == nextBasis
+        && validCaseMergeIds(previousMerge) && sameCaseMergeIds(previousMerge, nextMerge)
+        && sameCaseMergeIds(previousMerge, previousGuard.get('mergeMemberIds', null))
+        && sameCaseMergeIds(nextMerge, nextGuard.get('mergeMemberIds', null))
+        && previousMerge.size() == previousGuard.memberIds.size() && previousMerge.hasAll(previousGuard.memberIds)
+        && nextMerge.size() == nextGuard.memberIds.size() && nextMerge.hasAll(nextGuard.memberIds)
+        && previousMerge.hasAny([referralId]) && guardBumped(after.caseGroupId);
+    }
+
+    function sourceChangeAllowed(before, after, referralId, kind) {
+      let previousSource = before.get(sourceField(kind), null);
+      let nextSource = after.get(sourceField(kind), null);
+      return previousSource == nextSource
+        || (changedSourceValid(after, referralId, kind)
+          && (previousSource == null
+            || establishedSourceCleared(before, after, referralId, kind)
+            || (previousSource == referralId && grouped(before) && grouped(after)
+              && approvedMergedPrimaryTransfer(before, after, referralId, nextSource))
+            || (canManageAll() && nextSource != null && nextSource != referralId)));
+    }
+
+    function detachedAliasAmountPreserved(before, after, referralId, kind) {
+      let source = before.get(sourceField(kind), null);
+      return grouped(after) || source == null || source == referralId
+        || caseAmount(before, kind) == caseAmount(after, kind);
+    }
+
+    function sharingHistoryPreserved(before, after) {
+      let previousRaw = before.get('caseSharingHistory', null);
+      let previous = previousRaw == null ? [] : previousRaw;
+      let next = after.get('caseSharingHistory', []);
+      return !after.diff(before).affectedKeys().hasAny(['caseSharingHistory'])
+        || (previous is list && next is list && next.size() > previous.size() && next.hasAll(previous));
+    }
+
+    match /caseGroups/{caseGroupId} {
+      allow read: if canManageAll()
+        || (isStaff() && myProfile().role == 'manager' && resource.data.managerEmployeeNo == myEmployeeNo());
+      allow create: if canManageAll() && request.resource.data.revision == 1
+        && validCaseGuard(caseGroupId, request.resource.data);
+      allow update: if (
+          canManageAll()
+          || (isStaff() && myProfile().role == 'manager'
+            && resource.data.managerEmployeeNo == myEmployeeNo()
+            && request.resource.data.managerEmployeeNo == myEmployeeNo()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['revision', 'updatedAt', 'updatedBy']))
+        )
+        && request.resource.data.revision == resource.data.revision + 1
+        && validCaseGuard(caseGroupId, request.resource.data)
+        && guardRemovalsValid(caseGroupId, resource.data, request.resource.data);
+      allow delete: if false;
+    }
+
     match /profiles/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || canManageAll());
       allow create: if false;
@@ -109,9 +388,12 @@ service cloud.firestore {
         || (isStaff() && myProfile().role == 'manager' && resource.data.managerEmployeeNo == myEmployeeNo());
 
       allow create: if canManageAll()
-        && request.resource.data.createdBy == request.auth.uid;
+        && request.resource.data.createdBy == request.auth.uid
+        && linkedCreateAllowed(request.resource.data, referralId)
+        && changedSourceValid(request.resource.data, referralId, 'lumpSum')
+        && changedSourceValid(request.resource.data, referralId, 'subscription');
 
-      allow update: if canManageAll()
+      allow update: if (canManageAll()
         || (
           isStaff() && myProfile().role == 'manager'
           && resource.data.managerEmployeeNo == myEmployeeNo()
@@ -155,14 +437,27 @@ service cloud.firestore {
             'purchaseAmount',
             'lumpSumAmount',
             'subscriptionAmount',
+            'lumpSumSourceId',
+            'subscriptionSourceId',
+            'caseSharingHistory',
             'note',
             'memoHistory',
             'updatedAt',
             'updatedBy'
           ])
-        );
+        ))
+        && linkedUpdateAllowed(resource.data, request.resource.data, referralId)
+        && basisChangeAllowed(resource.data, request.resource.data)
+        && mergeChangeAllowed(resource.data, request.resource.data)
+        && establishedBasisForEdit(resource.data, request.resource.data)
+        && sourceChangeAllowed(resource.data, request.resource.data, referralId, 'lumpSum')
+        && sourceChangeAllowed(resource.data, request.resource.data, referralId, 'subscription')
+        && detachedAliasAmountPreserved(resource.data, request.resource.data, referralId, 'lumpSum')
+        && detachedAliasAmountPreserved(resource.data, request.resource.data, referralId, 'subscription')
+        && sharingHistoryPreserved(resource.data, request.resource.data);
 
-      allow delete: if canManageAll();
+      allow delete: if canManageAll()
+        && (!grouped(resource.data) || guardedRemoval(resource.data.caseGroupId, referralId));
     }
   }
 }

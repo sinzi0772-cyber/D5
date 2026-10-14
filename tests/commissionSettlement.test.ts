@@ -35,9 +35,9 @@ for (const status of ['관리중', '상담 마감', '취소'] as const) {
 
 const rows = [
   lead('december', { deliveryScheduledDate: '2026-12-31' }),
-  lead('january-a', { deliveryScheduledDate: '2026-01-31', lumpSumAmount: 2000000, caseGroupId: 'linked-case' }),
-  lead('january-b', { deliveryScheduledDate: '2026-01-02', partnerName: '(주)아이패밀리에스씨', purchaseType: '구독', lumpSumAmount: 0, subscriptionAmount: 1000000, caseGroupId: 'linked-case' }),
-  lead('february-linked', { deliveryScheduledDate: '2026-02-01', lumpSumAmount: 3000000, caseGroupId: 'linked-case' }),
+  lead('january-a', { deliveryScheduledDate: '2026-01-31', lumpSumAmount: 2000000, caseGroupId: 'linked-case', caseBasisLeadId: 'january-a' }),
+  lead('january-b', { deliveryScheduledDate: '2026-01-02', partnerName: '(주)아이패밀리에스씨', purchaseType: '구독', lumpSumAmount: 0, subscriptionAmount: 1000000, caseGroupId: 'linked-case', caseBasisLeadId: 'january-a' }),
+  lead('february-linked', { deliveryScheduledDate: '2026-02-01', lumpSumAmount: 3000000, caseGroupId: 'linked-case', caseBasisLeadId: 'january-a' }),
   lead('leap-zero', { deliveryScheduledDate: '2024-02-29', lumpSumAmount: 0 }),
   lead('missing-date', { lumpSumAmount: 500000 }),
   lead('invalid-date', { deliveryScheduledDate: '2026-02-30', lumpSumAmount: 600000 }),
@@ -49,11 +49,11 @@ const rows = [
 const immutableRows = Object.freeze(rows.map(row => Object.freeze(row)))
 const before = JSON.stringify(immutableRows)
 const metrics = buildCommissionSettlementMetrics(immutableRows)
-assert.deepEqual(metrics.months.map(row => row.month), ['2024-04', '2026-03', '2026-04', '2027-02'])
-assert.equal(metrics.completedCustomerCount, 8)
-assert.equal(metrics.completedExpectedCommission, 157000)
-assert.equal(metrics.scheduledCustomerCount, 5)
-assert.equal(metrics.scheduledExpectedCommission, 135000)
+assert.deepEqual(metrics.months.map(row => row.month), ['2024-04', '2026-03', '2027-02'])
+assert.equal(metrics.completedCustomerCount, 6)
+assert.equal(metrics.completedExpectedCommission, 82000)
+assert.equal(metrics.scheduledCustomerCount, 3)
+assert.equal(metrics.scheduledExpectedCommission, 60000)
 assert.equal(metrics.unscheduledCustomerCount, 3)
 assert.equal(metrics.unscheduledExpectedCommission, 22000)
 assert.deepEqual(metrics.unscheduledLeads.map(row => row.id), ['missing-date', 'invalid-date', 'missing-date-zero'])
@@ -62,13 +62,13 @@ assert.equal(metrics.unfinishedExpectedCommission, 48000)
 assert.equal(metrics.scheduledExpectedCommission + metrics.unscheduledExpectedCommission, metrics.completedExpectedCommission)
 assert.equal(metrics.completedExpectedCommission + metrics.unfinishedExpectedCommission, immutableRows.reduce((sum, row) => sum + expectedRebateFor(row), 0), 'Classification must not change existing fee calculations')
 const march = metrics.months.find(row => row.month === '2026-03')!
-assert.equal(march.customerCount, 2)
+assert.equal(march.customerCount, 1)
 assert.equal(march.caseCount, 1)
-assert.equal(march.expectedCommission, 55000)
-assert.equal(march.partners.reduce((sum, row) => sum + row.caseCount, 0), 2, 'Each involved company owns its own customer in a shared case')
-assert.equal(march.partners.find(row => row.name === '(주)다이렉트컴즈')?.expectedCommission, 40000)
-assert.equal(march.partners.find(row => row.name === '(주)아이패밀리에스씨')?.expectedCommission, 15000)
-assert.equal(metrics.months.find(row => row.month === '2026-04')?.caseCount, 1, 'A linked customer in another planned month stays visible in that month')
+assert.equal(march.expectedCommission, 40000)
+assert.equal(march.partners.reduce((sum, row) => sum + row.caseCount, 0), 1, 'Only the chosen basis company owns the commission')
+assert.equal(march.partners.find(row => row.name === '(주) 다이렉트컴즈')?.expectedCommission, 40000)
+assert.equal(march.partners.find(row => row.name === '(주)아이패밀리에스씨'), undefined)
+assert.equal(metrics.months.find(row => row.month === '2026-04'), undefined, 'Unchosen delivery dates cannot create additional settlement buckets')
 assert.equal(metrics.months[0].expectedCommission, 0, 'A dated zero-fee completed customer must not be dropped')
 assert.equal(metrics.months[0].customerCount, 1)
 for (const month of metrics.months) {
@@ -76,29 +76,29 @@ for (const month of metrics.months) {
   assert.equal(month.partners.reduce((sum, row) => sum + row.customerCount, 0), month.customerCount)
   assert.equal(month.leads.reduce((sum, row) => sum + expectedRebateFor(row), 0), month.expectedCommission)
   assert.ok(month.leads.every(row => row.status === '구매완료'))
-  for (const member of month.leads) assert.strictEqual(member, immutableRows.find(row => row.id === member.id), 'Keep the original saved customer object')
+  for (const member of month.leads) assert.equal(member.deliveryScheduledDate, immutableRows.find(row => row.id === member.id)?.deliveryScheduledDate, 'Projection keeps the chosen original date without editing it')
 }
 assert.equal(metrics.months.reduce((sum, row) => sum + row.expectedCommission, 0), metrics.scheduledExpectedCommission)
 assert.equal(metrics.months.reduce((sum, row) => sum + row.customerCount, 0), metrics.scheduledCustomerCount)
 assert.equal(JSON.stringify(immutableRows), before, 'Do not mutate saved dates, amounts, statuses, managers or memos')
 
 const direct = buildCommissionSettlementMetrics(immutableRows, '(주)다이렉트컴즈')
-assert.equal(direct.completedCustomerCount, 7)
-assert.equal(direct.completedExpectedCommission, 142000)
-assert.equal(direct.scheduledExpectedCommission, 120000)
+assert.equal(direct.completedCustomerCount, 6)
+assert.equal(direct.completedExpectedCommission, 82000)
+assert.equal(direct.scheduledExpectedCommission, 60000)
 assert.equal(direct.unscheduledExpectedCommission, 22000)
 assert.equal(direct.unfinishedExpectedCommission, 48000)
 for (const month of direct.months) {
-  const overallPartner = metrics.months.find(row => row.month === month.month)!.partners.find(row => row.name === '(주)다이렉트컴즈')!
+  const overallPartner = metrics.months.find(row => row.month === month.month)!.partners.find(row => row.name === '(주) 다이렉트컴즈')!
   assert.equal(month.expectedCommission, overallPartner.expectedCommission)
   assert.equal(month.customerCount, overallPartner.customerCount)
   assert.equal(month.caseCount, overallPartner.caseCount)
   assert.ok(month.leads.every(row => row.partnerName === '(주)다이렉트컴즈'))
 }
 const family = buildCommissionSettlementMetrics(immutableRows, '(주)아이패밀리에스씨')
-assert.equal(family.completedCustomerCount, 1)
-assert.equal(family.scheduledExpectedCommission, 15000)
-assert.deepEqual(family.months.map(row => row.month), ['2026-03'], 'Delivery forecasts must not use registration month')
+assert.equal(family.completedCustomerCount, 0)
+assert.equal(family.scheduledExpectedCommission, 0)
+assert.deepEqual(family.months.map(row => row.month), [], 'Tenant filtering cannot choose another basis or payment date')
 assert.equal(family.unscheduledCustomerCount, 0)
 assert.equal(family.unfinishedCustomerCount, 0)
 assert.equal(buildCommissionSettlementMetrics(immutableRows, '없는 업체').completedCustomerCount, 0)
@@ -107,8 +107,8 @@ assert.deepEqual(buildCommissionSettlementMetrics([...immutableRows, { ...rows[0
 
 const roundingCustomers = ['rounding-a', 'rounding-b'].map(id => lead(id, { deliveryScheduledDate: '2026-06-01', purchaseType: '일시불+구독', lumpSumAmount: 26, subscriptionAmount: 34, caseGroupId: 'rounding-case' }))
 const roundingMetrics = buildCommissionSettlementMetrics(roundingCustomers)
-assert.equal(roundingMetrics.months[0].expectedCommission, 4, 'Sum already-rounded customer commissions instead of rerounding merged bases')
-assert.equal(roundingMetrics.months[0].customerCount, 2)
+assert.equal(roundingMetrics.months[0].expectedCommission, 2, 'Round two methods within one whole basis customer, never duplicate equal records')
+assert.equal(roundingMetrics.months[0].customerCount, 1)
 assert.equal(roundingMetrics.months[0].caseCount, 1)
 const manualAmount = lead('manual-preserved', { deliveryScheduledDate: '2026-09-07', purchaseType: '일시불+구독', lumpSumAmount: 20864000, subscriptionAmount: 1891000, manager: '수기 담당', note: '수기 메모' })
 const manualBefore = JSON.stringify(manualAmount)

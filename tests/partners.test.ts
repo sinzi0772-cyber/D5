@@ -17,10 +17,30 @@ for (const unrelated of [
   '다른아이웨딩', '아이웨딩네트웍스', '아이패밀리에스씨협력사',
   '아이*웨딩', '익명 업체 A', '(주) 익명 업체 B', 'Company A',
 ]) {
-  assert.equal(canonicalPartnerName(unrelated), unrelated, `Do not infer an alias: ${unrelated}`)
+  assert.equal(canonicalPartnerName(unrelated), unrelated.replace(/^\(주\)\s*/, '(주) '), `Do not infer an alias: ${unrelated}`)
 }
 assert.equal(canonicalPartnerName('  익명 업체 A  '), '익명 업체 A', 'Other names are only trimmed')
 assert.equal(canonicalPartnerName(''), '')
 assert.equal(canonicalPartnerName('   '), '')
 
-console.log('partners: exact approved aliases, non-fuzzy naming and idempotence passed')
+for (const [input, expected] of [
+  ['(주)아이니', '(주) 아이니'],
+  ['(주) 아이니', '(주) 아이니'],
+  ['(주)아이니웨딩네트웍스', '(주) 아이니웨딩네트웍스'],
+  ['(주)  아이니웨딩네트웍스', '(주) 아이니웨딩네트웍스'],
+  [' (주)\t아이티앤코 ', '(주) 아이티앤코'],
+  ['(주)아이티앤코', '(주) 아이티앤코'],
+  ['(주)아이니웨딩', '(주) 아이니웨딩'],
+  ['(주)아이니 네트웍스', '(주) 아이니 네트웍스'],
+  ['아이니웨딩네트웍스', '아이니웨딩네트웍스'],
+  ['주식회사 아이니웨딩네트웍스', '주식회사 아이니웨딩네트웍스'],
+  ['㈜아이니웨딩네트웍스', '㈜아이니웨딩네트웍스'],
+  ['(주)', '(주)'],
+]) {
+  assert.equal(canonicalPartnerName(input), expected)
+  assert.equal(canonicalPartnerName(expected), expected, 'Preferred spacing is idempotent')
+}
+assert.notEqual(canonicalPartnerName('(주)아이니웨딩네트웍스'), canonicalPartnerName('(주)아이니웨딩'), 'Different full company names remain distinct')
+assert.notEqual(canonicalPartnerName('(주)아이니네트웍스'), canonicalPartnerName('(주)아이니 네트웍스'), 'Internal company-name spacing is not inferred')
+
+console.log('partners: approved identities, exact full-name prefix spacing and idempotence passed')

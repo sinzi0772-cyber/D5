@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ArrowUpRight, CheckCircle2, Clock3, Printer, UsersRound, X } from 'lucide-react'
-import { buildExecutiveMetrics, executiveTotalSalesFor, getExecutiveMonthLeads, getTopCommissionPartners, getTopReferralPartners, type ExecutivePeriodSummary } from '../lib/executiveMetrics'
+import { buildExecutiveMetrics, executiveTotalSalesFor, getExecutiveMonthCaseLeads, getTopCommissionPartners, getTopReferralPartners, type ExecutivePeriodSummary } from '../lib/executiveMetrics'
 import { customerDisplayLabel } from '../lib/customerDisplay'
 import type { Lead } from '../types'
 import { MonthlyCommissionPanel } from './MonthlyCommissionPanel'
@@ -34,7 +34,7 @@ export function ExecutiveDashboard({ leads, partnerLabel, month, onSelectLead, o
   const [detailsOpen, setDetailsOpen] = useState(false)
   const selectedPartner = partnerLabel === '전체 제휴업체' ? undefined : partnerLabel
   const metrics = useMemo(() => buildExecutiveMetrics(leads, month, today, selectedPartner), [leads, month, today, selectedPartner])
-  const cohort = useMemo(() => getExecutiveMonthLeads(leads, month, selectedPartner), [leads, month, selectedPartner])
+  const cohort = useMemo(() => getExecutiveMonthCaseLeads(leads, month, selectedPartner), [leads, month, selectedPartner])
   const { current, previous, actions } = metrics
   const queueRows = queue === 'canceled' ? cohort.filter(lead => lead.status === '취소')
     : queue === 'closed' ? cohort.filter(lead => lead.status === '상담 마감')
@@ -57,8 +57,9 @@ export function ExecutiveDashboard({ leads, partnerLabel, month, onSelectLead, o
       <Kpi label="접수" value={current.cases.toLocaleString('ko-KR')} unit="건" icon={<UsersRound size={19}/>} change={countChange(current.cases, previous.cases, '건')} note={`고객 ${current.customerCount}명`}/>
       <Kpi label="관리중" value={current.active.toLocaleString('ko-KR')} unit="건" icon={<Clock3 size={19}/>} change={countChange(current.active, previous.active, '건')}/>
       <Kpi label="구매완료" value={current.completed.toLocaleString('ko-KR')} unit="건" icon={<CheckCircle2 size={19}/>} change={countChange(current.completed, previous.completed, '건')}/>
-      <Kpi label="총판매금액" value={Math.round(executiveTotalSalesFor(current)).toLocaleString('ko-KR')} unit="원" icon={<ArrowUpRight size={19}/>} change={countChange(executiveTotalSalesFor(current), executiveTotalSalesFor(previous), '원')} note="일시불 + 구독(출하대기 포함)" sales/>
+      <Kpi label="총판매금액" value={current.basisRequiredCount > 0 && executiveTotalSalesFor(current) === 0 ? '기준 확인 필요' : Math.round(executiveTotalSalesFor(current)).toLocaleString('ko-KR')} unit={current.basisRequiredCount > 0 && executiveTotalSalesFor(current) === 0 ? '' : '원'} icon={<ArrowUpRight size={19}/>} change={countChange(executiveTotalSalesFor(current), executiveTotalSalesFor(previous), '원')} note={current.basisRequiredCount ? `기준 미선택 ${current.basisRequiredCount}명 금액 제외` : '묶음은 기준 고객 1명의 금액만 반영'} sales/>
     </div>
+    {current.basisRequiredCount > 0 ? <p className="exec-footnote" role="status">묶음 고객 {current.basisRequiredCount}명의 기준 데이터 확인이 필요합니다. A·B 금액은 합산하지 않으며 기준 고객을 선택하기 전에는 매출·수수료에서 제외합니다.</p> : null}
     <div className="exec-status-note" aria-label="선택 접수월 종료 상태">
       <button type="button" onClick={() => showQueue('closed')}>상담마감 <strong>{current.closed}건</strong><ArrowUpRight size={13} aria-hidden="true"/></button>
       <button type="button" onClick={() => showQueue('canceled')}>취소 <strong>{current.canceled}건</strong><ArrowUpRight size={13} aria-hidden="true"/></button>
@@ -128,7 +129,7 @@ function Ranking({ rows, kind, onSelectManager }: { rows: PerformanceRow[]; kind
     </div>
     <div className="exec-ranking-value">{kind === 'manager' ? <strong>{row.completed}<small>건 성공</small></strong>
       : kind === 'referral' ? <strong>{row.cases.toLocaleString('ko-KR')}<small>건 접수</small></strong>
-      : <strong>{won(kind === 'commission' ? row.expectedCommission : executiveTotalSalesFor(row))}</strong>}
+      : <strong>{row.basisRequiredCount && executiveTotalSalesFor(row) === 0 ? '기준 확인 필요' : won(kind === 'commission' ? row.expectedCommission : executiveTotalSalesFor(row))}</strong>}
     </div>
   </div>)}</div> : <p className="exec-empty">{emptyMessage}</p>
 }
@@ -140,6 +141,7 @@ function PerformanceTable({ title, rows, month, kind, onSelectManager }: { title
     { key: 'active', label: '관리중' }, { key: 'completed', label: '구매완료' }, { key: 'closed', label: '상담마감' }, { key: 'canceled', label: '취소' }, { key: 'salesProgress', label: kind === 'partner' ? '판매 / 접수' : '판매 / 배정' }, { key: 'sales', label: '총판매금액' }, { key: 'managementRecords', label: '관리기록' },
   ]
   const totalCommission = rows.reduce((total, row) => total + row.expectedCommission, 0)
+  const hasPendingBasis = rows.some(row => row.basisRequiredCount > 0)
   const sorted = [...rows].sort((a, b) => {
     const result = sort.key === 'name' ? a.name.localeCompare(b.name, 'ko') : sort.key === 'salesProgress' ? a.completed - b.completed || a.cases - b.cases : sort.key === 'sales' ? executiveTotalSalesFor(a) - executiveTotalSalesFor(b) : a[sort.key] - b[sort.key]
     return result * (sort.direction === 'asc' ? 1 : -1) || a.name.localeCompare(b.name, 'ko')
@@ -152,8 +154,8 @@ function PerformanceTable({ title, rows, month, kind, onSelectManager }: { title
         <thead><tr>{columns.map(column => <th key={column.key} aria-sort={sort.key === column.key ? sort.direction === 'asc' ? 'ascending' : 'descending' : 'none'}>
           <button type="button" title={performanceColumnHelp(column.key)} className={`exec-sort-button${sort.key === column.key ? ' active' : ''}`} onClick={() => setSort(current => ({ key: column.key, direction: current.key === column.key && current.direction === 'desc' ? 'asc' : 'desc' }))}>{column.label}<span aria-hidden="true">{sort.key === column.key ? sort.direction === 'asc' ? '↑' : '↓' : '↕'}</span></button>
         </th>)}</tr></thead>
-        <tbody>{sorted.map(row => <tr key={row.name}>{columns.map(column => <td key={column.key} className={column.key === 'expectedCommission' ? 'exec-commission-cell' : undefined}>{column.key === 'name' ? kind === 'manager' && onSelectManager ? <ManagerLink name={row.name} onSelect={onSelectManager}/> : row.name : column.key === 'sales' ? won(executiveTotalSalesFor(row)) : column.key === 'expectedCommission' ? won(row[column.key]) : column.key === 'salesProgress' ? <span className="exec-sales-progress" title={salesProgressLabel(row, kind)} aria-label={salesProgressLabel(row, kind)}>{row.completed.toLocaleString('ko-KR')}건 / {row.cases.toLocaleString('ko-KR')}건</span> : `${row[column.key]}건`}</td>)}</tr>)}</tbody>
-        {kind === 'partner' ? <tfoot><tr><th scope="row" colSpan={2}>예상 수수료 합계</th><td className="exec-commission-cell">{won(totalCommission)}</td><td colSpan={columns.length - 3}/></tr></tfoot> : null}
+        <tbody>{sorted.map(row => <tr key={row.name}>{columns.map(column => <td key={column.key} className={column.key === 'expectedCommission' ? 'exec-commission-cell' : undefined}>{column.key === 'name' ? kind === 'manager' && onSelectManager ? <ManagerLink name={row.name} onSelect={onSelectManager}/> : row.name : column.key === 'sales' || column.key === 'expectedCommission' ? <>{row.basisRequiredCount && (column.key === 'sales' ? executiveTotalSalesFor(row) : row.expectedCommission) === 0 ? '기준 확인 필요' : won(column.key === 'sales' ? executiveTotalSalesFor(row) : row.expectedCommission)}{row.basisRequiredCount ? <small> · {row.basisRequiredCount}명 제외</small> : null}</> : column.key === 'salesProgress' ? <span className="exec-sales-progress" title={salesProgressLabel(row, kind)} aria-label={salesProgressLabel(row, kind)}>{row.completed.toLocaleString('ko-KR')}건 / {row.cases.toLocaleString('ko-KR')}건</span> : `${row[column.key]}건`}</td>)}</tr>)}</tbody>
+        {kind === 'partner' ? <tfoot><tr><th scope="row" colSpan={2}>예상 수수료 합계</th><td className="exec-commission-cell">{hasPendingBasis && totalCommission === 0 ? '기준 확인 필요' : won(totalCommission)}{hasPendingBasis ? <small> · 기준 미선택 제외</small> : null}</td><td colSpan={columns.length - 3}/></tr></tfoot> : null}
       </table></div>
       {rows.length === 0 ? <p className="exec-empty">선택한 접수월의 데이터가 없습니다.</p> : null}
     </div>

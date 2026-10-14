@@ -10,6 +10,25 @@ export interface MemoEntry {
   content: string
 }
 
+/** Prior manual fields are retained when a linked case adopts shared values. */
+export interface CaseSharingHistory {
+  at: string
+  by: string
+  reason: 'group-share'
+  previous: {
+    manager?: string
+    managerEmployeeNo?: string
+    purchaseType?: PurchaseType
+    purchaseAmount?: number
+    lumpSumAmount?: number
+    subscriptionAmount?: number
+    lumpSumSourceId?: string
+    subscriptionSourceId?: string
+    caseBasisLeadId?: string
+    caseMergeMemberIds?: string[]
+  }
+}
+
 /** Customer-level RAW totals. Source phone numbers and order identifiers are not stored. */
 export interface SalesRawPeriod {
   period: string
@@ -65,12 +84,20 @@ export interface Lead {
   managerEmployeeNo?: string
   plannerName?: string
   caseGroupId?: string
+  /** Whole-customer basis for one logical case; original member fields are retained. */
+  caseBasisLeadId?: string
+  /** Explicit full roster consenting to monetary merging. Absence never adds A+B. */
+  caseMergeMemberIds?: string[]
   status: LeadStatus
   visitState: VisitState
   purchaseType?: PurchaseType
   purchaseAmount?: number
   lumpSumAmount?: number
   subscriptionAmount?: number
+  /** Missing means an independent legacy purchase; an alias contributes no money. */
+  lumpSumSourceId?: string
+  subscriptionSourceId?: string
+  caseSharingHistory?: CaseSharingHistory[]
   salesRawPeriods?: Record<string, SalesRawPeriod>
   subscriptionRawPeriods?: Record<string, SubscriptionRawPeriod>
   note?: string

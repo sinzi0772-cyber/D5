@@ -1,5 +1,7 @@
 import type { Lead } from '../types'
-import { salesRawAmountsFor, subscriptionRawAmountsFor, totalPurchaseAmountFor } from './salesFinance'
+import { financialTotalPurchaseAmountFor, salesRawAmountsFor, subscriptionRawAmountsFor } from './salesFinance'
+import { caseBasisGroupsFor, financialCaseLeadFor } from './caseBasis'
+import { canonicalPartnerName } from './partners'
 
 export type PurchaseSortDirection = 'asc' | 'desc'
 
@@ -11,10 +13,14 @@ export function getVisiblePurchaseMembers(lead: Lead, visibleLeads: Lead[]): Lea
 }
 
 /** Null is the displayed dash; an imported, verified zero is a real 0원 amount. */
-export function purchaseSortValue(lead: Lead, visibleLeads: Lead[]): number | null {
-  const members = [...new Map(getVisiblePurchaseMembers(lead, visibleLeads).map(member => [member.id, member])).values()]
-  const total = members.reduce((sum, member) => sum + totalPurchaseAmountFor(member), 0)
-  return total > 0 || members.some(member => salesRawAmountsFor(member).current || subscriptionRawAmountsFor(member).current) ? total : null
+export function purchaseSortValue(lead: Lead, visibleLeads: Lead[], completeLeads: readonly Lead[] = visibleLeads): number | null {
+  if (!getVisiblePurchaseMembers(lead, visibleLeads).length) return null
+  const group = caseBasisGroupsFor(completeLeads).find(item => item.members.some(member => member.id === lead.id))
+  if (!group || !group.selection.basis || canonicalPartnerName(group.selection.basis.partnerName) !== canonicalPartnerName(lead.partnerName)) return null
+  const basis = financialCaseLeadFor(group.selection, group.members)
+  if (!basis) return null
+  const total = financialTotalPurchaseAmountFor(basis)
+  return total > 0 || salesRawAmountsFor(basis).current || subscriptionRawAmountsFor(basis).current ? total : null
 }
 
 /** Missing values remain at the bottom in both directions; equal amounts retain row order. */

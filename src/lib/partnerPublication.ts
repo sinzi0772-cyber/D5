@@ -1,8 +1,7 @@
 import type { Lead, LeadStatus } from '../types'
 import { STATUSES } from '../types'
 import { expectedSettlementMonthFor, isValidDeliveryDate } from './commissionSettlement'
-import { getExecutiveMonths } from './executiveMetrics'
-import { buildPartnerPreview, type PartnerPreviewCustomer, type PartnerPreviewModel, type PartnerPreviewSettlement } from './partnerPreview'
+import { buildPartnerPreview, getPartnerPreviewMonths, type PartnerPreviewCustomer, type PartnerPreviewModel, type PartnerPreviewSettlement } from './partnerPreview'
 
 /** One explicitly approved tenant. This is not a client-selectable company registry. */
 export const IWEDDING_PARTNER_ID = 'iwedding'
@@ -48,14 +47,18 @@ function validPublishedAt(value: unknown): value is string {
 }
 
 function parseCustomer(value: unknown, index: number): PartnerPreviewCustomer | null {
-  if (!exactDataRecord(value, customerKeys)) return null
+  const enhanced = !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'basisRequired')
+  if (!exactDataRecord(value, enhanced ? [...customerKeys, 'basisRequired', 'basisReason'] : customerKeys)) return null
   if (value.key !== `customer-${index + 1}` || !safeDisplayLabel(value.label)) return null
   if (value.registeredAt !== null && !isValidDeliveryDate(value.registeredAt)) return null
   if (typeof value.status !== 'string' || !STATUSES.includes(value.status as LeadStatus)) return null
   if (value.deliveryScheduledDate !== null && !isValidDeliveryDate(value.deliveryScheduledDate)) return null
   const completed = value.status === '구매완료'
-  if (completed ? !validFee(value.expectedCommission) : value.expectedCommission !== null) return null
-  const expectedMonth = completed ? expectedSettlementMonthFor({ deliveryScheduledDate: value.deliveryScheduledDate as string | undefined }) : null
+  if (enhanced && (typeof value.basisRequired !== 'boolean' || value.basisReason !== (value.basisRequired ? '기준 고객 확인 필요' : null))) return null
+  const required = enhanced && value.basisRequired === true
+  if (required && (value.expectedCommission !== null || value.deliveryScheduledDate !== null || value.expectedSettlementMonth !== null)) return null
+  if (!required && (completed ? !validFee(value.expectedCommission) : value.expectedCommission !== null)) return null
+  const expectedMonth = completed && !required ? expectedSettlementMonthFor({ deliveryScheduledDate: value.deliveryScheduledDate as string | undefined }) : null
   if (value.expectedSettlementMonth !== expectedMonth) return null
   return {
     key: value.key,
@@ -65,22 +68,28 @@ function parseCustomer(value: unknown, index: number): PartnerPreviewCustomer | 
     deliveryScheduledDate: value.deliveryScheduledDate as string | null,
     expectedCommission: value.expectedCommission as number | null,
     expectedSettlementMonth: expectedMonth,
+    ...(enhanced ? { basisRequired: required, basisReason: required ? '기준 고객 확인 필요' as const : null } : {}),
   }
 }
 
 function parseMonthModel(value: unknown): PartnerPreviewModel | null {
-  if (!exactDataRecord(value, modelKeys) || value.partnerName !== IWEDDING_PARTNER_NAME || !validIntakeMonth(value.intakeMonth)) return null
+  const enhanced = !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'basisRequiredCount')
+  if (!exactDataRecord(value, enhanced ? [...modelKeys, 'basisRequiredCount'] : modelKeys) || value.partnerName !== IWEDDING_PARTNER_NAME || !validIntakeMonth(value.intakeMonth)) return null
+  if (enhanced && !validCount(value.basisRequiredCount)) return null
   if (!Array.isArray(value.customers) || value.customers.length === 0 || value.customers.length > MAX_PARTNER_PUBLICATION_CUSTOMERS) return null
   if (!Array.isArray(value.settlements) || value.settlements.length > value.customers.length) return null
   for (const key of ['receiptCount', 'customerCount', 'completedCount', 'activeCount', 'undatedCustomerCount']) if (!validCount(value[key])) return null
   if (!validFee(value.completedExpectedCommission) || !validFee(value.undatedExpectedCommission)) return null
   const customers: PartnerPreviewCustomer[] = []
   const actualSettlements = new Map<string, PartnerPreviewSettlement>()
-  let completedCustomers = 0, activeCustomers = 0, totalFee = 0, undatedFee = 0, undatedCustomers = 0
+  let completedCustomers = 0, completedStatuses = 0, activeCustomers = 0, totalFee = 0, undatedFee = 0, undatedCustomers = 0, basisRequiredCount = 0
   for (const [index, item] of value.customers.entries()) {
     const customer = parseCustomer(item, index)
     if (!customer) return null
+    if (enhanced !== (customer.basisRequired !== undefined)) return null
     customers.push(customer)
+    if (customer.basisRequired) basisRequiredCount++
+    if (customer.status === '구매완료') completedStatuses++
     if (customer.status === '관리중') activeCustomers++
     if (customer.expectedCommission === null) continue
     completedCustomers++
@@ -97,8 +106,12 @@ function parseMonthModel(value: unknown): PartnerPreviewModel | null {
     } else actualSettlements.set(customer.expectedSettlementMonth, { month: customer.expectedSettlementMonth, expectedCommission: customer.expectedCommission, customerCount: 1 })
   }
   if (value.customerCount !== customers.length || !value.receiptCount || (value.receiptCount as number) > customers.length) return null
-  if ((value.completedCount as number) > completedCustomers || (value.activeCount as number) > activeCustomers || (value.completedCount as number) + (value.activeCount as number) > (value.receiptCount as number)) return null
-  if ((completedCustomers === 0) !== (value.completedCount === 0)) return null
+  if (enhanced) {
+    if (value.receiptCount !== customers.length || value.completedCount !== completedStatuses || value.activeCount !== activeCustomers || value.basisRequiredCount !== basisRequiredCount) return null
+  } else {
+    if ((value.completedCount as number) > completedCustomers || (value.activeCount as number) > activeCustomers || (value.completedCount as number) + (value.activeCount as number) > (value.receiptCount as number)) return null
+    if ((completedCustomers === 0) !== (value.completedCount === 0)) return null
+  }
   if (value.completedExpectedCommission !== totalFee || value.undatedExpectedCommission !== undatedFee || value.undatedCustomerCount !== undatedCustomers) return null
   const expectedSettlements = [...actualSettlements.values()].sort((a, b) => monthIndex(a.month) - monthIndex(b.month))
   if (value.settlements.length !== expectedSettlements.length) return null
@@ -118,6 +131,7 @@ function parseMonthModel(value: unknown): PartnerPreviewModel | null {
     completedExpectedCommission: totalFee,
     undatedExpectedCommission: undatedFee,
     undatedCustomerCount: undatedCustomers,
+    ...(enhanced ? { basisRequiredCount } : {}),
     settlements,
     customers,
   }
@@ -153,7 +167,7 @@ export function buildPartnerPublication(leads: readonly Lead[], partnerId: strin
   if (!validPublishedAt(publishedAt)) throw new RangeError('게시 시각은 올바른 ISO UTC 형식이어야 합니다.')
   const months: PartnerPreviewModel[] = []
   let totalCustomers = 0
-  for (const month of getExecutiveMonths(leads)) {
+  for (const month of getPartnerPreviewMonths(leads, IWEDDING_PARTNER_NAME)) {
     const model = buildPartnerPreview(leads, IWEDDING_PARTNER_NAME, month)
     if (!model.customerCount) continue
     totalCustomers += model.customerCount

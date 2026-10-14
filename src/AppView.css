@@ -14,3 +14,21 @@
 .login-card .login-password-toggle:focus-visible{outline:2px solid #4086c3;outline-offset:2px}
 .login-error-code{display:block;margin-top:4px;font-size:9px;overflow-wrap:anywhere}
 .login-id-help{display:block;margin-top:6px;color:#858a95;font-size:9px;font-weight:400;line-height:1.5}
+.case-share-info{margin:0 0 16px;padding:13px 15px;border:1px solid #cfe2dc;border-radius:10px;background:#f3faf7;font-size:12px;line-height:1.6;color:#365c52}
+.case-share-info p,.case-share-conflicts p{margin:5px 0}
+.drawer .case-share-conflicts{padding:14px;border:1px solid #ead9bb;border-radius:10px;background:#fffaf0}
+.case-share-conflicts label{margin-top:10px}
+.case-share-error{color:#a34235;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.case-sharing-history{margin:0 0 16px;padding:10px 12px;border:1px solid #e4e7eb;border-radius:8px;font-size:11px;line-height:1.6}
+.case-sharing-history summary{cursor:pointer;color:#53666c;font-weight:700}
+.case-sharing-history p{color:#6f7b84;margin:8px 0}
+.case-sharing-history>div{display:grid;gap:2px;padding:8px 0;border-top:1px solid #eceef2}
+.case-sharing-history small{color:#87919a}
+.toast{pointer-events:none}
+.purchase-basis-required strong{color:#996216;font-size:10px}
+.case-original-values{margin-top:12px;font-size:10px;line-height:1.6}
+.case-original-values summary{cursor:pointer;font-weight:700;color:#685a3b}
+.case-original-values>div{display:grid;gap:3px;border-top:1px solid #eadfc9;padding:9px 0}
+.case-original-values>div small{margin:0;color:#7c786c;font-weight:400}
+.case-choice-current{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:12px 0;font-size:11px}
+.case-choice-current strong{flex:1;min-width:160px;color:#386357}

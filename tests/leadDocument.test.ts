@@ -18,6 +18,36 @@ assert.equal(leadFromDocument('id', {}).visitState, '미정')
 assert.equal(normalizedLeadStatus('상담마감'), '상담 마감')
 assert.equal(normalizedLeadStatus('종결'), '취소')
 
+const history = Object.freeze({ at: '2026-10-13T01:00:00.000Z', by: 'staff-id', reason: 'group-share', previous: Object.freeze({ manager: '수기 담당자', managerEmployeeNo: '0012', purchaseType: '일시불+구독', purchaseAmount: 90, lumpSumAmount: 60, subscriptionAmount: 30, lumpSumSourceId: 'saved-id', subscriptionSourceId: 'other-id' }) })
+const sharedDocument = Object.freeze({ ...raw, lumpSumSourceId: 'saved-id', subscriptionSourceId: 'other-id', caseSharingHistory: Object.freeze([history]) })
+const sharedBefore = JSON.stringify(sharedDocument)
+const sharedLead = leadFromDocument('saved-id', sharedDocument)
+assert.equal(sharedLead.lumpSumSourceId, 'saved-id')
+assert.equal(sharedLead.subscriptionSourceId, 'other-id')
+assert.deepEqual(sharedLead.caseSharingHistory, [history])
+assert.notStrictEqual(sharedLead.caseSharingHistory?.[0], history, 'History is copied into a documented allowlist')
+assert.notStrictEqual(sharedLead.caseSharingHistory?.[0].previous, history.previous)
+assert.equal(JSON.stringify(sharedDocument), sharedBefore)
+for (const invalidId of ['', ' ', ' id', 'id ', 'x'.repeat(201), 'source/id', 0, false, {}, []]) {
+  const invalidLead = leadFromDocument('saved-id', { ...raw, lumpSumSourceId: invalidId, subscriptionSourceId: invalidId })
+  assert.equal(invalidLead.lumpSumSourceId, 'invalid/case-source', 'A bad explicit current source stays detectable instead of becoming an independent purchase')
+  assert.equal(invalidLead.subscriptionSourceId, 'invalid/case-source')
+}
+for (const cleared of [undefined, null]) {
+  const clearedLead = leadFromDocument('saved-id', { ...raw, lumpSumSourceId: cleared, subscriptionSourceId: cleared })
+  assert.equal(clearedLead.lumpSumSourceId, undefined, 'Legacy missing or intentionally cleared source remains an independent purchase')
+  assert.equal(clearedLead.subscriptionSourceId, undefined)
+}
+assert.equal(leadFromDocument('saved-id', { ...raw, lumpSumSourceId: 'x'.repeat(200) }).lumpSumSourceId?.length, 200)
+assert.deepEqual(leadFromDocument('saved-id', { ...raw, caseSharingHistory: [null, { ...history, reason: 'unknown' }, { ...history, previous: [] }, { ...history, by: '' }] }).caseSharingHistory, [])
+assert.equal(leadFromDocument('saved-id', { ...raw, caseSharingHistory: {} }).caseSharingHistory, undefined)
+const safeHistory = leadFromDocument('saved-id', { ...raw, caseSharingHistory: [{ ...history, extra: 'private', previous: { ...history.previous, lumpSumAmount: 0, subscriptionAmount: -1, subscriptionSourceId: 'invalid/id', privateField: 'private' } }] }).caseSharingHistory![0]
+assert.equal(safeHistory.previous.lumpSumAmount, 0, 'History retains an explicitly entered zero')
+assert.equal(safeHistory.previous.subscriptionAmount, undefined)
+assert.equal(safeHistory.previous.subscriptionSourceId, undefined)
+assert.equal('extra' in safeHistory, false)
+assert.equal('privateField' in safeHistory.previous, false)
+
 const source = Object.freeze({ sourceId: 'test-001', registeredAt: '2026-09-01', visitScheduledDate: '2026-09-02', appointmentType: '이업종제휴', customerName: '김*수', phoneLast4: '0023', partnerName: '아이웨딩', appointmentStatus: '완료' })
 const parsed = parseSeptemberSource({ schemaVersion: 1, sources: [source] })
 assert.equal(parsed?.[0].phoneLast4, '0023')

@@ -8,9 +8,12 @@ function exactCompanyKey(value: string): string {
     .replace(/\s+/g, '')
 }
 
-/** Only the explicitly approved company aliases are renamed. No fuzzy matching. */
+/** Approved aliases keep their existing tenant identity. Other company names
+ * only standardize whitespace directly after the leading corporation marker;
+ * the full company name is retained, without fuzzy or prefix-name matching. */
 export function canonicalPartnerName(name: string): string {
   const key = exactCompanyKey(name)
-  return key === '아이웨딩' || key === '아이패밀리에스씨'
-    ? I_WEDDING_CANONICAL_PARTNER : name.trim()
+  if (key === '아이웨딩' || key === '아이패밀리에스씨') return I_WEDDING_CANONICAL_PARTNER
+  const trimmed = name.trim()
+  return trimmed === '(주)' ? trimmed : trimmed.replace(/^\(주\)\s*/, '(주) ')
 }

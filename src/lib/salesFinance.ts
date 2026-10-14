@@ -1,15 +1,70 @@
 import type { Lead } from '../types'
 import { isSubscriptionRebatePartner } from './subscriptionPartners'
+import { financialCaseLeadsFor } from './caseBasis'
 
 export { isSubscriptionRebatePartner } from './subscriptionPartners'
 
-type FinancialLead = Pick<Lead, 'purchaseType' | 'purchaseAmount' | 'lumpSumAmount' | 'subscriptionAmount' | 'partnerName' | 'appointmentType' | 'salesRawPeriods' | 'subscriptionRawPeriods'>
+type FinancialLead = Pick<Lead, 'id' | 'purchaseType' | 'purchaseAmount' | 'lumpSumAmount' | 'subscriptionAmount' | 'lumpSumSourceId' | 'subscriptionSourceId' | 'caseBasisLeadId' | 'partnerName' | 'appointmentType' | 'salesRawPeriods' | 'subscriptionRawPeriods'>
+export interface SalesRawAmounts {
+  current: boolean
+  confirmed: number
+  reserved: number
+  tentative: number
+  completed: number
+  pending: number
+  eligibleConfirmed: number
+  eligibleReserved: number
+  eligibleTentative: number
+}
+export interface SubscriptionRawAmounts {
+  current: boolean
+  confirmed: number
+  pending: number
+  eligibleConfirmed: number
+  eligiblePending: number
+}
+/** Nonserializable calculation context. Never a saved Lead field or fabricated RAW. */
+export interface CaseFinancialProjection {
+  lumpSumBasis: number
+  subscriptionBasis: number
+  salesRaw: SalesRawAmounts
+  subscriptionRaw: SubscriptionRawAmounts
+  pendingAmount: number
+  confirmedSales: number
+  completedSales: number
+  lumpSumSource: PurchaseAmountSource
+  subscriptionSource: PurchaseAmountSource
+}
+const caseFinancialProjections = new WeakMap<object, CaseFinancialProjection>()
+export function registerCaseFinancialProjection(lead: Lead, totals: CaseFinancialProjection): Lead {
+  caseFinancialProjections.set(lead, totals)
+  return lead
+}
 const validAmount = (value?: number) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0
 export const lumpSumAmountFor = (lead: Pick<Lead, 'purchaseType' | 'purchaseAmount' | 'lumpSumAmount'>) => validAmount(lead.lumpSumAmount ?? (lead.purchaseType === '일시불' ? lead.purchaseAmount : undefined))
 export const subscriptionAmountFor = (lead: Pick<Lead, 'purchaseType' | 'purchaseAmount' | 'subscriptionAmount'>) => validAmount(lead.subscriptionAmount ?? (lead.purchaseType === '구독' ? lead.purchaseAmount : undefined))
 export const totalPurchaseAmountFor = (lead: FinancialLead) => lumpSumAmountFor(lead) + subscriptionAmountFor(lead)
 
-export function salesRawAmountsFor(lead: FinancialLead) {
+/** An explicit alias displays shared amounts but never creates another purchase. */
+export function isFinancialOwnerFor(lead: Pick<Lead, 'id' | 'lumpSumSourceId' | 'subscriptionSourceId' | 'caseBasisLeadId'>, kind: 'lumpSum' | 'subscription'): boolean {
+  if (lead.caseBasisLeadId && lead.caseBasisLeadId !== lead.id) return false
+  const sourceId = kind === 'lumpSum' ? lead.lumpSumSourceId : lead.subscriptionSourceId
+  return sourceId === undefined || sourceId === lead.id
+}
+
+export const financialLumpSumAmountFor = (lead: FinancialLead) => isFinancialOwnerFor(lead, 'lumpSum') ? lumpSumAmountFor(lead) : 0
+export const financialSubscriptionAmountFor = (lead: FinancialLead) => isFinancialOwnerFor(lead, 'subscription') ? subscriptionAmountFor(lead) : 0
+export const financialTotalPurchaseAmountFor = (lead: FinancialLead) => financialLumpSumAmountFor(lead) + financialSubscriptionAmountFor(lead)
+
+/** One amount per case; pending choices contribute no amount. Independent
+ * originals are added only by the explicit, validated full-roster merge model. */
+export function displayedPurchaseAmountFor(leads: readonly Lead[]): number {
+  return financialCaseLeadsFor(leads).reduce((sum, lead) => sum + totalPurchaseAmountFor(lead), 0)
+}
+
+export function salesRawAmountsFor(lead: FinancialLead): SalesRawAmounts {
+  const projection = caseFinancialProjections.get(lead)
+  if (projection) return { ...projection.salesRaw }
   const periods = Object.values(lead.salesRawPeriods || {})
   const sum = (key: 'confirmedAmount' | 'reservedAmount' | 'tentativeAmount' | 'eligibleConfirmedAmount' | 'eligibleReservedAmount' | 'eligibleTentativeAmount') => periods.reduce((total, period) => total + (typeof period[key] === 'number' && Number.isFinite(period[key]) ? period[key] : 0), 0)
   // Preserve signed subtotals: a confirmed refund may offset a reserved order.
@@ -37,13 +92,25 @@ export function expectedRebateFor(lead: FinancialLead): number {
   return expectedRebateBreakdownFor(lead).total
 }
 
-export function subscriptionRawAmountsFor(lead: FinancialLead) {
+export function subscriptionRawAmountsFor(lead: FinancialLead): SubscriptionRawAmounts {
+  const projection = caseFinancialProjections.get(lead)
+  if (projection) return { ...projection.subscriptionRaw }
   const periods = Object.values(lead.subscriptionRawPeriods || {})
   const sum = (key: 'confirmedBasisAmount' | 'pendingBasisAmount' | 'eligibleConfirmedBasisAmount' | 'eligiblePendingBasisAmount') => periods.reduce((total, period) => total + (Number.isFinite(period[key]) ? period[key] : 0), 0)
   const confirmed = sum('confirmedBasisAmount')
   const pending = sum('pendingBasisAmount')
   const current = periods.length > 0 && subscriptionAmountFor(lead) === Math.max(0, confirmed + pending)
   return { current, confirmed, pending, eligibleConfirmed: current ? sum('eligibleConfirmedBasisAmount') : 0, eligiblePending: current ? sum('eligiblePendingBasisAmount') : 0 }
+}
+
+/** Only the original owner's current RAW evidence contributes pending money. */
+export function financialPendingAmountFor(lead: FinancialLead): number {
+  const projection = caseFinancialProjections.get(lead)
+  if (projection) return projection.pendingAmount
+  const raw = salesRawAmountsFor(lead)
+  const subscription = subscriptionRawAmountsFor(lead)
+  return (isFinancialOwnerFor(lead, 'lumpSum') && raw.current ? raw.pending : 0)
+    + (isFinancialOwnerFor(lead, 'subscription') && subscription.current ? subscription.pending : 0)
 }
 
 export interface PurchaseAmountSource {
@@ -54,6 +121,8 @@ export interface PurchaseAmountSource {
 
 /** Report amount provenance without replacing a manually entered amount. */
 export function purchaseAmountSourceFor(lead: FinancialLead, kind: 'lumpSum' | 'subscription'): PurchaseAmountSource {
+  const projection = caseFinancialProjections.get(lead)
+  if (projection) return { ...(kind === 'lumpSum' ? projection.lumpSumSource : projection.subscriptionSource) }
   const amount = kind === 'lumpSum' ? lumpSumAmountFor(lead) : subscriptionAmountFor(lead)
   const enteredAmount = kind === 'lumpSum'
     ? lead.lumpSumAmount ?? (lead.purchaseType === '일시불' ? lead.purchaseAmount : undefined)
@@ -77,6 +146,9 @@ export function purchaseAmountSourceFor(lead: FinancialLead, kind: 'lumpSum' | '
 const isManualPartnerAppointment = (lead: FinancialLead) => lead.appointmentType === '이업종제휴' || lead.appointmentType === '상담예약(이업종)'
 
 function lumpSumCommissionBasisFor(lead: FinancialLead): number {
+  const projection = caseFinancialProjections.get(lead)
+  if (projection) return projection.lumpSumBasis
+  if (!isFinancialOwnerFor(lead, 'lumpSum')) return 0
   const raw = salesRawAmountsFor(lead)
   if (raw.current) return Math.max(0, raw.eligibleConfirmed + raw.eligibleReserved + raw.eligibleTentative)
   // A mismatch is a manual amount, not permission to reuse an old RAW subtotal.
@@ -84,6 +156,9 @@ function lumpSumCommissionBasisFor(lead: FinancialLead): number {
 }
 
 function subscriptionCommissionBasisFor(lead: FinancialLead): number {
+  const projection = caseFinancialProjections.get(lead)
+  if (projection) return projection.subscriptionBasis
+  if (!isFinancialOwnerFor(lead, 'subscription')) return 0
   if (!isSubscriptionRebatePartner(lead.partnerName)) return 0
   const raw = subscriptionRawAmountsFor(lead)
   if (raw.current) return Math.max(0, raw.eligibleConfirmed + raw.eligiblePending)
@@ -117,16 +192,20 @@ export const expectedSubscriptionRebateFor = (lead: FinancialLead) => expectedRe
 export const expectedLumpSumRebateFor = (lead: FinancialLead) => expectedRebateBreakdownFor(lead).lumpSumCommission
 
 export function confirmedSalesFor(lead: Lead): number {
+  const projection = caseFinancialProjections.get(lead)
+  if (projection) return projection.confirmedSales
   const raw = salesRawAmountsFor(lead)
   const subscription = subscriptionRawAmountsFor(lead)
-  return (raw.current ? raw.confirmed : lead.status === '구매완료' ? lumpSumAmountFor(lead) : 0)
-    + (subscription.current ? subscription.confirmed : lead.status === '구매완료' ? subscriptionAmountFor(lead) : 0)
+  return (isFinancialOwnerFor(lead, 'lumpSum') ? raw.current ? raw.confirmed : lead.status === '구매완료' ? lumpSumAmountFor(lead) : 0 : 0)
+    + (isFinancialOwnerFor(lead, 'subscription') ? subscription.current ? subscription.confirmed : lead.status === '구매완료' ? subscriptionAmountFor(lead) : 0 : 0)
 }
 
 /** Business completion is separate from original order confirmation or delivery. */
 export function completedSalesFor(lead: Lead): number {
+  const projection = caseFinancialProjections.get(lead)
+  if (projection) return projection.completedSales
   const raw = salesRawAmountsFor(lead)
   const subscription = subscriptionRawAmountsFor(lead)
-  return (raw.current ? raw.completed : lead.status === '구매완료' ? lumpSumAmountFor(lead) : 0)
-    + (subscription.current ? subscription.confirmed : lead.status === '구매완료' ? subscriptionAmountFor(lead) : 0)
+  return (isFinancialOwnerFor(lead, 'lumpSum') ? raw.current ? raw.completed : lead.status === '구매완료' ? lumpSumAmountFor(lead) : 0 : 0)
+    + (isFinancialOwnerFor(lead, 'subscription') ? subscription.current ? subscription.confirmed : lead.status === '구매완료' ? subscriptionAmountFor(lead) : 0 : 0)
 }

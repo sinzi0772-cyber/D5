@@ -19,8 +19,8 @@ for (const role of ['admin', 'store_manager', 'assistant_manager', 'manager']) a
 for (const role of [null, undefined, {}, 1, 'partner', 'demo_admin', '', 'ADMIN', ' admin ']) assert.equal(canPreviewPartner(role), false)
 
 const rows = Object.freeze([
-  Object.freeze(lead('source-김준수-01012340252', { deliveryScheduledDate: '2026-09-30', caseGroupId: 'same-case' })),
-  Object.freeze(lead('other-member', { registeredAt: '2026-10-01', partnerName: '(주)아이패밀리에스씨', caseGroupId: 'same-case', deliveryScheduledDate: '2026-12-31' })),
+  Object.freeze(lead('source-김준수-01012340252', { deliveryScheduledDate: '2026-09-30', caseGroupId: 'same-case', caseBasisLeadId: 'source-김준수-01012340252' })),
+  Object.freeze(lead('other-member', { registeredAt: '2026-10-01', partnerName: '(주)아이패밀리에스씨', caseGroupId: 'same-case', caseBasisLeadId: 'source-김준수-01012340252', deliveryScheduledDate: '2026-12-31' })),
   Object.freeze(lead('unplanned', { customerName: '박영희', phoneLast4: '5555', lumpSumAmount: 1000000, subscriptionAmount: 0 })),
   Object.freeze(lead('active', { status: '관리중', customerName: '이도연', phoneLast4: '6666', deliveryScheduledDate: '2026-09-10' })),
   Object.freeze(lead('other-company', { partnerName: '다른 업체', customerName: '배선영', phoneLast4: '7777', deliveryScheduledDate: '2026-09-15' })),
@@ -40,18 +40,21 @@ assert.equal(direct.customers.find(customer => customer.label.startsWith('김'))
 assert.equal(direct.customers.find(customer => customer.status === '관리중')?.expectedCommission, null)
 assert.equal(direct.customers.find(customer => customer.status === '관리중')?.expectedSettlementMonth, null)
 assert.equal(direct.settlements.reduce((sum, bucket) => sum + bucket.expectedCommission, 0) + direct.undatedExpectedCommission, direct.completedExpectedCommission)
-assert.deepEqual(direct.customers.map(customer => Object.keys(customer).sort()), direct.customers.map(() => ['key', 'label', 'registeredAt', 'status', 'deliveryScheduledDate', 'expectedCommission', 'expectedSettlementMonth'].sort()))
+assert.deepEqual(direct.customers.map(customer => Object.keys(customer).sort()), direct.customers.map(() => ['key', 'label', 'registeredAt', 'status', 'deliveryScheduledDate', 'expectedCommission', 'expectedSettlementMonth', 'basisRequired', 'basisReason'].sort()))
 const serialized = JSON.stringify(direct)
 for (const forbidden of ['lumpSumAmount', 'subscriptionAmount', 'purchaseAmount', 'purchaseType', 'salesRawPeriods', 'subscriptionRawPeriods', 'customerName', 'phoneLast4', 'manager', 'memoHistory', 'plannerName', 'note', 'source-김준수', '김준수', '01012340252', '비공개', '7777', '8888']) assert.equal(serialized.includes(forbidden), false, `Do not project ${forbidden}`)
 assert.equal(JSON.stringify(rows), before)
 assert.deepEqual(buildPartnerPreview([...rows, { ...rows[0], lumpSumAmount: 99999999 }], '(주)다이렉트컴즈', '2026-09'), direct, 'Duplicated saved IDs retain first source and cannot inflate fees')
 
-const family = buildPartnerPreview(rows, '(주)아이패밀리에스씨', '2026-09')
-assert.equal(family.customerCount, 1, 'Company with later linked member inherits whole-case earliest intake month')
+const family = buildPartnerPreview(rows, '(주)아이패밀리에스씨', '2026-10')
+assert.equal(family.customerCount, 1, 'Own-company intake date cannot disclose another company earlier month')
 assert.equal(family.customers[0].registeredAt, '2026-10-01')
-assert.equal(family.settlements[0].month, '2027-02', 'Forecast is delivery month + 2, not intake month + 2')
-assert.equal(buildPartnerPreview(rows, '(주)아이패밀리에스씨', '2026-10').customerCount, 0)
-assert.deepEqual(buildPartnerPreview(rows, '아이웨딩', '2026-09'), family, 'Only approved canonical aliases match')
+assert.equal(family.settlements.length, 0, 'Foreign financial basis is not reselected through tenant scope')
+assert.equal(family.customers[0].expectedCommission, null)
+assert.equal(family.customers[0].deliveryScheduledDate, null)
+assert.equal(family.basisRequiredCount, 1)
+assert.equal(buildPartnerPreview(rows, '(주)아이패밀리에스씨', '2026-09').customerCount, 0)
+assert.deepEqual(buildPartnerPreview(rows, '아이웨딩', '2026-10'), family, 'Only approved canonical aliases match')
 const aliasRows = [lead('alias', { partnerName: '아이웨딩', deliveryScheduledDate: '2026-11-05' })]
 assert.equal(buildPartnerPreview(aliasRows, '(주)아이패밀리에스씨', '2026-09').customerCount, 1)
 for (const company of ['', '  ', '전체 제휴업체', '다이렉트', '알 수 없는 업체']) assert.equal(buildPartnerPreview(rows, company, '2026-09').customerCount, 0)

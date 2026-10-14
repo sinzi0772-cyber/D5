@@ -1,5 +1,7 @@
 import type { Lead } from '../types'
 import { expectedRebateFor } from './salesFinance'
+import { caseBasisGroupsFor, financialCaseLeadFor } from './caseBasis'
+import { canonicalPartnerName } from './partners'
 
 export interface CommissionSettlementPartner {
   name: string
@@ -15,17 +17,21 @@ export interface CommissionSettlementMonth {
   customerCount: number
   caseCount: number
   partners: CommissionSettlementPartner[]
+  /** Calculation projections only; editor callbacks must resolve original saved rows by ID. */
   leads: Lead[]
 }
 
 export interface CommissionSettlementMetrics {
   months: CommissionSettlementMonth[]
+  basisRequiredCount: number
+  basisRequiredLeads: Lead[]
   completedCustomerCount: number
   completedExpectedCommission: number
   scheduledCustomerCount: number
   scheduledExpectedCommission: number
   unscheduledCustomerCount: number
   unscheduledExpectedCommission: number
+  /** Calculation projections only. Original RAW must never be persisted from this list. */
   unscheduledLeads: Lead[]
   unfinishedCustomerCount: number
   unfinishedExpectedCommission: number
@@ -68,6 +74,8 @@ const monthIndexFor = (month: string) => {
 export function buildCommissionSettlementMetrics(leads: readonly Lead[], partnerName?: string): CommissionSettlementMetrics {
   const result: CommissionSettlementMetrics = {
     months: [],
+    basisRequiredCount: 0,
+    basisRequiredLeads: [],
     completedCustomerCount: 0,
     completedExpectedCommission: 0,
     scheduledCustomerCount: 0,
@@ -78,13 +86,18 @@ export function buildCommissionSettlementMetrics(leads: readonly Lead[], partner
     unfinishedCustomerCount: 0,
     unfinishedExpectedCommission: 0,
   }
-  const seen = new Set<string>()
   const monthlyLeads = new Map<string, Lead[]>()
-  for (const lead of leads) {
-    // A Firestore document is counted once; different linked customer IDs remain separate.
-    if (seen.has(lead.id)) continue
-    seen.add(lead.id)
-    if (partnerName !== undefined && lead.partnerName !== partnerName) continue
+  // Resolve complete cases first. A company filter never elects another member.
+  for (const group of caseBasisGroupsFor(leads)) {
+    const visible = partnerName === undefined ? group.members : group.members.filter(member => canonicalPartnerName(member.partnerName) === canonicalPartnerName(partnerName))
+    if (!visible.length) continue
+    if (group.selection.status === 'unresolved') {
+      result.basisRequiredCount++
+      result.basisRequiredLeads.push(visible[0])
+      continue
+    }
+    const lead = financialCaseLeadFor(group.selection, group.members)
+    if (!lead || !visible.some(member => member.id === lead.id)) continue
     const fee = expectedRebateFor(lead)
     if (lead.status !== '구매완료') {
       result.unfinishedCustomerCount++
@@ -111,9 +124,10 @@ export function buildCommissionSettlementMetrics(leads: readonly Lead[], partner
     .map(([month, members]) => {
       const byPartner = new Map<string, Lead[]>()
       for (const lead of members) {
-        const partnerMembers = byPartner.get(lead.partnerName)
+        const partner = canonicalPartnerName(lead.partnerName)
+        const partnerMembers = byPartner.get(partner)
         if (partnerMembers) partnerMembers.push(lead)
-        else byPartner.set(lead.partnerName, [lead])
+        else byPartner.set(partner, [lead])
       }
       return {
         month,
