@@ -15,6 +15,7 @@ import { SettlementGuideModal } from './components/SettlementGuideModal'
 import { CaseMergeChoiceModal, type CaseMergeChoice } from './components/CaseMergeChoiceModal'
 import { CaseGroupSummary } from './components/CaseGroupSummary'
 import { DeliveryScheduleField } from './components/DeliveryScheduleField'
+import { sortAccessRowsByVisits, type AccessCountDirection } from './lib/accessLogSorting'
 import { buildPartnerPublication, IWEDDING_PARTNER_ID } from './lib/partnerPublication'
 import { leadFromDocument } from './lib/leadDocument'
 import { parseSeptemberSource } from './lib/septemberSource'
@@ -250,6 +251,7 @@ export default function App() {
   const [dataError, setDataError] = useState('')
   const [serverConfirmed, setServerConfirmed] = useState(false)
   const [usageRows, setUsageRows] = useState<UsageRow[]>([])
+  const [accessCountSort, setAccessCountSort] = useState<AccessCountDirection>(null)
   const [settlementGuideOpen, setSettlementGuideOpen] = useState(false)
   const closeSettlementGuide = useCallback(() => setSettlementGuideOpen(false), [])
   const [septemberSource, setSeptemberSource] = useState<readonly SeptemberAppointment[] | null>(null)
@@ -549,6 +551,7 @@ export default function App() {
     const usageByEmployeeNo = new Map(usageRows.map(row => [row.employeeNo, row]))
     return approvedStaff.map(profile => ({ ...profile, usage: usageByEmployeeNo.get(profile.employeeNo) })).sort((a, b) => (b.usage?.lastSeenAt || '').localeCompare(a.usage?.lastSeenAt || '') || a.employeeNo.localeCompare(b.employeeNo, 'ko', { numeric: true }))
   }, [usageRows])
+  const sortedAccessRows = useMemo(() => sortAccessRowsByVisits(accessRows, accessCountSort), [accessRows, accessCountSort])
   const trackedUsageRows = useMemo(() => {
     const employeeNos = new Set(approvedStaff.map(profile => profile.employeeNo))
     return usageRows.filter(row => employeeNos.has(row.employeeNo))
@@ -727,7 +730,7 @@ export default function App() {
               </div>
               <details className="access-log-details">
                 <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>사용자별 접속기록</strong><span>전체 {profileCount}명 · 기록 확인</span></summary>
-                <div className="access-log-scroll"><table className="access-log-table"><thead><tr><th>사용자</th><th>사번</th><th>직책</th><th>최초 접속</th><th>최근 접속</th><th>접속 횟수</th></tr></thead><tbody>{accessRows.map(row=><tr key={row.employeeNo}><td>{row.displayName}</td><td>{row.employeeNo}</td><td>{roleLabel(row.role)}</td><td>{formatDateTime(row.usage?.firstSeenAt)}</td><td>{formatDateTime(row.usage?.lastSeenAt)}</td><td>{row.usage?.visitCount||0}회</td></tr>)}</tbody></table>{accessRows.length===0&&<p className="access-log-empty">승인된 사용자 정보를 불러오는 중입니다.</p>}</div>
+                <div className="access-log-scroll"><table className="access-log-table"><thead><tr><th>사용자</th><th>사번</th><th>직책</th><th>최초 접속</th><th>최근 접속</th><th scope="col" aria-sort={accessCountSort === 'asc' ? 'ascending' : accessCountSort === 'desc' ? 'descending' : 'none'}><button type="button" className={`sort-header ${accessCountSort ? 'active' : ''}`} aria-label={`접속 횟수 ${accessCountSort === 'desc' ? '오름차순' : '내림차순'} 정렬`} onClick={() => setAccessCountSort(current => current === 'desc' ? 'asc' : 'desc')}>접속 횟수<span aria-hidden="true">{accessCountSort === 'asc' ? '↑' : accessCountSort === 'desc' ? '↓' : '↕'}</span></button></th></tr></thead><tbody>{sortedAccessRows.map(row=><tr key={row.employeeNo}><td>{row.displayName}</td><td>{row.employeeNo}</td><td>{roleLabel(row.role)}</td><td>{formatDateTime(row.usage?.firstSeenAt)}</td><td>{formatDateTime(row.usage?.lastSeenAt)}</td><td>{row.usage?.visitCount||0}회</td></tr>)}</tbody></table>{accessRows.length===0&&<p className="access-log-empty">승인된 사용자 정보를 불러오는 중입니다.</p>}</div>
               </details>
               </section>
             </details>}
