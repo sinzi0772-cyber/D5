@@ -52,10 +52,10 @@ export function PartnerPreview({ model, presentation = 'preview' }: { model: Par
     ? `배송예정일 입력 필요 · 고객 ${count(feeCard.customerCount)}명`
     : feeCard.selection
       ? `${monthLabel(feeCard.selection)} 중순 예상 · 고객 ${count(feeCard.customerCount)}명`
-      : '정산월이 정해진 예상 수수료가 없습니다.'
+      : '예정된 수수료 없음'
   return <section className={`partner-preview${presentation === 'portal' ? ' partner-preview-portal' : ''}`} aria-label={presentation === 'portal' ? '업체 고객 현황' : '업체용 화면 미리보기'}>
     <header className="partner-preview-heading">
-      <div><span className="partner-preview-eyebrow">PARTNER VIEW</span><h2>{model.partnerName || '제휴업체를 선택해 주세요'}</h2><p>{monthLabel(model.intakeMonth)} 접수 · 연결 고객은 최초 접수월 기준</p></div>
+      <div><span className="partner-preview-eyebrow">PARTNER VIEW</span><h2>{model.partnerName || '제휴업체를 선택해 주세요'}</h2><p>{monthLabel(model.intakeMonth)} 접수 · 묶음은 최초 접수월 기준</p></div>
     </header>
 
     {model.partnerName ? <>
@@ -64,7 +64,7 @@ export function PartnerPreview({ model, presentation = 'preview' }: { model: Par
         <div><span>판매 건수</span><strong>{count(model.completedCount)}<small>건</small></strong><p>관리중 {count(model.activeCount)}건</p></div>
         <div className="partner-preview-fee" id={feeCardId} aria-label="월별 예상 수수료"><div className="partner-preview-fee-heading"><span>예상 수수료</span>{feeCard.options.length > 0 ? <label className="partner-preview-fee-period"><span>정산월</span><select aria-label="예상 수수료 정산월" value={feeCard.selection} onChange={event => setRequestedSettlement(event.target.value)}>{feeCard.options.map(option => <option key={option.value} value={option.value}>{option.month ? monthLabel(option.month) : '정산월 미정'}</option>)}</select></label> : null}</div><strong aria-live="polite">{model.basisRequiredCount && !feeCard.options.length ? '기준 확인 필요' : won(feeCard.expectedCommission)}</strong><p>{feeCaption}</p></div>
       </div>
-      {(model.basisRequiredCount || 0) > 0 ? <p className="partner-preview-undated" role="status">기준 고객 확인 필요 {count(model.basisRequiredCount!)}명 · 확인 전에는 예상 수수료에 포함하지 않습니다.</p> : null}
+      {(model.basisRequiredCount || 0) > 0 ? <p className="partner-preview-undated" role="status">묶음 기준 미선택 {count(model.basisRequiredCount!)}명 · 예상 수수료 제외</p> : null}
 
       <section className="partner-preview-settlement" aria-label="업체 월별 예상 정산">
         <div className="partner-preview-section-heading"><SectionHeading>월별 예상 정산</SectionHeading><p>배송예정월의 익익월 중순 · 실제 수령월에 따라 변동</p></div>
@@ -90,6 +90,6 @@ export function PartnerPreview({ model, presentation = 'preview' }: { model: Par
           <tbody>{customers.map(customer => <tr key={customer.key}><td className="partner-preview-customer-label">{customer.label}</td><td>{dateLabel(customer.registeredAt)}</td><td><span className={`partner-preview-status${customer.status === '구매완료' ? ' completed' : ''}`}>{customer.status}</span></td><td>{dateLabel(customer.deliveryScheduledDate)}</td><td>{customer.basisRequired ? '기준 고객 확인 필요' : customer.expectedSettlementMonth ? `${monthLabel(customer.expectedSettlementMonth)} 중순` : customer.status === '구매완료' ? '배송일 확인 필요' : '—'}</td><td className="partner-preview-customer-fee">{customer.basisRequired ? '확인 필요' : customer.expectedCommission === null ? '—' : won(customer.expectedCommission)}</td></tr>)}</tbody>
         </table></div> : <p className="partner-preview-empty">선택한 접수월에 연결된 고객이 없습니다.</p>}
       </section>
-    </> : <p className="partner-preview-empty">상단에서 업체를 선택하면 해당 업체의 고객만 표시합니다.</p>}
+    </> : <p className="partner-preview-empty">업체를 선택해 주세요.</p>}
   </section>
 }

@@ -30,6 +30,8 @@ assert.equal(publication.partnerId, 'iwedding')
 assert.deepEqual(publication.months.map(model => model.intakeMonth), ['2026-10', '2026-09'], 'Never publish a foreign registration month')
 assert.equal(publication.months[1].customerCount, 4)
 assert.equal(publication.months[1].basisRequiredCount, 1)
+assert.equal(publication.months[1].completedCount, 2, 'The unresolved secondary display status does not add a completed category')
+assert.equal(publication.months[1].activeCount, 1)
 const pending = publication.months[1].customers.find(customer => customer.basisRequired)!
 assert.equal(pending.registeredAt, '2026-09-01')
 assert.equal(pending.expectedCommission, null)
@@ -95,6 +97,45 @@ invalid(value => { delete value.months[1].customers[0].basisReason })
 const legacy = JSON.parse(JSON.stringify(buildPartnerPublication([lead('legacy')], IWEDDING_PARTNER_ID, publishedAt)))
 for (const model of legacy.months) { delete model.basisRequiredCount; for (const customer of model.customers) { delete customer.basisRequired; delete customer.basisReason } }
 assert.deepEqual(parsePartnerPublication(legacy, IWEDDING_PARTNER_ID), legacy, 'Strict older schema-1 publications remain readable without new confirmation fields')
+
+const categoryRows = [
+  lead('own-complete'),
+  lead('own-active-selected', { status: '관리중' }),
+  lead('own-complete-secondary', { caseGroupId: 'foreign-active-group', caseBasisLeadId: 'foreign-active-basis' }),
+  lead('foreign-active-basis', { caseGroupId: 'foreign-active-group', caseBasisLeadId: 'foreign-active-basis', partnerName: '다른 업체', status: '관리중' }),
+  lead('own-active-secondary', { caseGroupId: 'foreign-complete-group', caseBasisLeadId: 'foreign-complete-basis', status: '관리중' }),
+  lead('foreign-complete-basis', { caseGroupId: 'foreign-complete-group', caseBasisLeadId: 'foreign-complete-basis', partnerName: '다른 업체' }),
+]
+const categoryOriginal = JSON.stringify(categoryRows)
+const categoryPublication = buildPartnerPublication(categoryRows, IWEDDING_PARTNER_ID, publishedAt)
+assert.equal(categoryPublication.months[0].customerCount, 4)
+assert.equal(categoryPublication.months[0].basisRequiredCount, 2)
+assert.equal(categoryPublication.months[0].completedCount, 1)
+assert.equal(categoryPublication.months[0].activeCount, 1)
+assert.deepEqual(parsePartnerPublication(categoryPublication, IWEDDING_PARTNER_ID), categoryPublication)
+const olderEnhanced = JSON.parse(JSON.stringify(categoryPublication))
+olderEnhanced.months[0].completedCount = 2
+olderEnhanced.months[0].activeCount = 2
+assert.deepEqual(parsePartnerPublication(olderEnhanced, IWEDDING_PARTNER_ID), categoryPublication,
+  'Old enhanced schema-1 publications remain readable and normalize to selected-only categories')
+assert.equal(olderEnhanced.months[0].completedCount, 2, 'Safe loading never mutates the source publication')
+for (const [completedCount, activeCount] of [[2, 1], [1, 2], [0, 1], [1, 0], [3, 2], [2, 3]]) {
+  const tampered = JSON.parse(JSON.stringify(categoryPublication))
+  Object.assign(tampered.months[0], { completedCount, activeCount })
+  assert.equal(parsePartnerPublication(tampered, IWEDDING_PARTNER_ID), null, 'Mixed/invalid status totals cannot pass the exact-pair allowlist')
+}
+for (const status of ['구매완료', '관리중', '상담 마감', '취소'] as const) {
+  const chosenRows = [
+    lead('chosen', { caseGroupId: 'chosen-group', caseBasisLeadId: 'chosen', status }),
+    lead('excluded', { caseGroupId: 'chosen-group', caseBasisLeadId: 'chosen', status: status === '관리중' ? '구매완료' : '관리중' }),
+  ]
+  const safe = buildPartnerPublication(chosenRows, IWEDDING_PARTNER_ID, publishedAt)
+  assert.equal(safe.months[0].customerCount, 1)
+  assert.equal(safe.months[0].completedCount, status === '구매완료' ? 1 : 0)
+  assert.equal(safe.months[0].activeCount, status === '관리중' ? 1 : 0)
+  assert.deepEqual(parsePartnerPublication(safe, IWEDDING_PARTNER_ID), safe)
+}
+assert.equal(JSON.stringify(categoryRows), categoryOriginal, 'Preview/publication must not rewrite any original status')
 
 const empty = buildPartnerPublication(rows.filter(row => row.partnerName === '(주)다이렉트컴즈'), IWEDDING_PARTNER_ID, publishedAt)
 assert.deepEqual(empty.months, [])

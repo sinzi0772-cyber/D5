@@ -69,7 +69,7 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
     {publication ? <div className="partner-portal-period"><label>접수월<select aria-label="업체 접수월" value={month} onChange={event => setMonth(event.target.value)}>{publication.months.map(model => <option key={model.intakeMonth} value={model.intakeMonth}>{model.intakeMonth.replace('-', '년 ')}월</option>)}</select></label></div> : null}
     {loading ? <p role="status">업체 자료를 확인하는 중입니다.</p> : error ? <p className="partner-portal-error" role="alert">{error}</p> : null}
     {selected ? <PartnerPreview model={selected} presentation="portal"/> : publication && !loading && !error ? <section className="partner-preview partner-preview-portal"><p>연결 고객 자료가 없습니다.</p></section> : null}
-    {publication ? <details className="partner-portal-info"><summary>자료 갱신 정보</summary><div><span>자료 갱신 {stamp(publication.publishedAt)}</span>{checkedAt ? <span>서버 확인 {stamp(checkedAt)}</span> : null}</div><p className="partner-portal-note">묶음 고객은 1명으로 표시하며 기준 고객 한 명의 수수료만 반영합니다. 관리자가 전체 고객 자료를 확인하면 업체 자료가 갱신됩니다. ‘자료 확인’은 최신 게시본을 조회합니다.</p></details> : null}
+    {publication ? <details className="partner-portal-info"><summary>자료 갱신 정보</summary><div><span>자료 갱신 {stamp(publication.publishedAt)}</span>{checkedAt ? <span>서버 확인 {stamp(checkedAt)}</span> : null}</div><p className="partner-portal-note">묶음은 선택한 기준으로 계산합니다. ‘자료 확인’은 관리자가 갱신한 최신 게시본을 조회합니다.</p></details> : null}
     {settlementGuideOpen ? <SettlementGuideModal onClose={closeSettlementGuide}/> : null}
   </main>
 }

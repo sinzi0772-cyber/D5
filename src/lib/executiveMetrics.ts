@@ -56,11 +56,16 @@ const casesForPartner = (cases: readonly ScopedCase[], partnerName?: string): Sc
   ? cases.map(item => ({ ...item, visibleMembers: item.members.filter(lead => canonicalPartnerName(lead.partnerName) === canonicalPartnerName(partnerName)) })).filter(item => item.visibleMembers.length > 0)
   : [...cases]
 const visibleBasis = (item: ScopedCase) => item.selection.basis && item.visibleMembers.some(lead => lead.id === item.selection.basis?.id) ? item.selection.basis : undefined
-const representative = (item: ScopedCase) => visibleBasis(item) || item.visibleMembers[0]
 const financialBasis = (item: ScopedCase) => visibleBasis(item) ? financialCaseLeadFor(item.selection, item.members) : undefined
-const statusFor = (item: ScopedCase) => item.visibleMembers.some(lead => lead.status === '구매완료') ? '구매완료'
-  : item.visibleMembers.some(lead => lead.status === '관리중') ? '관리중'
-  : item.visibleMembers.some(lead => lead.status === '상담 마감') ? '상담 마감' : '취소'
+/** Once chosen, the original basis owns the case's operational categories too.
+ * A company-scoped view must not re-elect an excluded or foreign member. */
+const operationalLead = (item: ScopedCase): Lead | undefined => {
+  if (item.selection.status !== 'unresolved') return visibleBasis(item)
+  // Preserve the existing queue until the user resolves a conflicting group.
+  return (['구매완료', '관리중', '상담 마감', '취소'] as const)
+    .map(status => item.visibleMembers.find(lead => lead.status === status)).find(Boolean)
+}
+const statusFor = (item: ScopedCase) => operationalLead(item)?.status
 
 const summarizeCases = (cases: readonly ScopedCase[]): ExecutivePeriodSummary => {
   const result: ExecutivePeriodSummary = { cases: cases.length, customerCount: cases.length, completed: 0, active: 0, closed: 0, canceled: 0,
@@ -70,7 +75,7 @@ const summarizeCases = (cases: readonly ScopedCase[]): ExecutivePeriodSummary =>
     if (status === '구매완료') { result.completed++; result.completedCustomers++ }
     else if (status === '관리중') result.active++
     else if (status === '상담 마감') result.closed++
-    else result.canceled++
+    else if (status === '취소') result.canceled++
     result.managementRecords += item.visibleMembers.reduce((sum, lead) => sum + memoCount(lead), 0)
     if (item.selection.status === 'unresolved') { result.basisRequiredCount++; continue }
     const basis = financialBasis(item)
@@ -90,7 +95,7 @@ export const getDefaultExecutiveMonth = (leads: readonly Lead[], today: string):
 export const getExecutiveMonthLeads = (leads: readonly Lead[], month: string, partnerName?: string): Lead[] => casesForMonth(casesForPartner(groupCases(leads), partnerName), month).flatMap(item => item.visibleMembers)
 /** Operational drilldown uses one original document per customer, not one per RAW row. */
 export const getExecutiveMonthCaseLeads = (leads: readonly Lead[], month: string, partnerName?: string): Lead[] => casesForMonth(casesForPartner(groupCases(leads), partnerName), month)
-  .map(item => item.visibleMembers.find(lead => lead.status === statusFor(item)) || representative(item))
+  .flatMap(item => { const lead = operationalLead(item); return lead ? [lead] : [] })
 const previousMonthFor = (month: string) => { const [year, number] = month.split('-').map(Number); return new Date(Date.UTC(year, number - 2, 1)).toISOString().slice(0, 7) }
 const latestManagementDate = (lead: Lead) => {
   const memoDates = (lead.memoHistory || []).map(memo => dateOnly(memo.date)).filter(Boolean).sort()
@@ -104,7 +109,7 @@ export const buildExecutiveMetrics = (leads: readonly Lead[], month: string, tod
   const monthCases = casesForMonth(cases, month)
   const previousMonth = previousMonthFor(month)
   // One task entry per linked customer; retain the selected original record for editing.
-  const managingLeads = monthCases.filter(item => statusFor(item) === '관리중').map(item => item.visibleMembers.find(lead => lead.status === '관리중')!)
+  const managingLeads = monthCases.flatMap(item => { const lead = operationalLead(item); return lead?.status === '관리중' ? [lead] : [] })
   const todayTime = new Date(`${todayDate}T00:00:00Z`).getTime()
   const overdue = managingLeads.filter(lead => { const date = dateOnly(lead.visitScheduledDate); return date && date < todayDate && lead.visitState !== '방문' && lead.visitState !== '일정취소' })
     .sort((a, b) => (a.visitScheduledDate || '').localeCompare(b.visitScheduledDate || ''))
@@ -117,8 +122,11 @@ export const buildExecutiveMetrics = (leads: readonly Lead[], month: string, tod
       const scoped = { ...item, visibleMembers: item.visibleMembers.filter(lead => canonicalPartnerName(lead.partnerName) === name) }
       const bucket = partners.get(name); if (bucket) bucket.push(scoped); else partners.set(name, [scoped])
     }
-    for (const name of new Set(item.visibleMembers.map(lead => lead.manager?.trim() || '미배정'))) {
-      const scoped = { ...item, visibleMembers: item.visibleMembers.filter(lead => (lead.manager?.trim() || '미배정') === name) }
+    const assignedMembers = item.selection.status === 'unresolved' ? item.visibleMembers : [visibleBasis(item)].filter((lead): lead is Lead => Boolean(lead))
+    for (const name of new Set(assignedMembers.map(lead => lead.manager?.trim() || '미배정'))) {
+      const scoped = item.selection.status === 'unresolved'
+        ? { ...item, visibleMembers: item.visibleMembers.filter(lead => (lead.manager?.trim() || '미배정') === name) }
+        : item
       const bucket = managers.get(name); if (bucket) bucket.push(scoped); else managers.set(name, [scoped])
     }
   }

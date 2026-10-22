@@ -69,7 +69,7 @@ export function buildPartnerPreview(leads: readonly Lead[], partnerName: string,
     const basis = group.selection.basis
     const ownBasis = basis && canonicalPartnerName(basis.partnerName) === partner ? basis : undefined
     const financial = ownBasis ? financialCaseLeadFor(group.selection, group.members) : undefined
-    const required = group.selection.status === 'unresolved' || (group.selection.status === 'resolved' && !ownBasis)
+    const required = group.selection.status === 'unresolved' || !ownBasis
     const identity = ownBasis || [...own].sort((a, b) => a.registeredAt.localeCompare(b.registeredAt) || a.id.localeCompare(b.id))[0]
     return [{ identity, financial, required, status: ownBasis?.status || ownStatusFor(own), ownDate: ownDates[0] }]
   }).sort((a, b) => b.ownDate.localeCompare(a.ownDate) || a.identity.id.localeCompare(b.identity.id))
@@ -84,8 +84,11 @@ export function buildPartnerPreview(leads: readonly Lead[], partnerName: string,
       deliveryScheduledDate: date, expectedCommission: fee, expectedSettlementMonth: expectedMonth,
       basisRequired: required, basisReason: required ? '기준 고객 확인 필요' : null })
     if (required) result.basisRequiredCount!++
-    if (completed) result.completedCount++
-    else if (status === '관리중') result.activeCount++
+    // Required/redacted rows retain their own visible status, but no selected
+    // tenant basis exists to classify this logical customer. In particular, a
+    // secondary member must not create another company's status-category count.
+    if (!required && completed) result.completedCount++
+    else if (!required && status === '관리중') result.activeCount++
     if (fee === null) continue
     result.completedExpectedCommission += fee
     if (!expectedMonth) { result.undatedExpectedCommission += fee; result.undatedCustomerCount++; continue }

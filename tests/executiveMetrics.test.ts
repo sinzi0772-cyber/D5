@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildExecutiveMetrics, executiveTotalSalesFor, getDefaultExecutiveMonth, getExecutiveMonthLeads, getExecutiveMonths, getTopCommissionPartners, getTopReferralPartners, type ExecutivePartnerSummary } from '../src/lib/executiveMetrics.ts'
+import { buildExecutiveMetrics, executiveTotalSalesFor, getDefaultExecutiveMonth, getExecutiveMonthCaseLeads, getExecutiveMonthLeads, getExecutiveMonths, getTopCommissionPartners, getTopReferralPartners, type ExecutivePartnerSummary } from '../src/lib/executiveMetrics.ts'
 import { expectedRebateFor } from '../src/lib/salesFinance.ts'
 import type { Lead, SalesRawPeriod } from '../src/types.ts'
 
@@ -429,4 +429,73 @@ assert.equal(totalSalesRanking.partners.reduce((sum, row) => sum + executiveTota
 assert.equal(totalSalesRanking.managers.reduce((sum, row) => sum + executiveTotalSalesFor(row), 0), 550000)
 assert.equal(JSON.stringify(totalSalesRankingRows), totalSalesRankingBefore, 'Total-sales display and sorting preserve customer status, manager, delivery dates, raw evidence and current amounts')
 
-console.log('Executive metrics: cohort, grouping, combined total-sales display, lump-sum/subscription confirmed and pending bases, commission, and action queues passed.')
+const categoryKey = { '구매완료': 'completed', '관리중': 'active', '상담 마감': 'closed', '취소': 'canceled' } as const
+for (const status of ['관리중', '구매완료', '상담 마감', '취소'] as const) {
+  for (const excludedStatus of ['관리중', '구매완료', '상담 마감', '취소'] as const) {
+    const selectedRows = [
+      lead('excluded-earlier', { caseGroupId: 'selected-status', caseBasisLeadId: 'chosen-later', registeredAt: '2026-09-01', status: excludedStatus,
+        purchaseType: '일시불', lumpSumAmount: 200000, visitScheduledDate: '2026-09-01' }),
+      lead('chosen-later', { caseGroupId: 'selected-status', caseBasisLeadId: 'chosen-later', registeredAt: '2026-10-01', status, manager: '선택 담당',
+        purchaseType: '일시불', lumpSumAmount: 100000, visitScheduledDate: '2026-09-02' }),
+    ]
+    const before = JSON.stringify(selectedRows)
+    const selectedMetrics = buildExecutiveMetrics(selectedRows, '2026-09', '2026-10-19')
+    assert.equal(selectedMetrics.current.cases, 1)
+    assert.equal(selectedMetrics.current.customerCount, 1)
+    assert.equal(selectedMetrics.current.basisRequiredCount, 0)
+    for (const key of ['completed', 'active', 'closed', 'canceled'] as const) {
+      assert.equal(selectedMetrics.current[key], key === categoryKey[status] ? 1 : 0, `Chosen ${status} owns the category; excluded ${excludedStatus} must not override it`)
+      assert.equal(selectedMetrics.partners[0][key], selectedMetrics.current[key])
+    }
+    assert.deepEqual(selectedMetrics.managers.map(row => row.name), ['선택 담당'], 'An excluded member cannot create another manager or unassigned bucket')
+    assert.equal(selectedMetrics.managers[0].assigned, 1)
+    assert.equal(selectedMetrics.managers[0][categoryKey[status]], 1)
+    assert.deepEqual(getExecutiveMonthCaseLeads(selectedRows, '2026-09').map(row => row.id), ['chosen-later'], 'Category drilldown returns the chosen original, even when an earlier member has the same status')
+    assert.deepEqual(selectedMetrics.actions.unassigned, [], 'An unassigned excluded member cannot create a task for the selected assigned case')
+    for (const action of ['overdue', 'stale'] as const) assert.deepEqual(selectedMetrics.actions[action].map(row => row.id), status === '관리중' ? ['chosen-later'] : [], `${action} uses only the chosen customer state and dates`)
+    assert.equal(buildExecutiveMetrics(selectedRows, '2026-10', '2026-10-19').current.cases, 0, 'Basis selection does not move the original receipt month')
+    assert.equal(JSON.stringify(selectedRows), before, 'Status aggregation does not rewrite the excluded original')
+  }
+}
+
+const chosenEmptyRows = [
+  lead('empty-chosen', { caseGroupId: 'empty-status', caseBasisLeadId: 'empty-chosen', status: '상담 마감', manager: '선택 담당' }),
+  lead('empty-excluded', { caseGroupId: 'empty-status', caseBasisLeadId: 'empty-chosen', status: '구매완료', manager: '제외 담당' }),
+]
+const chosenEmptyMetrics = buildExecutiveMetrics(chosenEmptyRows, '2026-09', '2026-10-19')
+assert.equal(chosenEmptyMetrics.current.closed, 1, 'A chosen empty-amount customer still determines the one operational category')
+assert.equal(chosenEmptyMetrics.current.completed, 0)
+assert.equal(chosenEmptyMetrics.current.missingAmounts, 0)
+assert.deepEqual(chosenEmptyMetrics.managers.map(row => row.name), ['선택 담당'])
+
+const mergedStatusRows = chosenEmptyRows.map(row => ({ ...row, caseMergeMemberIds: ['empty-chosen', 'empty-excluded'], purchaseType: '일시불' as const, lumpSumAmount: 100000 }))
+const mergedStatusMetrics = buildExecutiveMetrics(mergedStatusRows, '2026-09', '2026-10-19')
+assert.equal(mergedStatusMetrics.current.closed, 1, 'Explicit purchase-amount addition never combines both members operational statuses')
+assert.equal(mergedStatusMetrics.current.completed, 0)
+assert.equal(mergedStatusMetrics.current.expectedCommission, 4000, 'Status ownership must not undo an explicitly consented independent amount merge')
+
+const selectedForeignRows = [
+  lead('owned-chosen', { caseGroupId: 'selected-foreign', caseBasisLeadId: 'owned-chosen', partnerName: '선택 업체', registeredAt: '2026-09-30', manager: '선택 담당', status: '관리중',
+    purchaseType: '일시불', lumpSumAmount: 100000, visitScheduledDate: '2026-09-01' }),
+  lead('foreign-excluded', { caseGroupId: 'selected-foreign', caseBasisLeadId: 'owned-chosen', partnerName: '제외 업체', registeredAt: '2026-10-01', manager: '제외 담당', status: '구매완료',
+    purchaseType: '일시불', lumpSumAmount: 200000 }),
+]
+const selectedForeignBefore = JSON.stringify(selectedForeignRows)
+const selectedForeignGlobal = buildExecutiveMetrics(selectedForeignRows, '2026-09', '2026-10-19')
+const excludedCompany = buildExecutiveMetrics(selectedForeignRows, '2026-09', '2026-10-19', '제외 업체')
+assert.equal(selectedForeignGlobal.current.active, 1)
+assert.equal(selectedForeignGlobal.current.completed, 0)
+assert.equal(excludedCompany.current.cases, 1, 'An involved company keeps its own receipt count')
+assert.equal(excludedCompany.current.customerCount, 1)
+for (const key of ['completed', 'active', 'closed', 'canceled', 'completedCustomers', 'sales', 'reservedSales', 'expectedCommission'] as const) {
+  assert.equal(excludedCompany.current[key], 0, `${key} cannot re-elect an excluded company member or disclose the foreign selected basis`)
+}
+assert.deepEqual(excludedCompany.managers, [], 'A foreign basis cannot be attributed to either the excluded or foreign manager under company scope')
+assert.deepEqual(excludedCompany.actions, { unassigned: [], overdue: [], stale: [] })
+assert.deepEqual(getExecutiveMonthCaseLeads(selectedForeignRows, '2026-09', '제외 업체'), [], 'Category drilldown must not return an excluded member under company scope')
+assert.deepEqual(getExecutiveMonthLeads(selectedForeignRows, '2026-09', '제외 업체').map(row => row.id), ['foreign-excluded'], 'Original own-company rows remain available for inspection without becoming category representatives')
+for (const key of ['completed', 'active', 'closed', 'canceled'] as const) assert.equal(selectedForeignGlobal.partners.reduce((sum, row) => sum + row[key], 0), selectedForeignGlobal.current[key], 'Cross-company categories reconcile to the single selected original')
+assert.deepEqual(selectedForeignGlobal.managers.map(row => row.name), ['선택 담당'])
+assert.equal(JSON.stringify(selectedForeignRows), selectedForeignBefore)
+
+console.log('Executive metrics: cohort, selected-basis-only categories, scoped drilldowns/actions/managers, combined total-sales display, lump-sum/subscription confirmed and pending bases, and commission passed.')

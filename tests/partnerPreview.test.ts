@@ -53,6 +53,8 @@ assert.equal(family.settlements.length, 0, 'Foreign financial basis is not resel
 assert.equal(family.customers[0].expectedCommission, null)
 assert.equal(family.customers[0].deliveryScheduledDate, null)
 assert.equal(family.basisRequiredCount, 1)
+assert.equal(family.completedCount, 0, 'A foreign selected basis cannot make the visible secondary customer a completed category')
+assert.equal(family.activeCount, 0)
 assert.equal(buildPartnerPreview(rows, '(주)아이패밀리에스씨', '2026-09').customerCount, 0)
 assert.deepEqual(buildPartnerPreview(rows, '아이웨딩', '2026-10'), family, 'Only approved canonical aliases match')
 const aliasRows = [lead('alias', { partnerName: '아이웨딩', deliveryScheduledDate: '2026-11-05' })]
@@ -67,4 +69,54 @@ const invalid = buildPartnerPreview([lead('invalid', { deliveryScheduledDate: '2
 assert.equal(invalid.customers[0].deliveryScheduledDate, null)
 assert.equal(invalid.customers[0].expectedSettlementMonth, null)
 assert.equal(invalid.undatedCustomerCount, 1)
+
+// Category membership follows only the one chosen customer, even when all
+// linked originals retain their independent status and amount records.
+for (const chosenStatus of ['구매완료', '관리중', '상담 마감', '취소'] as const) {
+  for (const otherStatus of ['구매완료', '관리중', '상담 마감', '취소'] as const) {
+    for (const mergeAmounts of [false, true]) {
+      const members = [
+        lead('chosen', { caseGroupId: 'chosen-case', caseBasisLeadId: 'chosen', status: chosenStatus,
+          ...(mergeAmounts ? { caseMergeMemberIds: ['chosen', 'secondary'] } : {}) }),
+        lead('secondary', { caseGroupId: 'chosen-case', caseBasisLeadId: 'chosen', status: otherStatus,
+          ...(mergeAmounts ? { caseMergeMemberIds: ['chosen', 'secondary'] } : {}) }),
+      ]
+      const original = JSON.stringify(members)
+      const model = buildPartnerPreview(members, '(주)다이렉트컴즈', '2026-09')
+      assert.equal(model.customerCount, 1)
+      assert.equal(model.customers[0].status, chosenStatus)
+      assert.equal(model.completedCount, chosenStatus === '구매완료' ? 1 : 0)
+      assert.equal(model.activeCount, chosenStatus === '관리중' ? 1 : 0)
+      assert.equal(model.basisRequiredCount, 0)
+      assert.equal(JSON.stringify(members), original, 'Category exclusion must not change original status, amount or history')
+    }
+  }
+}
+const unresolved = buildPartnerPreview([
+  lead('unresolved-complete', { caseGroupId: 'needs-selection', status: '구매완료' }),
+  lead('unresolved-active', { caseGroupId: 'needs-selection', status: '관리중' }),
+], '(주)다이렉트컴즈', '2026-09')
+assert.equal(unresolved.customerCount, 1)
+assert.equal(unresolved.basisRequiredCount, 1)
+assert.equal(unresolved.completedCount, 0, 'No unchosen original supplies a category while basis selection is required')
+assert.equal(unresolved.activeCount, 0)
+assert.equal(unresolved.customers[0].status, '구매완료', 'Own visible status remains compatible without inventing a selected basis')
+for (const ownStatus of ['구매완료', '관리중'] as const) {
+  for (const foreignStatus of ['구매완료', '관리중', '상담 마감', '취소'] as const) {
+    for (const amountsEntered of [false, true]) {
+      const amounts: Partial<Lead> = amountsEntered ? {} : { purchaseType: '미선택', lumpSumAmount: undefined, subscriptionAmount: undefined, purchaseAmount: undefined }
+      const model = buildPartnerPreview([
+        lead('foreign-selected', { caseGroupId: 'foreign-selected-case', caseBasisLeadId: 'foreign-selected', partnerName: '다른 업체', status: foreignStatus, ...amounts }),
+        lead('own-secondary', { caseGroupId: 'foreign-selected-case', caseBasisLeadId: 'foreign-selected', status: ownStatus, ...amounts }),
+      ], '(주)다이렉트컴즈', '2026-09')
+      assert.equal(model.customerCount, 1)
+      assert.equal(model.customers[0].status, ownStatus, 'Do not disclose selected foreign status')
+      assert.equal(model.completedCount, 0)
+      assert.equal(model.activeCount, 0)
+      assert.equal(model.completedExpectedCommission, 0)
+      assert.equal(model.customers[0].expectedCommission, null)
+      assert.equal(model.customers[0].deliveryScheduledDate, null)
+    }
+  }
+}
 console.log('partnerPreview tests passed: exact staff capability, canonical company/month scope, linked cases, safe projection, preserved fees and planned settlement')

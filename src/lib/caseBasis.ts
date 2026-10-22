@@ -307,7 +307,7 @@ export function caseBasisFor(members: readonly Lead[], preferredId?: string, pre
   const invalid = projected.find(item => !item.lead)
   if (invalid) return unresolved(invalid.reason!)
   const signatures = new Set(projected.map(item => economicSignature(item.lead!)))
-  if (signatures.size > 1) return unresolved('A·B의 금액·담당자·상태·배송일·수수료 근거가 다릅니다. 합산하지 않고 기준 고객 선택 전까지 금액·수수료 집계에서 제외합니다.')
+  if (signatures.size > 1) return unresolved('기준 정보가 다릅니다. 고객 선택 전까지 금액·수수료는 제외됩니다.')
   return { status: 'resolved', basis: candidates[0], candidates, reason: candidates.length === 1 ? '금액이 입력된 고객 한 명을 기준으로 반영합니다.' : '동일한 판매 데이터를 한 번만 반영합니다.' }
 }
 

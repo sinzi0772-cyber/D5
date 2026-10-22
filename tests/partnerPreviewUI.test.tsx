@@ -80,7 +80,7 @@ assert.ok(unknown.includes('선택한 접수월에 연결된 고객이 없습니
 assert.equal(unknown.includes('김**'), false)
 const pendingRows = [{ ...rows[0], caseGroupId: 'pending', lumpSumAmount: 100000 }, { ...rows[0], id: 'second-private', customerName: '박영희', phoneLast4: '4444', caseGroupId: 'pending', lumpSumAmount: 200000 }]
 const pendingMarkup = renderToStaticMarkup(<PartnerPreview model={buildPartnerPreview(pendingRows, '(주)다이렉트컴즈', '2026-09')}/>)
-assert.ok(pendingMarkup.includes('기준 고객 확인 필요 1명'))
+assert.ok(pendingMarkup.includes('묶음 기준 미선택 1명'))
 assert.ok(pendingMarkup.includes('확인 필요'))
 assert.equal(pendingMarkup.includes('6,000원'), false, 'A+B fee must never be displayed')
 assert.equal(pendingMarkup.includes('0원'), false, 'Pending basis is not presented as a real zero estimate')

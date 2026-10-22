@@ -82,7 +82,9 @@ function parseMonthModel(value: unknown): PartnerPreviewModel | null {
   if (!validFee(value.completedExpectedCommission) || !validFee(value.undatedExpectedCommission)) return null
   const customers: PartnerPreviewCustomer[] = []
   const actualSettlements = new Map<string, PartnerPreviewSettlement>()
-  let completedCustomers = 0, completedStatuses = 0, activeCustomers = 0, totalFee = 0, undatedFee = 0, undatedCustomers = 0, basisRequiredCount = 0
+  let completedCustomers = 0, completedStatuses = 0, activeCustomers = 0
+  let selectedCompletedStatuses = 0, selectedActiveCustomers = 0
+  let totalFee = 0, undatedFee = 0, undatedCustomers = 0, basisRequiredCount = 0
   for (const [index, item] of value.customers.entries()) {
     const customer = parseCustomer(item, index)
     if (!customer) return null
@@ -91,6 +93,8 @@ function parseMonthModel(value: unknown): PartnerPreviewModel | null {
     if (customer.basisRequired) basisRequiredCount++
     if (customer.status === '구매완료') completedStatuses++
     if (customer.status === '관리중') activeCustomers++
+    if (!customer.basisRequired && customer.status === '구매완료') selectedCompletedStatuses++
+    if (!customer.basisRequired && customer.status === '관리중') selectedActiveCustomers++
     if (customer.expectedCommission === null) continue
     completedCustomers++
     totalFee += customer.expectedCommission
@@ -107,7 +111,12 @@ function parseMonthModel(value: unknown): PartnerPreviewModel | null {
   }
   if (value.customerCount !== customers.length || !value.receiptCount || (value.receiptCount as number) > customers.length) return null
   if (enhanced) {
-    if (value.receiptCount !== customers.length || value.completedCount !== completedStatuses || value.activeCount !== activeCustomers || value.basisRequiredCount !== basisRequiredCount) return null
+    // Older enhanced schema-1 documents counted the visible secondary status
+    // on basis-required rows. Accept that complete old pair for compatibility,
+    // but always return selected-only categories. Never accept a mixed pair.
+    const selectedCounts = value.completedCount === selectedCompletedStatuses && value.activeCount === selectedActiveCustomers
+    const legacyCounts = value.completedCount === completedStatuses && value.activeCount === activeCustomers
+    if (value.receiptCount !== customers.length || !(selectedCounts || legacyCounts) || value.basisRequiredCount !== basisRequiredCount) return null
   } else {
     if ((value.completedCount as number) > completedCustomers || (value.activeCount as number) > activeCustomers || (value.completedCount as number) + (value.activeCount as number) > (value.receiptCount as number)) return null
     if ((completedCustomers === 0) !== (value.completedCount === 0)) return null
@@ -126,8 +135,8 @@ function parseMonthModel(value: unknown): PartnerPreviewModel | null {
     intakeMonth: value.intakeMonth,
     receiptCount: value.receiptCount as number,
     customerCount: value.customerCount as number,
-    completedCount: value.completedCount as number,
-    activeCount: value.activeCount as number,
+    completedCount: enhanced ? selectedCompletedStatuses : value.completedCount as number,
+    activeCount: enhanced ? selectedActiveCustomers : value.activeCount as number,
     completedExpectedCommission: totalFee,
     undatedExpectedCommission: undatedFee,
     undatedCustomerCount: undatedCustomers,

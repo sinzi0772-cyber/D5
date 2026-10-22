@@ -11,21 +11,21 @@ type PerformanceRow = ExecutivePeriodSummary & { name: string }
 type Queue = 'unassigned' | 'overdue' | 'stale' | 'canceled' | 'closed'
 const won = (amount: number) => `${Math.round(amount).toLocaleString('ko-KR')}원`
 const salesProgressLabel = (row: PerformanceRow, kind: 'partner' | 'manager') => `${kind === 'partner' ? '접수' : '배정'} ${row.cases.toLocaleString('ko-KR')}건 중 구매완료 ${row.completed.toLocaleString('ko-KR')}건`
-const financialDefinitions = '총판매금액은 기존 판매금액과 대기금액을 합산합니다. 일시불 주문확정·예약·가예약 판매금액과 구독 주문확정·마감됨·출하대기의 멤버십혜택 기준금액을 반영하며 원본 주문단계는 보존합니다. 실제 납품·정산 완료를 뜻하지 않습니다.'
+const financialDefinitions = '총판매금액 = 일시불 + 구독(출하대기 포함). 수기 입력과 원본 주문단계를 반영하며, 실제 납품·정산액과 다릅니다.'
 const performanceColumnHelp = (key: SortColumn) => key === 'completed'
-  ? '고객의 구매완료 상태 기준입니다. 연결된 일시불 주문확정·예약·가예약은 영업 판매완료로 반영하며, 신랑·신부 연결 접수는 1건으로 집계합니다.'
-  : key === 'sales' ? '기존 판매금액과 대기금액을 합산한 총판매금액입니다. 일시불과 구독(출하대기 포함)을 반영하며 수기 금액과 원본 주문단계의 기존 집계 기준은 유지합니다.'
-  : key === 'expectedCommission' ? '이 업체에 연결된 고객의 일시불·대상 구독 예상 수수료 합계입니다. 고객 목록과 동일한 기준으로 계산하며 수기 금액과 구독 출하대기를 반영합니다. 실제 정산 확정액은 아닙니다.'
-  : key === 'salesProgress' ? '고객의 구매완료 접수건수로 정렬하며, 같으면 접수·배정 건수로 정렬합니다. RAW 상품·주문 건수가 아닙니다.'
+  ? '구매완료 상태 기준 · 묶음 고객은 1건'
+  : key === 'sales' ? financialDefinitions
+  : key === 'expectedCommission' ? '일시불·대상 구독의 예상 합계(수기 입력·출하대기 포함) · 실제 정산액과 다름'
+  : key === 'salesProgress' ? '구매완료 건수순 · 동률은 접수·배정 건수순'
   : undefined
 const monthLabel = (month: string) => `${month.slice(0, 4)}년 ${Number(month.slice(5))}월`
 const koreanToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
 const queueInfo: Record<Queue, { title: string; note: string }> = {
-  unassigned: { title: '담당자 미배정', note: '관리중 고객 가운데 담당자가 정해지지 않은 고객입니다.' },
-  overdue: { title: '방문일 경과 · 미처리', note: '예정일이 지났지만 방문 완료나 일정 취소로 처리되지 않은 관리중 고객입니다.' },
-  stale: { title: '7일 이상 관리 공백', note: '마지막 관리메모 이후 7일 이상 지난 관리중 고객입니다. 메모가 없으면 등록일을 기준으로 합니다.' },
-  canceled: { title: '취소 고객 확인', note: '선택한 접수월의 취소 고객입니다. 고객을 누르면 관리메모에서 종료 사유를 확인할 수 있습니다.' },
-  closed: { title: '상담마감 고객 확인', note: '선택한 접수월의 상담마감 고객입니다. 상담마감은 구매 실패와 구분해 표시합니다.' },
+  unassigned: { title: '담당자 미배정', note: '담당자가 없는 관리중 고객' },
+  overdue: { title: '방문일 경과 · 미처리', note: '방문 예정일이 지났으나 처리되지 않은 고객' },
+  stale: { title: '7일 이상 관리 공백', note: '마지막 메모 후 7일 경과 · 메모가 없으면 등록일 기준' },
+  canceled: { title: '취소 고객 확인', note: '고객을 누르면 종료 사유를 확인합니다.' },
+  closed: { title: '상담마감 고객 확인', note: '상담마감은 구매 실패와 구분합니다.' },
 }
 
 export function ExecutiveDashboard({ leads, partnerLabel, month, onSelectLead, onSelectManager }: { leads: Lead[]; partnerLabel: string; month: string; onSelectLead: (lead: Lead) => void; onSelectManager: (name: string) => void }) {
@@ -57,9 +57,9 @@ export function ExecutiveDashboard({ leads, partnerLabel, month, onSelectLead, o
       <Kpi label="접수" value={current.cases.toLocaleString('ko-KR')} unit="건" icon={<UsersRound size={19}/>} change={countChange(current.cases, previous.cases, '건')} note={`고객 ${current.customerCount}명`}/>
       <Kpi label="관리중" value={current.active.toLocaleString('ko-KR')} unit="건" icon={<Clock3 size={19}/>} change={countChange(current.active, previous.active, '건')}/>
       <Kpi label="구매완료" value={current.completed.toLocaleString('ko-KR')} unit="건" icon={<CheckCircle2 size={19}/>} change={countChange(current.completed, previous.completed, '건')}/>
-      <Kpi label="총판매금액" value={current.basisRequiredCount > 0 && executiveTotalSalesFor(current) === 0 ? '기준 확인 필요' : Math.round(executiveTotalSalesFor(current)).toLocaleString('ko-KR')} unit={current.basisRequiredCount > 0 && executiveTotalSalesFor(current) === 0 ? '' : '원'} icon={<ArrowUpRight size={19}/>} change={countChange(executiveTotalSalesFor(current), executiveTotalSalesFor(previous), '원')} note={current.basisRequiredCount ? `기준 미선택 ${current.basisRequiredCount}명 금액 제외` : '묶음은 기준 고객 1명의 금액만 반영'} sales/>
+      <Kpi label="총판매금액" value={current.basisRequiredCount > 0 && executiveTotalSalesFor(current) === 0 ? '기준 확인 필요' : Math.round(executiveTotalSalesFor(current)).toLocaleString('ko-KR')} unit={current.basisRequiredCount > 0 && executiveTotalSalesFor(current) === 0 ? '' : '원'} icon={<ArrowUpRight size={19}/>} change={countChange(executiveTotalSalesFor(current), executiveTotalSalesFor(previous), '원')} note={current.basisRequiredCount ? `기준 미선택 ${current.basisRequiredCount}명 금액 제외` : '묶음은 선택한 구매금액 반영'} sales/>
     </div>
-    {current.basisRequiredCount > 0 ? <p className="exec-footnote" role="status">묶음 고객 {current.basisRequiredCount}명의 기준 데이터 확인이 필요합니다. A·B 금액은 합산하지 않으며 기준 고객을 선택하기 전에는 매출·수수료에서 제외합니다.</p> : null}
+    {current.basisRequiredCount > 0 ? <p className="exec-footnote" role="status">묶음 기준 미선택 {current.basisRequiredCount}명 · 선택 전 매출·수수료 제외</p> : null}
     <div className="exec-status-note" aria-label="선택 접수월 종료 상태">
       <button type="button" onClick={() => showQueue('closed')}>상담마감 <strong>{current.closed}건</strong><ArrowUpRight size={13} aria-hidden="true"/></button>
       <button type="button" onClick={() => showQueue('canceled')}>취소 <strong>{current.canceled}건</strong><ArrowUpRight size={13} aria-hidden="true"/></button>
@@ -71,13 +71,13 @@ export function ExecutiveDashboard({ leads, partnerLabel, month, onSelectLead, o
     <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>월별 상세 보기</strong><small>확인할 고객 · 업체·담당자 성과</small></summary>
     <div className="exec-month-detail-body">
 
-    <div className="exec-section-head"><div><h3>확인할 고객</h3><p>{monthLabel(month)} 접수 고객 · 항목을 누르면 목록을 확인합니다.</p></div><span>{uniqueActionCustomers ? `${uniqueActionCustomers}명 확인 필요` : '확인 필요 고객 없음'}</span></div>
+    <div className="exec-section-head"><div><h3>확인할 고객</h3><p>{monthLabel(month)} 접수 · 항목별 목록 보기</p></div><span>{uniqueActionCustomers ? `${uniqueActionCustomers}명 확인 필요` : '확인 필요 고객 없음'}</span></div>
     <div className="exec-actions">
       <ActionCard label="담당자 미배정" value={actions.unassigned.length} note="담당자를 정해 첫 상담을 시작하세요" action="unassigned" selected={queue} onSelect={setQueue} color="amber"/>
       <ActionCard label="방문일 경과 · 미처리" value={actions.overdue.length} note="방문 여부와 다음 일정을 확인하세요" action="overdue" selected={queue} onSelect={setQueue} color="rose"/>
       <ActionCard label="7일 이상 관리 공백" value={actions.stale.length} note="다음 연락과 관리메모를 남겨주세요" action="stale" selected={queue} onSelect={setQueue} color="teal"/>
     </div>
-    <p className="exec-footnote">한 고객이 여러 확인 항목에 포함될 수 있습니다.</p>
+    <p className="exec-footnote">항목 간 중복 고객 포함</p>
 
     {queue ? <section className="exec-drilldown" aria-label={queueInfo[queue].title}>
       <header><div><h4>{queueInfo[queue].title} <span>{queueRows.length}명</span></h4><p>{queueInfo[queue].note}</p></div><button type="button" onClick={() => setQueue(null)} aria-label="확인 고객 목록 닫기"><X size={18}/></button></header>
@@ -93,7 +93,7 @@ export function ExecutiveDashboard({ leads, partnerLabel, month, onSelectLead, o
 
     <PerformanceTable title="업체별 상세 성과" rows={metrics.partners} month={month} kind="partner"/>
     <PerformanceTable title="담당자별 상세 성과" rows={sortedManagers} month={month} kind="manager" onSelectManager={onSelectManager}/>
-    <p className="exec-footer" title={financialDefinitions}>총판매금액은 일시불과 구독(출하대기 포함)을 합산합니다. 접수월 기준 성과로 실제 납품·정산 완료 금액과 다릅니다.</p>
+    <p className="exec-footer" title={financialDefinitions}>총판매금액 = 일시불 + 구독(출하대기 포함) · 실제 납품·정산액과 다름</p>
     </div>
     </details>
   </section>
@@ -147,7 +147,7 @@ function PerformanceTable({ title, rows, month, kind, onSelectManager }: { title
     return result * (sort.direction === 'asc' ? 1 : -1) || a.name.localeCompare(b.name, 'ko')
   })
   return <details className="exec-details">
-    <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>{title}</strong><small>{rows.length}{kind === 'partner' ? '개 업체' : '명'} · + / − 상세 보기</small></summary>
+    <summary><i className="details-toggle-mark" aria-hidden="true"/><strong>{title}</strong><small>{rows.length}{kind === 'partner' ? '개 업체' : '명'}</small></summary>
     <div className="exec-detail-body">
       <p title={financialDefinitions}>{monthLabel(month)} 접수 기준 · 열 제목을 눌러 정렬{kind === 'manager' ? ' · 담당자를 눌러 해당 월 고객 보기' : ' · 예상 수수료는 정산월 전체 합계'}</p>
       <div className="exec-table-scroll"><table className="exec-table">
