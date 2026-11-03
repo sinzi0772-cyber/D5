@@ -1,5 +1,6 @@
 // Dates describe recorded work in Asia/Seoul; they do not promise deployment times.
 export const UPDATE_HISTORY: readonly { date: string; summary: string }[] = [
+  { date: '2026-11-03', summary: '판매경로 점검 팝업의 글자와 여백을 줄였습니다.' },
   { date: '2026-11-03', summary: '구매 금액 출처를 BEST 기준으로 표시하고 업데이트 내역을 추가했습니다.' },
   { date: '2026-11-03', summary: '판매경로 점검 팝업을 추가하고 1원 주문을 집계에서 제외했습니다.' },
   { date: '2026-11-03', summary: '묶음 고객 정보 접기와 기준 고객 확인 안내를 개선했습니다.' },
