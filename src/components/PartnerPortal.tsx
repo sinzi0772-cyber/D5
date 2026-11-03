@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { CircleHelp, LogOut, RefreshCw } from 'lucide-react'
+import { CircleHelp, Clock3, LogOut, RefreshCw } from 'lucide-react'
 import { signOut } from 'firebase/auth'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { auth, db } from '../lib/firebase'
@@ -7,6 +7,7 @@ import { checkedPartnerIdentity } from '../lib/accountAccess'
 import { parsePartnerPublication, type PartnerPublication } from '../lib/partnerPublication'
 import { PartnerPreview } from './PartnerPreview'
 import { SettlementGuideModal } from './SettlementGuideModal'
+import { UpdateHistoryModal } from './UpdateHistoryModal'
 import './PartnerPortal.css'
 
 /** Real company sessions never receive staff Lead documents or staff controls. */
@@ -18,6 +19,8 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
   const [checkedAt, setCheckedAt] = useState('')
   const [refresh, setRefresh] = useState(0)
   const [settlementGuideOpen, setSettlementGuideOpen] = useState(false)
+  const [updateHistoryOpen, setUpdateHistoryOpen] = useState(false)
+  const closeUpdateHistory = useCallback(() => setUpdateHistoryOpen(false), [])
   const closeSettlementGuide = useCallback(() => setSettlementGuideOpen(false), [])
 
   useEffect(() => {
@@ -65,11 +68,12 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
   const selected = publication?.months.find(model => model.intakeMonth === month)
   const stamp = (value: string) => new Date(value).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
   return <main className="partner-portal">
-    <header className="partner-portal-toolbar"><div><span>D5 PARTNER DESK</span><h1>{publication?.partnerName || '제휴 고객 현황'}</h1><p>연결 고객 · 월별 예상 수수료</p></div><div><button type="button" className="guide-button" aria-haspopup="dialog" aria-expanded={settlementGuideOpen} onClick={() => setSettlementGuideOpen(true)}><CircleHelp size={16}/>제휴·정산 안내</button><button type="button" onClick={() => setRefresh(value => value + 1)}><RefreshCw size={16}/>자료 확인</button><button type="button" onClick={() => auth && signOut(auth)}><LogOut size={16}/>로그아웃</button></div></header>
+    <header className="partner-portal-toolbar"><div><span>D5 PARTNER DESK</span><h1>{publication?.partnerName || '제휴 고객 현황'}</h1><p>연결 고객 · 월별 예상 수수료</p></div><div><button type="button" aria-haspopup="dialog" aria-expanded={updateHistoryOpen} onClick={() => setUpdateHistoryOpen(true)}><Clock3 size={16}/>업데이트 내역</button><button type="button" className="guide-button" aria-haspopup="dialog" aria-expanded={settlementGuideOpen} onClick={() => setSettlementGuideOpen(true)}><CircleHelp size={16}/>제휴·정산 안내</button><button type="button" onClick={() => setRefresh(value => value + 1)}><RefreshCw size={16}/>자료 확인</button><button type="button" onClick={() => auth && signOut(auth)}><LogOut size={16}/>로그아웃</button></div></header>
     {publication ? <div className="partner-portal-period"><label>접수월<select aria-label="업체 접수월" value={month} onChange={event => setMonth(event.target.value)}>{publication.months.map(model => <option key={model.intakeMonth} value={model.intakeMonth}>{model.intakeMonth.replace('-', '년 ')}월</option>)}</select></label></div> : null}
     {loading ? <p role="status">업체 자료를 확인하는 중입니다.</p> : error ? <p className="partner-portal-error" role="alert">{error}</p> : null}
     {selected ? <PartnerPreview model={selected} presentation="portal"/> : publication && !loading && !error ? <section className="partner-preview partner-preview-portal"><p>연결 고객 자료가 없습니다.</p></section> : null}
     {publication ? <details className="partner-portal-info"><summary>자료 갱신 정보</summary><div><span>자료 갱신 {stamp(publication.publishedAt)}</span>{checkedAt ? <span>서버 확인 {stamp(checkedAt)}</span> : null}</div><p className="partner-portal-note">묶음은 선택한 기준으로 계산합니다. ‘자료 확인’은 관리자가 갱신한 최신 게시본을 조회합니다.</p></details> : null}
     {settlementGuideOpen ? <SettlementGuideModal onClose={closeSettlementGuide}/> : null}
+    {updateHistoryOpen ? <UpdateHistoryModal onClose={closeUpdateHistory}/> : null}
   </main>
 }

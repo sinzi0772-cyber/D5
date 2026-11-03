@@ -12,6 +12,7 @@ import { ExecutiveDashboard } from './components/ExecutiveDashboard'
 import { PartnerPreview } from './components/PartnerPreview'
 import { PartnerPortal } from './components/PartnerPortal'
 import { SettlementGuideModal } from './components/SettlementGuideModal'
+import { UpdateHistoryModal } from './components/UpdateHistoryModal'
 import { CaseMergeChoiceModal, type CaseMergeChoice } from './components/CaseMergeChoiceModal'
 import { CaseGroupSummary } from './components/CaseGroupSummary'
 import { SalesChannelDetails } from './components/SalesChannelDetails'
@@ -261,6 +262,8 @@ export default function App() {
   const [usageRows, setUsageRows] = useState<UsageRow[]>([])
   const [accessCountSort, setAccessCountSort] = useState<AccessCountDirection>(null)
   const [settlementGuideOpen, setSettlementGuideOpen] = useState(false)
+  const [updateHistoryOpen, setUpdateHistoryOpen] = useState(false)
+  const closeUpdateHistory = useCallback(() => setUpdateHistoryOpen(false), [])
   const [salesReviewOpen, setSalesReviewOpen] = useState(false)
   const [salesReviewShownSession, setSalesReviewShownSession] = useState('')
   const closeSalesReview = useCallback(() => setSalesReviewOpen(false), [])
@@ -274,7 +277,7 @@ export default function App() {
   latestSessionKey.current = sessionKey
   const salesReviewReady = Boolean(authReady && dataReady && serverConfirmed && !dataError && currentUser && !currentUser.mustChangePassword && canPreviewPartner(currentUser.role) && workspaceView === 'staff' && referralReadiness.current?.sessionKey === sessionKey && referralReadiness.current.serverConfirmed)
   const salesReviewItems = useMemo(() => salesReviewReady && currentUser ? getSalesChannelReviewItems(leads, { role: currentUser.role, employeeNo: currentUser.loginId, displayName: currentUser.name }, subscriptionReviewPartners) : [], [salesReviewReady, leads, currentUser?.role, currentUser?.loginId, currentUser?.name])
-  useEffect(() => { setSalesReviewOpen(false); setSalesReviewShownSession('') }, [sessionKey])
+  useEffect(() => { setSalesReviewOpen(false); setSalesReviewShownSession(''); setUpdateHistoryOpen(false) }, [sessionKey])
   useEffect(() => {
     if (!salesReviewReady || !salesReviewItems.length) { setSalesReviewOpen(false); return }
     if (salesReviewShownSession !== sessionKey) { setSalesReviewOpen(true); setSalesReviewShownSession(sessionKey) }
@@ -713,7 +716,7 @@ export default function App() {
 
     <main>
       <section className="content">
-        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>{isPartnerPreview ? '연결 고객, 한눈에.' : '좋은 인연을, 놓치지 않도록.'}</h1><p>{isPartnerPreview ? '업체별 고객 진행 현황과 예상 정산을 확인하세요.' : '제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.'}</p></div><div className="heading-actions">{!isPartnerPreview && salesReviewReady && salesReviewItems.length > 0 ? <button type="button" className="btn sales-review-open" aria-haspopup="dialog" aria-expanded={salesReviewOpen} onClick={() => setSalesReviewOpen(true)}>판매경로 점검 {salesReviewItems.length}개</button> : null}<button type="button" className="btn guide-button" aria-haspopup="dialog" aria-expanded={settlementGuideOpen} onClick={()=>setSettlementGuideOpen(true)}><CircleHelp size={16}/>제휴·정산 안내</button>{canManageAll && !isPartnerPreview ? <button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button> : null}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
+        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>{isPartnerPreview ? '연결 고객, 한눈에.' : '좋은 인연을, 놓치지 않도록.'}</h1><p>{isPartnerPreview ? '업체별 고객 진행 현황과 예상 정산을 확인하세요.' : '제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.'}</p></div><div className="heading-actions">{!isPartnerPreview && salesReviewReady && salesReviewItems.length > 0 ? <button type="button" className="btn sales-review-open" aria-haspopup="dialog" aria-expanded={salesReviewOpen} onClick={() => setSalesReviewOpen(true)}>판매경로 점검 {salesReviewItems.length}개</button> : null}<button type="button" className="btn secondary" aria-haspopup="dialog" aria-expanded={updateHistoryOpen} onClick={() => setUpdateHistoryOpen(true)}><Clock3 size={16}/>업데이트 내역</button><button type="button" className="btn guide-button" aria-haspopup="dialog" aria-expanded={settlementGuideOpen} onClick={()=>setSettlementGuideOpen(true)}><CircleHelp size={16}/>제휴·정산 안내</button>{canManageAll && !isPartnerPreview ? <button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button> : null}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
 
         {dataError&&<div className="data-alert"><CircleHelp size={18}/><div><strong>데이터를 불러오지 못했습니다.</strong><span>{dataError}</span></div><button onClick={()=>window.location.reload()}>다시 시도</button></div>}
 
@@ -777,7 +780,8 @@ export default function App() {
 
     {!isPartnerPreview && active && <LeadDrawer key={active.id} lead={active} linkedLeads={active.caseGroupId ? leads.filter(lead => lead.caseGroupId === active.caseGroupId) : []} allLeads={leads} onSelectLinked={member=>{setActive(member);setOpenMemoOnDrawer(false)}} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer} onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false) }} onSave={saveLead} onUnlink={unlinkCase} remoteChanged={!creating && Boolean(leads.find(item => item.id === active.id && (item.updatedAt !== active.updatedAt || item.caseGroupId !== active.caseGroupId || rawRevisionFor(item) !== rawRevisionFor(active) || assignmentRevisionFor(item) !== assignmentRevisionFor(active))))}/>}
     {settlementGuideOpen ? <SettlementGuideModal onClose={closeSettlementGuide}/> : null}
-    {salesReviewOpen && salesReviewShownSession === sessionKey && salesReviewReady && salesReviewItems.length > 0 ? <SalesChannelReviewModal items={salesReviewItems} onClose={closeSalesReview} onSelectLead={leadId => { const lead = leads.find(item => item.id === leadId); if (!lead) return; setSalesReviewOpen(false); setActive(lead); setCreating(false); setOpenMemoOnDrawer(false) }}/> : null}
+    {updateHistoryOpen ? <UpdateHistoryModal onClose={closeUpdateHistory}/> : null}
+    {salesReviewOpen && !updateHistoryOpen && salesReviewShownSession === sessionKey && salesReviewReady && salesReviewItems.length > 0 ? <SalesChannelReviewModal items={salesReviewItems} onClose={closeSalesReview} onSelectLead={leadId => { const lead = leads.find(item => item.id === leadId); if (!lead) return; setSalesReviewOpen(false); setActive(lead); setCreating(false); setOpenMemoOnDrawer(false) }}/> : null}
     {!isPartnerPreview && toast ? <div className="toast"><Check size={17}/>{toast}</div> : null}
   </div>
 }
@@ -834,9 +838,9 @@ function MoneyInput({label,kind,lead,onChange}:{label:string;kind:'lumpSum'|'sub
   const [invalid, setInvalid] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const descriptionId = `${kind}-amount-source`
-  const sourceLabel = merged ? '묶음 총액' : shared ? '묶음 공유' : source.kind === 'raw' ? 'RAW 일치' : source.kind === 'manual' ? '수기 입력' : '미입력'
+  const sourceLabel = merged ? '묶음 총액' : shared ? '묶음 공유' : source.kind === 'raw' ? 'BEST 기준' : source.kind === 'manual' ? '수기 입력' : '미입력'
   const description = merged ? '선택한 묶음 총액입니다. 수정 후 저장하면 함께 반영됩니다.' : shared ? '기준 고객의 금액을 함께 사용합니다.' : source.kind === 'raw'
-    ? '원본 금액과 일치합니다.'
+    ? 'BEST 판매 금액과 일치합니다.'
     : source.kind === 'manual' ? source.rawAmount === null ? '직접 입력한 금액을 사용합니다.' : `원본 ${formatWon(source.rawAmount)} · 입력한 금액 우선`
     : '원 단위 금액을 입력해주세요.'
   useEffect(() => { setInvalid(false); inputRef.current?.setCustomValidity('') }, [value])
