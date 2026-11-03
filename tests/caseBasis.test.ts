@@ -25,6 +25,16 @@ const rawLead = (id: string, changes: Partial<Lead> = {}): Lead => makeLead(id, 
       includedStatuses: ['주문확정'], missingBasisItemCount: 0, rejectedProofItemCount: 0 },
   }, ...changes,
 })
+const eligibleLead = (id: string, changes: Partial<Lead> = {}): Lead => {
+  const value = makeLead(id, changes)
+  const raw = rawLead(id)
+  return { ...value,
+    salesRawPeriods: { '2026-09': { ...raw.salesRawPeriods!['2026-09'],
+      confirmedAmount: value.lumpSumAmount || 0, eligibleConfirmedAmount: value.lumpSumAmount || 0 } },
+    subscriptionRawPeriods: { '2026-09': { ...raw.subscriptionRawPeriods!['2026-09'],
+      confirmedBasisAmount: value.subscriptionAmount || 0, eligibleConfirmedBasisAmount: value.subscriptionAmount || 0 } },
+  }
+}
 const blank = (id: string, changes: Partial<Lead> = {}): Lead => makeLead(id, {
   purchaseType: '미선택', lumpSumAmount: undefined, subscriptionAmount: undefined,
   deliveryScheduledDate: undefined, status: '관리중', manager: undefined, managerEmployeeNo: undefined, ...changes,
@@ -60,7 +70,7 @@ const fullyEligibleRaw = rawLead('A', {
   salesRawPeriods: { '2026-09': { ...a.salesRawPeriods!['2026-09'], eligibleConfirmedAmount: 100000 } },
   subscriptionRawPeriods: { '2026-09': { ...a.subscriptionRawPeriods!['2026-09'], eligibleConfirmedBasisAmount: 200000 } },
 })
-assert.equal(caseBasisFor([fullyEligibleRaw, makeLead('B')]).status, 'resolved', 'RAW versus manual provenance alone is not an economic conflict')
+assert.equal(caseBasisFor([fullyEligibleRaw, makeLead('B')]).status, 'unresolved', 'Equal sales with verified versus unverified commission evidence need an explicit basis')
 
 for (const difference of [
   { lumpSumAmount: 100001 }, { subscriptionAmount: 200001 }, { status: '관리중' as const },
@@ -94,7 +104,7 @@ assert.equal(caseBasisFor([{ ...chosen[1], caseBasisLeadId: 'A' }]).status, 'unr
 
 const split = [
   makeLead('A', { subscriptionAmount: undefined, purchaseType: '일시불', purchaseAmount: 100000 }),
-  makeLead('B', { lumpSumAmount: undefined, purchaseType: '구독', purchaseAmount: 200000 }),
+  eligibleLead('B', { lumpSumAmount: undefined, purchaseType: '구독', purchaseAmount: 200000 }),
 ]
 assert.equal(caseBasisFor(split).status, 'unresolved', 'Per-method source choices cannot combine A and B into a new synthetic sale')
 const subChoice = split.map(member => ({ ...member, caseBasisLeadId: 'B' }))
@@ -139,16 +149,16 @@ assert.equal(blankChoice.status, 'empty')
 assert.equal(financialCaseLeadFor(blankChoice, [a, b])?.lumpSumAmount, undefined)
 assert.equal(financialCaseLeadFor(blankChoice, [a, b])?.subscriptionAmount, undefined)
 
-const rounding = [makeLead('A', { lumpSumAmount: 26, subscriptionAmount: 34 }), makeLead('B', { lumpSumAmount: 26, subscriptionAmount: 34 })]
+const rounding = [eligibleLead('A', { lumpSumAmount: 26, subscriptionAmount: 34 }), eligibleLead('B', { lumpSumAmount: 26, subscriptionAmount: 34 })]
 assert.equal(financialTotal(rounding), 60)
 assert.equal(feeTotal(rounding), 2, 'Round each method once, not once for each original member')
 const legacySingleMethod = makeLead('single', { caseGroupId: undefined, lumpSumAmount: undefined, subscriptionAmount: undefined, purchaseType: '일시불', purchaseAmount: 123456 })
 assert.equal(financialTotal([legacySingleMethod]), 123456, 'Normalizing a projection preserves an original legacy single-method amount')
 
 const mixedRoots = [
-  makeLead('A', { lumpSumAmount: 100000, subscriptionAmount: 200000, lumpSumSourceId: 'A', subscriptionSourceId: 'D' }),
-  makeLead('D', { lumpSumAmount: 100000, subscriptionAmount: 200000, lumpSumSourceId: 'A', subscriptionSourceId: 'D' }),
-  makeLead('alias', { lumpSumAmount: 100000, subscriptionAmount: 200000, lumpSumSourceId: 'A', subscriptionSourceId: 'D' }),
+  eligibleLead('A', { lumpSumAmount: 100000, subscriptionAmount: 200000, lumpSumSourceId: 'A', subscriptionSourceId: 'D' }),
+  eligibleLead('D', { lumpSumAmount: 100000, subscriptionAmount: 200000, lumpSumSourceId: 'A', subscriptionSourceId: 'D' }),
+  eligibleLead('alias', { lumpSumAmount: 100000, subscriptionAmount: 200000, lumpSumSourceId: 'A', subscriptionSourceId: 'D' }),
 ]
 const mixedBefore = JSON.stringify(mixedRoots)
 assert.equal(caseBasisFor(mixedRoots).status, 'unresolved', 'Old per-method roots are not one combined invoice')

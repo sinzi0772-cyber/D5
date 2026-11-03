@@ -44,6 +44,9 @@ export const SUBSCRIPTION_REBATE_PARTNERS = [
   '더블유앤코',
 ] as const
 
+/** The user-confirmed forty-company scope also governs route review and login alerts. */
+export const SUBSCRIPTION_REVIEW_PARTNERS: readonly string[] = SUBSCRIPTION_REBATE_PARTNERS
+
 const partnerKey = (name: string) => canonicalPartnerName(name).normalize('NFKC').trim().toLowerCase()
   .replace(/^(?:주식회사|\(주\))\s*/, '')
   .replace(/\s*(?:주식회사|\(주\))$/, '')

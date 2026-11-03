@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
-import { completedSalesFor, confirmedSalesFor, expectedLumpSumRebateFor, expectedRebateBreakdownFor, expectedRebateFor, expectedSubscriptionRebateFor, isSubscriptionRebatePartner, purchaseAmountSourceFor, salesRawAmountsFor } from '../src/lib/salesFinance.ts'
+import { commissionVerificationRequiredFor, completedSalesFor, confirmedSalesFor, expectedLumpSumRebateFor, expectedRebateBreakdownFor, expectedRebateFor, expectedSubscriptionRebateFor, isSubscriptionRebatePartner, purchaseAmountSourceFor, salesRawAmountsFor, totalPurchaseAmountFor } from '../src/lib/salesFinance.ts'
 
 const lead = { id: 'fixture', customerName: '가*나', phoneLast4: '0001', registeredAt: '2026-09-01', updatedAt: '2026-10-04', gender: '미입력', partnerName: '(주)아이니웨딩네트웍스', appointmentType: '이업종제휴', status: '관리중', visitState: '미정', purchaseType: '일시불+구독', lumpSumAmount: 150000, subscriptionAmount: 10000, salesRawPeriods: { '2026-09': { period: '2026-09', sourceHash: 'fixture', importedAt: '2026-10-04', orderCount: 2, confirmedOrderCount: 1, reservedOrderCount: 1, confirmedAmount: 100000, reservedAmount: 50000, eligibleConfirmedAmount: 80000, eligibleReservedAmount: 40000, returnAmount: 0 } } } as const
-assert.equal(expectedRebateFor(lead), 2550)
-assert.deepEqual(expectedRebateBreakdownFor(lead), { lumpSumBasis: 120000, subscriptionBasis: 10000, lumpSumCommission: 2400, subscriptionCommission: 150, total: 2550 })
+assert.equal(expectedRebateFor(lead), 2400)
+assert.deepEqual(expectedRebateBreakdownFor(lead), { lumpSumBasis: 120000, subscriptionBasis: 0, lumpSumCommission: 2400, subscriptionCommission: 0, total: 2400 })
 assert.equal(confirmedSalesFor(lead), 100000)
 assert.equal(salesRawAmountsFor(lead).reserved, 50000)
-assert.equal(expectedRebateFor({ ...lead, salesRawPeriods: undefined }), 3150, 'A manual partner-appointment lump-sum amount uses the current entered amount')
-assert.equal(expectedRebateFor({ ...lead, lumpSumAmount: 160000 }), 3350, 'Changed manual amount must not reuse the old RAW eligible amount')
+assert.equal(expectedRebateFor({ ...lead, salesRawPeriods: undefined }), 0, 'A partner appointment alone does not prove an eligible sales route for manual amounts')
+assert.equal(expectedRebateFor({ ...lead, lumpSumAmount: 160000 }), 0, 'Changed manual amount must not reuse old RAW eligibility or earn commission without verification')
 assert.equal(expectedRebateFor({ ...lead, partnerName: '기타업체' }), 2400)
 assert.equal(confirmedSalesFor({ ...lead, status: '구매완료' }), 110000)
 const refund = { ...lead, lumpSumAmount: 75000, subscriptionAmount: 0, salesRawPeriods: { '2026-09': { ...lead.salesRawPeriods['2026-09'], confirmedAmount: -25000, reservedAmount: 100000, eligibleConfirmedAmount: -25000, eligibleReservedAmount: 100000 } } }
@@ -26,13 +26,13 @@ for (const partnerName of ['주식회사 베리굿웨딩컴퍼니', '(주)베리
   assert.equal(isSubscriptionRebatePartner(partnerName), true)
   assert.equal(expectedSubscriptionRebateFor(eligiblePartner), 2250, 'Only eligible membership basis is subject to subscription commission')
   assert.equal(expectedRebateFor(eligiblePartner), 4650, 'Adding the subscription partner must preserve lump-sum commission')
-  assert.equal(expectedSubscriptionRebateFor({ ...eligiblePartner, subscriptionAmount: 300000 }), 4500, 'A current manual amount replaces, rather than reuses, stale RAW evidence for a partner appointment')
+  assert.equal(expectedSubscriptionRebateFor({ ...eligiblePartner, subscriptionAmount: 300000 }), 0, 'A manual subscription mismatch remains excluded until its route and amount are verified')
 }
 for (const partnerName of ['베리굿웨딩컴퍼니협력사', '베리굿웨딩', '다른베리굿웨딩컴퍼니']) {
   assert.equal(isSubscriptionRebatePartner(partnerName), false, 'Similar company names must not be eligible automatically')
   assert.equal(expectedRebateFor({ ...subscription, partnerName }), 2400)
 }
-assert.equal(expectedRebateFor({ ...subscription, subscriptionAmount: 300000 }), 6900, 'Changed manual amount cannot reuse stale raw evidence')
+assert.equal(expectedRebateFor({ ...subscription, subscriptionAmount: 300000 }), 2400, 'Unverified manual subscription does not remove verified lump-sum commission')
 assert.equal(expectedRebateFor({ ...subscription, lumpSumAmount: 150000 }), 4650, 'Subscription calculation preserves lump-sum basis')
 const rejectedOnlySale = { ...subscription, status: '구매완료', lumpSumAmount: 0, salesRawPeriods: undefined, subscriptionRawPeriods: { '2026-09': { ...subscription.subscriptionRawPeriods['2026-09'], confirmedBasisAmount: 200000, pendingBasisAmount: 0, eligibleConfirmedBasisAmount: 200000, eligiblePendingBasisAmount: 0, rejectedProofItemCount: 2 } } } as const
 assert.equal(completedSalesFor(rejectedOnlySale), 200000, 'Rejected promotion proof must not erase the actual completed sale')
@@ -40,15 +40,15 @@ assert.equal(confirmedSalesFor(rejectedOnlySale), 200000)
 assert.equal(expectedSubscriptionRebateFor(rejectedOnlySale), 3000, 'Rejected proof must count in the approved partner commission')
 assert.equal(expectedRebateFor(rejectedOnlySale), 3000)
 assert.equal(expectedSubscriptionRebateFor({ ...rejectedOnlySale, partnerName: '목록 외 업체' }), 0, 'Rejected proof cannot bypass the approved partner list')
-assert.equal(expectedSubscriptionRebateFor({ ...rejectedOnlySale, subscriptionAmount: 300000 }), 4500, 'A current manual amount must not reuse stale RAW amounts')
+assert.equal(expectedSubscriptionRebateFor({ ...rejectedOnlySale, subscriptionAmount: 300000 }), 0, 'Rejected-proof policy does not bypass manual amount verification')
 const completedPolicy = { ...lead, status: '구매완료', lumpSumAmount: 200000, salesRawPeriods: { '2026-09': { ...lead.salesRawPeriods['2026-09'], tentativeOrderCount: 1, tentativeAmount: 50000, eligibleTentativeAmount: 50000, completedStatuses: ['주문확정', '예약', '가예약'] } } } as const
 assert.equal(salesRawAmountsFor(completedPolicy).current, true)
 assert.equal(salesRawAmountsFor(completedPolicy).completed, 200000)
 assert.equal(salesRawAmountsFor(completedPolicy).pending, 0, 'Completed reservations must not be shown as pending again')
 assert.equal(completedSalesFor(completedPolicy), 210000)
 assert.equal(confirmedSalesFor(completedPolicy), 110000, 'Original order-confirmed amount must not be forged by business completion')
-assert.equal(expectedRebateFor(completedPolicy), 3550)
-assert.equal(expectedRebateFor({ ...completedPolicy, lumpSumAmount: 250000 }), 5150, 'Changed manual amount cannot reuse tentative raw commission evidence')
+assert.equal(expectedRebateFor(completedPolicy), 3400)
+assert.equal(expectedRebateFor({ ...completedPolicy, lumpSumAmount: 250000 }), 0, 'Changed manual amount cannot reuse tentative RAW evidence or the full unverified amount')
 
 const roundingFixture = (lumpSumBasis: number, subscriptionBasis: number) => ({
   ...subscription,
@@ -78,10 +78,10 @@ for (const status of ['관리중', '구매완료', '상담 마감', '취소'] as
   assert.equal(expectedRebateFor(statusLead), 2, 'Expected commission is independent of a manually managed customer outcome')
   assert.equal(expectedRebateFor(statusLead), expectedLumpSumRebateFor(statusLead) + expectedSubscriptionRebateFor(statusLead))
 }
-assert.equal(expectedRebateBreakdownFor({ ...bothMethodsRoundUp, lumpSumAmount: 27 }).lumpSumBasis, 27, 'The common breakdown uses the current manual amount, not the stale RAW subtotal')
-assert.equal(expectedRebateBreakdownFor({ ...bothMethodsRoundUp, subscriptionAmount: 35 }).subscriptionBasis, 35, 'The common breakdown uses the current manual amount, not the stale RAW subtotal')
+assert.equal(expectedRebateBreakdownFor({ ...bothMethodsRoundUp, lumpSumAmount: 27 }).lumpSumBasis, 0, 'The common breakdown excludes a manual amount that differs from verified RAW')
+assert.equal(expectedRebateBreakdownFor({ ...bothMethodsRoundUp, subscriptionAmount: 35 }).subscriptionBasis, 0, 'Subscription uses the same strict current-RAW requirement')
 assert.equal(expectedRebateBreakdownFor({ ...bothMethodsRoundUp, partnerName: '목록 외 업체' }).subscriptionBasis, 0, 'The common breakdown must still enforce the approved subscription partner list')
-assert.equal(expectedSubscriptionRebateFor({ ...bothMethodsRoundUp, subscriptionRawPeriods: undefined }), 1, 'The existing permitted manual subscription fallback is preserved')
+assert.equal(expectedSubscriptionRebateFor({ ...bothMethodsRoundUp, subscriptionRawPeriods: undefined }), 0, 'A missing subscription route cannot be inferred from a manually entered amount')
 
 assert.deepEqual(purchaseAmountSourceFor(lead, 'lumpSum'), { kind: 'raw', amount: 150000, rawAmount: 150000 })
 assert.deepEqual(purchaseAmountSourceFor(lead, 'subscription'), { kind: 'manual', amount: 10000, rawAmount: null })
@@ -122,12 +122,22 @@ const verifiedIneligibleRoutes = { ...bothMethodsRoundUp,
   subscriptionRawPeriods: { '2026-09': { ...bothMethodsRoundUp.subscriptionRawPeriods['2026-09'], eligibleConfirmedBasisAmount: 0 } },
 }
 assert.equal(expectedRebateFor(verifiedIneligibleRoutes), 0, 'A current RAW amount with an ineligible route must never fall back to the full manual amount')
+assert.equal(expectedRebateFor({ ...verifiedIneligibleRoutes, lumpSumAmount: 100000, subscriptionAmount: 200000 }), 0, 'Changing amounts cannot turn ineligible orders into payable commission')
+assert.equal(commissionVerificationRequiredFor(verifiedIneligibleRoutes), false, 'Known nonpayable routes are verified exclusions, not missing evidence')
+assert.equal(commissionVerificationRequiredFor(bothMethodsRoundUp), false)
+assert.equal(commissionVerificationRequiredFor({ ...bothMethodsRoundUp, lumpSumAmount: 27 }), true)
+assert.equal(commissionVerificationRequiredFor({ ...bothMethodsRoundUp, subscriptionAmount: 35 }), true)
+assert.equal(commissionVerificationRequiredFor({ ...bothMethodsRoundUp, subscriptionRawPeriods: undefined, partnerName: '목록 외 업체' }), false, 'An excluded subscription partner does not require route verification for that method')
 assert.equal(purchaseAmountSourceFor(verifiedIneligibleRoutes, 'lumpSum').kind, 'raw')
 assert.equal(purchaseAmountSourceFor(verifiedIneligibleRoutes, 'subscription').kind, 'raw')
 for (const appointmentType of ['이업종제휴', '상담예약(이업종)'] as const) {
   const manualFixture = { ...lead, appointmentType, partnerName: '(주)다이렉트컴즈', lumpSumAmount: 20864000, subscriptionAmount: 1891000, salesRawPeriods: undefined, subscriptionRawPeriods: undefined }
   const before = JSON.stringify(manualFixture)
-  assert.deepEqual(expectedRebateBreakdownFor(manualFixture), { lumpSumBasis: 20864000, subscriptionBasis: 1891000, lumpSumCommission: 417280, subscriptionCommission: 28365, total: 445645 })
+  assert.deepEqual(expectedRebateBreakdownFor(manualFixture), { lumpSumBasis: 0, subscriptionBasis: 0, lumpSumCommission: 0, subscriptionCommission: 0, total: 0 })
+  assert.equal(commissionVerificationRequiredFor(manualFixture), true)
+  assert.equal(totalPurchaseAmountFor(manualFixture), 22755000, 'Excluding unverified fees must preserve the manually entered sales total')
+  assert.deepEqual(purchaseAmountSourceFor(manualFixture, 'lumpSum'), { kind: 'manual', amount: 20864000, rawAmount: null })
+  assert.deepEqual(purchaseAmountSourceFor(manualFixture, 'subscription'), { kind: 'manual', amount: 1891000, rawAmount: null })
   assert.equal(JSON.stringify(manualFixture), before, 'Calculation and provenance checks must not replace manually entered amounts')
 }
 console.log('salesFinance tests passed')

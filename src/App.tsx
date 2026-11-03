@@ -14,6 +14,10 @@ import { PartnerPortal } from './components/PartnerPortal'
 import { SettlementGuideModal } from './components/SettlementGuideModal'
 import { CaseMergeChoiceModal, type CaseMergeChoice } from './components/CaseMergeChoiceModal'
 import { CaseGroupSummary } from './components/CaseGroupSummary'
+import { SalesChannelDetails } from './components/SalesChannelDetails'
+import { SalesChannelReviewModal } from './components/SalesChannelReviewModal'
+import { getSalesChannelReviewItems } from './lib/salesChannelReview'
+import { SUBSCRIPTION_REVIEW_PARTNERS } from './lib/subscriptionPartners'
 import { DeliveryScheduleField } from './components/DeliveryScheduleField'
 import { sortAccessRowsByVisits, type AccessCountDirection } from './lib/accessLogSorting'
 import { buildPartnerPublication, IWEDDING_PARTNER_ID } from './lib/partnerPublication'
@@ -23,8 +27,10 @@ import { buildPartnerPreview, canPreviewPartner, getPartnerPreviewMonths } from 
 import { getDefaultExecutiveMonth, getExecutiveMonthLeads, getExecutiveMonths } from './lib/executiveMetrics'
 import './AppView.css'
 import { customerIdentityKey, maskCustomerName } from './lib/salesRaw'
+import { getStoredSalesChannels } from './lib/salesChannels'
+import { isApprovedSubscriptionReviewPartner } from './lib/salesChannelReview'
 import { canonicalPartnerName } from './lib/partners'
-import { expectedRebateFor, financialPendingAmountFor, isFinancialOwnerFor, isSubscriptionRebatePartner, lumpSumAmountFor, purchaseAmountSourceFor, salesRawAmountsFor, subscriptionRawAmountsFor, subscriptionAmountFor, totalPurchaseAmountFor } from './lib/salesFinance'
+import { commissionVerificationRequiredFor, expectedRebateFor, financialPendingAmountFor, isFinancialOwnerFor, isSubscriptionRebatePartner, lumpSumAmountFor, purchaseAmountSourceFor, salesRawAmountsFor, subscriptionRawAmountsFor, subscriptionAmountFor, totalPurchaseAmountFor } from './lib/salesFinance'
 import { caseSharingDraftFor, caseSharingRevisionFor, resolveCaseSharing, type SharingBasis } from './lib/caseSharing'
 import { caseBasisFor, caseBasisGroupsFor, financialCaseLeadFor, financialCaseLeadsFor } from './lib/caseBasis'
 import { CaseSaveError, saveCaseCustomer, unlinkCaseCustomer } from './lib/caseSharingSave'
@@ -227,6 +233,8 @@ const hasDualIntake = (lead: Lead, rows: Lead[]) => {
   return types.has('상담예약(이업종)') && types.has('이업종제휴')
 }
 type ReferralReadiness = { sessionKey: string; serverConfirmed: boolean }
+// Route displays and login alerts share the approved subscription commission scope.
+const subscriptionReviewPartners = SUBSCRIPTION_REVIEW_PARTNERS
 
 export default function App() {
   const [leads, setLeads] = useState<Lead[]>([])
@@ -253,6 +261,9 @@ export default function App() {
   const [usageRows, setUsageRows] = useState<UsageRow[]>([])
   const [accessCountSort, setAccessCountSort] = useState<AccessCountDirection>(null)
   const [settlementGuideOpen, setSettlementGuideOpen] = useState(false)
+  const [salesReviewOpen, setSalesReviewOpen] = useState(false)
+  const [salesReviewShownSession, setSalesReviewShownSession] = useState('')
+  const closeSalesReview = useCallback(() => setSalesReviewOpen(false), [])
   const closeSettlementGuide = useCallback(() => setSettlementGuideOpen(false), [])
   const [septemberSource, setSeptemberSource] = useState<readonly SeptemberAppointment[] | null>(null)
   const publishedRevision = useRef('')
@@ -261,6 +272,13 @@ export default function App() {
   const sessionKey = JSON.stringify([currentUser?.id, currentUser?.loginId, currentUser?.role, currentUser?.mustChangePassword, currentUser?.partnerId])
   const latestSessionKey = useRef(sessionKey)
   latestSessionKey.current = sessionKey
+  const salesReviewReady = Boolean(authReady && dataReady && serverConfirmed && !dataError && currentUser && !currentUser.mustChangePassword && canPreviewPartner(currentUser.role) && workspaceView === 'staff' && referralReadiness.current?.sessionKey === sessionKey && referralReadiness.current.serverConfirmed)
+  const salesReviewItems = useMemo(() => salesReviewReady && currentUser ? getSalesChannelReviewItems(leads, { role: currentUser.role, employeeNo: currentUser.loginId, displayName: currentUser.name }, subscriptionReviewPartners) : [], [salesReviewReady, leads, currentUser?.role, currentUser?.loginId, currentUser?.name])
+  useEffect(() => { setSalesReviewOpen(false); setSalesReviewShownSession('') }, [sessionKey])
+  useEffect(() => {
+    if (!salesReviewReady || !salesReviewItems.length) { setSalesReviewOpen(false); return }
+    if (salesReviewShownSession !== sessionKey) { setSalesReviewOpen(true); setSalesReviewShownSession(sessionKey) }
+  }, [salesReviewReady, salesReviewItems.length, salesReviewShownSession, sessionKey])
   const customerPanelRef = useRef<HTMLDivElement>(null)
   const customerHeadingRef = useRef<HTMLHeadingElement>(null)
 
@@ -695,7 +713,7 @@ export default function App() {
 
     <main>
       <section className="content">
-        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>{isPartnerPreview ? '연결 고객, 한눈에.' : '좋은 인연을, 놓치지 않도록.'}</h1><p>{isPartnerPreview ? '업체별 고객 진행 현황과 예상 정산을 확인하세요.' : '제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.'}</p></div><div className="heading-actions"><button type="button" className="btn guide-button" aria-haspopup="dialog" aria-expanded={settlementGuideOpen} onClick={()=>setSettlementGuideOpen(true)}><CircleHelp size={16}/>제휴·정산 안내</button>{canManageAll && !isPartnerPreview ? <button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button> : null}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
+        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>{isPartnerPreview ? '연결 고객, 한눈에.' : '좋은 인연을, 놓치지 않도록.'}</h1><p>{isPartnerPreview ? '업체별 고객 진행 현황과 예상 정산을 확인하세요.' : '제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.'}</p></div><div className="heading-actions">{!isPartnerPreview && salesReviewReady && salesReviewItems.length > 0 ? <button type="button" className="btn sales-review-open" aria-haspopup="dialog" aria-expanded={salesReviewOpen} onClick={() => setSalesReviewOpen(true)}>판매경로 점검 {salesReviewItems.length}개</button> : null}<button type="button" className="btn guide-button" aria-haspopup="dialog" aria-expanded={settlementGuideOpen} onClick={()=>setSettlementGuideOpen(true)}><CircleHelp size={16}/>제휴·정산 안내</button>{canManageAll && !isPartnerPreview ? <button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button> : null}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
 
         {dataError&&<div className="data-alert"><CircleHelp size={18}/><div><strong>데이터를 불러오지 못했습니다.</strong><span>{dataError}</span></div><button onClick={()=>window.location.reload()}>다시 시도</button></div>}
 
@@ -759,6 +777,7 @@ export default function App() {
 
     {!isPartnerPreview && active && <LeadDrawer key={active.id} lead={active} linkedLeads={active.caseGroupId ? leads.filter(lead => lead.caseGroupId === active.caseGroupId) : []} allLeads={leads} onSelectLinked={member=>{setActive(member);setOpenMemoOnDrawer(false)}} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer} onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false) }} onSave={saveLead} onUnlink={unlinkCase} remoteChanged={!creating && Boolean(leads.find(item => item.id === active.id && (item.updatedAt !== active.updatedAt || item.caseGroupId !== active.caseGroupId || rawRevisionFor(item) !== rawRevisionFor(active) || assignmentRevisionFor(item) !== assignmentRevisionFor(active))))}/>}
     {settlementGuideOpen ? <SettlementGuideModal onClose={closeSettlementGuide}/> : null}
+    {salesReviewOpen && salesReviewShownSession === sessionKey && salesReviewReady && salesReviewItems.length > 0 ? <SalesChannelReviewModal items={salesReviewItems} onClose={closeSalesReview} onSelectLead={leadId => { const lead = leads.find(item => item.id === leadId); if (!lead) return; setSalesReviewOpen(false); setActive(lead); setCreating(false); setOpenMemoOnDrawer(false) }}/> : null}
     {!isPartnerPreview && toast ? <div className="toast"><Check size={17}/>{toast}</div> : null}
   </div>
 }
@@ -785,8 +804,13 @@ function PurchaseSummary({members,completeMembers}:{members:Lead[];completeMembe
   const reserved = financialPendingAmountFor(visibleBasis)
   if (!total && !raw.current && !subscription.current) return <span className="purchase-empty">—</span>
   const manualAmount = (['lumpSum', 'subscription'] as const).some(kind => purchaseAmountSourceFor(visibleBasis, kind).kind === 'manual' && purchaseAmountSourceFor(visibleBasis, kind).amount > 0)
+  const verificationRequired = commissionVerificationRequiredFor(visibleBasis)
+  const channelSources = selection.mergeMemberIds ? completeMembers.filter(member => selection.mergeMemberIds!.includes(member.id)) : [visibleBasis]
+  const channels = channelSources.flatMap(member => getStoredSalesChannels(member).filter(row => row.kind === 'lumpSum' || isApprovedSubscriptionReviewPartner(member.partnerName, SUBSCRIPTION_REVIEW_PARTNERS)))
+  const channelMismatch = channels.some(row => row.status === 'mismatch')
+  const channelUnknown = channels.some(row => row.status === 'unverified')
   const missingAppointmentType = visibleBasis.appointmentType !== '이업종제휴' && visibleBasis.appointmentType !== '상담예약(이업종)' && manualAmount
-  return <div className="purchase-summary"><span>{formatWon(total)}</span>{reserved > 0 && <em>예약·출하대기 {formatWon(reserved)} 포함</em>}<small>예상 제휴 수수료 {formatWon(expectedCommission)}</small>{settlement.months.filter(row => row.expectedCommission > 0).map(row => <em className="purchase-settlement-known" key={row.month}>{row.month.replace('-', '.')} 중순 정산 예상 {formatWon(row.expectedCommission)}</em>)}{settlement.unscheduledCustomerCount > 0 ? <em>배송일 미입력 · 정산월 미정 {formatWon(settlement.unscheduledExpectedCommission)}</em> : null}{settlement.unfinishedExpectedCommission > 0 ? <em>기준 고객 구매완료 전 {formatWon(settlement.unfinishedExpectedCommission)}</em> : null}{completeMembers.length > 1 && <em>묶음 1명 · {selection.mergeMemberIds ? "구매금액 합산 · " : ""}{customerDisplayLabel(visibleBasis)} 기준 1회 반영</em>}{manualAmount && <em>수기 입력 반영</em>}{missingAppointmentType && <em>제휴 접수 유형 확인 필요</em>}</div>
+  return <div className="purchase-summary"><span>{formatWon(total)}</span>{reserved > 0 && <em>예약·출하대기 {formatWon(reserved)} 포함</em>}<small>예상 제휴 수수료 {formatWon(expectedCommission)}</small>{channelMismatch && <em className="sales-channel-indicator mismatch">판매경로 불일치</em>}{channelUnknown && !verificationRequired && <em>판매경로 확인 필요</em>}{verificationRequired && <em>판매경로 확인 필요 · 미확인 금액 수수료 제외</em>}{settlement.months.filter(row => row.expectedCommission > 0).map(row => <em className="purchase-settlement-known" key={row.month}>{row.month.replace('-', '.')} 중순 정산 예상 {formatWon(row.expectedCommission)}</em>)}{settlement.unscheduledCustomerCount > 0 ? <em>배송일 미입력 · 정산월 미정 {formatWon(settlement.unscheduledExpectedCommission)}</em> : null}{settlement.unfinishedExpectedCommission > 0 ? <em>기준 고객 구매완료 전 {formatWon(settlement.unfinishedExpectedCommission)}</em> : null}{completeMembers.length > 1 && <em>묶음 1명 · {selection.mergeMemberIds ? "구매금액 합산 · " : ""}{customerDisplayLabel(visibleBasis)} 기준 1회 반영</em>}{manualAmount && <em>수기 입력 반영</em>}{missingAppointmentType && <em>제휴 접수 유형 확인 필요</em>}</div>
 }
 
 function DuplicateIntakeHelp({lead,leads}:{lead:Lead,leads:Lead[]}) {
@@ -925,7 +949,9 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
   const linkingPreviewMembers = choiceMembers.map(member => ({ ...member, caseGroupId: previewCaseId, caseBasisLeadId: basis.caseLeadId, caseMergeMemberIds: mergeOverride || undefined }))
   const feePreviewMembers = sharedMode ? sharingPreview && !sharingPreview.conflicts.length ? sharingPreview.leads : openingMembers : linkingMode ? linkingPreviewMembers : [form]
   const previewBasisPending = hasCaseChoice && (!basis.caseLeadId && linkingMode || caseBasisFor(feePreviewMembers, basis.caseLeadId, mergeOverride).status === 'unresolved')
-  const previewCommission = financialCaseLeadsFor(feePreviewMembers).filter(member => canonicalPartnerName(member.partnerName) === canonicalPartnerName(form.partnerName)).reduce((sum, member) => sum + expectedRebateFor(member), 0)
+  const previewFinancialLeads = financialCaseLeadsFor(feePreviewMembers).filter(member => canonicalPartnerName(member.partnerName) === canonicalPartnerName(form.partnerName))
+  const previewCommission = previewFinancialLeads.reduce((sum, member) => sum + expectedRebateFor(member), 0)
+  const previewVerificationRequired = previewFinancialLeads.some(commissionVerificationRequiredFor)
   const caseFinancialEdited = (['manager', 'managerEmployeeNo', 'purchaseType', 'purchaseAmount', 'lumpSumAmount', 'subscriptionAmount'] as const).some(key => JSON.stringify(form[key]) !== JSON.stringify(formBaseline.current[key]))
   const needsCaseChoice = canManageAll && !basis.caseLeadId && (linkingMode || sharedMode && wholeCaseSelection?.status === 'unresolved' && caseFinancialEdited)
   const dualIntake = hasDualIntake(lead, allLeads)
@@ -935,7 +961,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
     {dualIntake && <div className="duplicate-intake-notice"><CircleHelp size={17}/><div><strong>두 가지 접수 방식이 모두 확인됩니다.</strong><p>동일 고객의 두 접수 경로입니다. 정산 확인용 원본을 유지합니다.</p></div></div>}
     {editorChanged && <div className="drawer-sync-warning" role="alert">다른 사용자가 이 고객 또는 연결 고객 정보를 변경했습니다. 화면을 닫고 다시 열어 최신 내용을 확인해주세요.</div>}
     <form onSubmit={async e => {e.preventDefault(); if (saving || editorChanged || caseChoiceOpen || linkExisting && !linkTargetId) return; if (needsCaseChoice) { setCaseChoiceOpen(true); return } setSaving(true); setSaveError(''); try { const saved = await onSave(form, linkExisting ? linkTargetId : undefined, {formBaseline:formBaseline.current, openingMembers, basis}); if (!saved) setSaveError(sharedMode ? '저장하지 않았습니다. 기준 고객 선택과 최신 연결 정보를 확인해주세요.' : '저장하지 않았습니다. 최신 고객 정보와 연결 대상을 확인해주세요.') } finally {setSaving(false)}}}>
-      {hasCaseChoice && <CaseGroupSummary members={openingMembers} activeLeadId={lead.id}
+      {hasCaseChoice && <CaseGroupSummary key={lead.id} members={openingMembers} activeLeadId={lead.id}
         basisLabel={wholeCaseSelection?.basis ? customerDisplayLabel(wholeCaseSelection.basis) : undefined} basisLeadId={wholeCaseSelection?.basis?.id}
         amountMode={wholeCaseSelection?.status === 'unresolved' || linkingMode && !basis.caseLeadId ? 'pending' : wholeCaseSelection?.mergeMemberIds ? 'merged' : 'single'}
         pendingReason={wholeCaseSelection?.reason} staged={Boolean(basis.caseLeadId)} choiceOpen={caseChoiceOpen} disabled={saving || editorChanged}
@@ -955,7 +981,8 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
       {canManageAll && (creating || !lead.caseGroupId) && <fieldset className="case-link-fieldset"><legend>같은 접수건 연결</legend><label className="case-link-check"><input type="checkbox" checked={linkExisting} onChange={e=>{if(e.target.checked){setLinkExisting(true);chooseLinkTarget('')}else{cancelLink()}}}/><span>이 고객을 기존 접수건과 묶기</span></label><small>묶음은 1건으로 집계합니다. 원본 기록은 유지됩니다.</small>{linkExisting && <div className="case-link-picker"><label>기존 고객 찾기<input placeholder="고객명·휴대폰 뒷자리·제휴업체 검색" value={linkSearch} onChange={e=>{setLinkSearch(e.target.value);chooseLinkTarget('')}}/></label><label>연결할 고객<select required value={linkTargetId} onChange={e=>chooseLinkTarget(e.target.value)}><option value="">고객을 선택하세요</option>{linkChoices.map(item=><option key={item.id} value={item.id}>{customerDisplayLabel(item)} · {item.partnerName} · {formatDate(item.registeredAt)}</option>)}</select></label></div>}</fieldset>}
       <fieldset><legend>제휴 정보</legend><label>BILL To Name · 제휴업체명<input required disabled={!creating} list="partner-options" autoComplete="off" placeholder="판매 로우의 제휴업체 검색 또는 신규 입력" value={form.partnerName} onChange={e=>update('partnerName',e.target.value)} onBlur={e=>{const match=partners.find(partner=>partnerKey(partner)===partnerKey(e.target.value));if(match)update('partnerName',match)}}/><datalist id="partner-options">{partnerSuggestions.map(partner=><option key={partner} value={partner}/>)}</datalist><small>기존 업체 검색 또는 신규 입력</small></label><label>플래너명<input disabled={!creating} placeholder="선택 입력" value={form.plannerName||''} onChange={e=>update('plannerName',e.target.value)}/></label></fieldset>
       <fieldset><legend>일정 정보</legend><div className="form-grid"><label>매장방문 예정일<input type="date" value={form.visitScheduledDate||''} onChange={e=>update('visitScheduledDate',e.target.value)}/></label><DeliveryScheduleField lead={form} onChange={date=>update('deliveryScheduledDate',date)}/></div></fieldset>
-      <fieldset><legend>구매 정보</legend><label>구매 방식<select value={form.purchaseType||'미선택'} onChange={e=>{const purchaseType=e.target.value as PurchaseType;setForm(current=>({...current,purchaseType,lumpSumAmount:purchaseType.includes('일시불')?lumpSumAmountFor(current):undefined,subscriptionAmount:purchaseType.includes('구독')?subscriptionAmountFor(current):undefined,purchaseAmount:undefined}))}}><option value="미선택">미선택</option><option value="일시불">일시불</option><option value="구독">구독</option><option value="일시불+구독">일시불+구독</option></select></label><div className="form-grid purchase-amount-grid">{form.purchaseType?.includes('일시불') && <MoneyInput key={`${form.id}-lumpSum`} label="일시불 금액" kind="lumpSum" lead={form} onChange={value=>setForm(current=>({...current,lumpSumAmount:value,purchaseAmount:undefined}))}/>} {form.purchaseType?.includes('구독') && <MoneyInput key={`${form.id}-subscription`} label="구독 금액" kind="subscription" lead={form} onChange={value=>setForm(current=>({...current,subscriptionAmount:value,purchaseAmount:undefined}))}/>}</div>{form.purchaseType&&form.purchaseType!=='미선택'&&<div className={`rebate-preview ${subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?'ineligible':''}`}><span>예상 제휴 수수료</span><strong>{previewBasisPending ? '기준 고객 선택 필요' : formatWon(previewCommission)}</strong><small>원본·입력 내역 기준 예상액입니다. 실제 정산액과 다를 수 있습니다.{subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?' 구독은 대상 업체만 반영됩니다.':''}</small></div>}</fieldset>
+      <fieldset><legend>구매 정보</legend><label>구매 방식<select value={form.purchaseType||'미선택'} onChange={e=>{const purchaseType=e.target.value as PurchaseType;setForm(current=>({...current,purchaseType,lumpSumAmount:purchaseType.includes('일시불')?lumpSumAmountFor(current):undefined,subscriptionAmount:purchaseType.includes('구독')?subscriptionAmountFor(current):undefined,purchaseAmount:undefined}))}}><option value="미선택">미선택</option><option value="일시불">일시불</option><option value="구독">구독</option><option value="일시불+구독">일시불+구독</option></select></label><div className="form-grid purchase-amount-grid">{form.purchaseType?.includes('일시불') && <MoneyInput key={`${form.id}-lumpSum`} label="일시불 금액" kind="lumpSum" lead={form} onChange={value=>setForm(current=>({...current,lumpSumAmount:value,purchaseAmount:undefined}))}/>} {form.purchaseType?.includes('구독') && <MoneyInput key={`${form.id}-subscription`} label="구독 금액" kind="subscription" lead={form} onChange={value=>setForm(current=>({...current,subscriptionAmount:value,purchaseAmount:undefined}))}/>}</div>{form.purchaseType&&form.purchaseType!=='미선택'&&<div className={`rebate-preview ${subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?'ineligible':''}`}><span>예상 제휴 수수료</span><strong>{previewBasisPending ? '기준 고객 선택 필요' : formatWon(previewCommission)}</strong><small>확인된 판매경로의 주문만 반영합니다.{previewVerificationRequired ? ' 미확인 금액은 수수료에서 제외됩니다.' : ''}{subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?' 구독은 대상 업체만 반영됩니다.':''}</small></div>}</fieldset>
+      <SalesChannelDetails members={hasCaseChoice ? openingMembers : [form]}/>
       <fieldset><legend>진행 관리</legend><div className="form-grid"><label>담당 매니저<select disabled={!canManageAll} value={manualManager ? '__manual__' : form.manager||''} onChange={e=>{if(e.target.value==='__manual__'){setManualManager(true);update('manager','')}else{setManualManager(false);update('manager',e.target.value)}}}><option value="__manual__">직접입력</option><option value="">미배정</option>{managers.filter(m=>m.role==='매니저').map(m=><option key={m.employeeNo} value={m.name}>{m.name}</option>)}</select>{manualManager && canManageAll && <input className="manual-manager" autoFocus placeholder="담당자 이름 직접입력" value={form.manager||''} onChange={e=>update('manager',e.target.value)}/>}</label><label>현재 상태<select value={form.status} onChange={e=>update('status',e.target.value)}>{STATUSES.map(s=><option key={s}>{s}</option>)}</select></label><label>방문 여부<select value={form.visitState} onChange={e=>update('visitState',e.target.value as VisitState)}><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label></div><button type="button" className="memo-open" onClick={()=>setMemoOpen(true)}><span><Clock3 size={18}/><b>관리메모</b></span><small>{memoEntries.length ? memoEntries.length+'건의 관리 이력' : '접촉 내용과 다음 계획을 기록하세요'}</small><i>보기 →</i></button></fieldset>
       <div className="drawer-actions"><button type="button" className="btn secondary" onClick={onClose}>취소</button><button className="btn primary" type="submit" disabled={editorChanged || saving || unlinkBusy}><Check size={17}/>{saving ? '저장 중...' : creating ? '고객 등록' : '변경사항 저장'}</button></div>
     </form>

@@ -1,5 +1,7 @@
 import { useId, useMemo, useState } from 'react'
-import type { PartnerPreviewModel } from '../lib/partnerPreview'
+import type { PartnerPreviewModel, PartnerSalesChannel } from '../lib/partnerPreview'
+import { isApprovedSubscriptionReviewPartner } from '../lib/salesChannelReview'
+import { SUBSCRIPTION_REVIEW_PARTNERS } from '../lib/subscriptionPartners'
 import { getPartnerSettlementCard } from '../lib/partnerSettlementCard'
 import {
   DEFAULT_CUSTOMER_SORT, DEFAULT_SETTLEMENT_SORT, nextPartnerCustomerSort, nextPartnerSettlementSort,
@@ -36,6 +38,21 @@ function SortColumn({ label, direction, nextDirection, onSort }: {
   return <th scope="col" aria-sort={direction === 'asc' ? 'ascending' : direction === 'desc' ? 'descending' : 'none'}>
     <button type="button" className="partner-preview-sort-button" data-direction={direction || 'none'} aria-label={`${label} 정렬`} title={nextDirection === 'asc' ? '오름차순으로 정렬' : '내림차순으로 정렬'} onClick={onSort}>{label}</button>
   </th>
+}
+
+function CustomerSalesChannels({ channels: allChannels, partnerName }: { channels?: readonly PartnerSalesChannel[]; partnerName: string }) {
+  const channels = allChannels?.filter(channel => channel.kind === 'lumpSum' || isApprovedSubscriptionReviewPartner(partnerName, SUBSCRIPTION_REVIEW_PARTNERS))
+  if (!channels?.length) return null
+  const mismatch = channels.some(channel => channel.status === 'mismatch')
+  const unverified = channels.some(channel => channel.status === 'unverified')
+  const label = mismatch ? '경로 불일치' : unverified ? '확인 필요' : '경로 일치'
+  return <details className={`partner-preview-sales-channels${mismatch ? ' has-mismatch' : ''}`}>
+    <summary>판매경로 · {label}</summary>
+    {channels.map((channel, index) => <div key={index}>
+      <strong>{channel.kind === 'lumpSum' ? '일시불' : '구독'}{channel.period ? ` · ${monthLabel(channel.period)}` : ''}<span>{channel.status === 'eligible' ? '경로 일치' : channel.status === 'mismatch' ? '경로 불일치' : '확인 필요'}</span></strong>
+      <dl><div><dt>경로 1</dt><dd>{channel.channel1 || '미확인'}</dd></div><div><dt>경로 2</dt><dd>{channel.channel2 || '미확인'}</dd></div></dl>
+    </div>)}
+  </details>
 }
 
 /** Accepts only the safe projection; no saved documents or staff-only callbacks. */
@@ -87,7 +104,7 @@ export function PartnerPreview({ model, presentation = 'preview' }: { model: Par
         <div className="partner-preview-section-heading"><SectionHeading>연결 고객</SectionHeading><small aria-live="polite">{customerSortCaptions[customerSort.key][customerSort.direction]}</small></div>
         {customers.length > 0 ? <div className="partner-preview-table-scroll"><table aria-label="연결 고객 목록">
           <thead><tr>{customerColumns.map(column => <SortColumn key={column.key} label={column.label} direction={customerSort.key === column.key ? customerSort.direction : null} nextDirection={nextPartnerCustomerSort(customerSort, column.key).direction} onSort={() => setCustomerSort(current => nextPartnerCustomerSort(current, column.key))}/>)}</tr></thead>
-          <tbody>{customers.map(customer => <tr key={customer.key}><td className="partner-preview-customer-label">{customer.label}</td><td>{dateLabel(customer.registeredAt)}</td><td><span className={`partner-preview-status${customer.status === '구매완료' ? ' completed' : ''}`}>{customer.status}</span></td><td>{dateLabel(customer.deliveryScheduledDate)}</td><td>{customer.basisRequired ? '기준 고객 확인 필요' : customer.expectedSettlementMonth ? `${monthLabel(customer.expectedSettlementMonth)} 중순` : customer.status === '구매완료' ? '배송일 확인 필요' : '—'}</td><td className="partner-preview-customer-fee">{customer.basisRequired ? '확인 필요' : customer.expectedCommission === null ? '—' : won(customer.expectedCommission)}</td></tr>)}</tbody>
+          <tbody>{customers.map(customer => <tr key={customer.key}><td className="partner-preview-customer-label">{customer.label}</td><td>{dateLabel(customer.registeredAt)}</td><td><span className={`partner-preview-status${customer.status === '구매완료' ? ' completed' : ''}`}>{customer.status}</span></td><td>{dateLabel(customer.deliveryScheduledDate)}</td><td>{customer.basisRequired ? '기준 고객 확인 필요' : customer.expectedSettlementMonth ? `${monthLabel(customer.expectedSettlementMonth)} 중순` : customer.status === '구매완료' ? '배송일 확인 필요' : '—'}</td><td className="partner-preview-customer-fee">{customer.basisRequired ? '확인 필요' : customer.expectedCommission === null ? '—' : won(customer.expectedCommission)}<CustomerSalesChannels partnerName={model.partnerName} channels={customer.salesChannels}/></td></tr>)}</tbody>
         </table></div> : <p className="partner-preview-empty">선택한 접수월에 연결된 고객이 없습니다.</p>}
       </section>
     </> : <p className="partner-preview-empty">업체를 선택해 주세요.</p>}

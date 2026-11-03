@@ -16,6 +16,17 @@ const lead = (id: string, partnerName: string, amount: number): Lead => ({
   deliveryScheduledDate: '2026-10-20', visitState: '방문', manager: '합성 담당',
   purchaseType: '일시불+구독', lumpSumAmount: amount, subscriptionAmount: amount / 2,
   note: '보존할 수기 메모',
+  salesRawPeriods: { '2026-10': {
+    period: '2026-10', sourceHash: 'synthetic-eligible-sales', importedAt: '2026-10-14T00:00:00.000Z',
+    orderCount: 1, confirmedOrderCount: 1, reservedOrderCount: 0,
+    confirmedAmount: amount, reservedAmount: 0, eligibleConfirmedAmount: amount, eligibleReservedAmount: 0, returnAmount: 0,
+  } },
+  subscriptionRawPeriods: { '2026-10': {
+    period: '2026-10', sourceHash: 'synthetic-eligible-subscription', importedAt: '2026-10-14T00:00:00.000Z',
+    itemCount: 1, confirmedItemCount: 1, pendingItemCount: 0,
+    confirmedBasisAmount: amount / 2, pendingBasisAmount: 0, eligibleConfirmedBasisAmount: amount / 2, eligiblePendingBasisAmount: 0,
+    includedStatuses: ['매출확정'], missingBasisItemCount: 0, rejectedProofItemCount: 0,
+  } },
 })
 const rows = Object.freeze([
   Object.freeze(lead('spacing-a', '(주)아이니웨딩네트웍스', 100000)),

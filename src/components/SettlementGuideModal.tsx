@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, X } from 'lucide-react'
+import { SALES_COMMISSION_CHANNEL1, SALES_COMMISSION_CHANNEL2 } from '../lib/salesRaw'
 import './SettlementGuideModal.css'
 
 const focusableSelector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -92,6 +93,11 @@ export function SettlementGuideModal({ onClose }: { onClose: () => void }) {
         <div className="guide-policy">
           <h3>정산 기준</h3>
           <ul>
+            <li>
+              <strong>일시불·구독 모두 판매경로 일치 주문만 정산</strong>
+              <span>판매경로 1: {SALES_COMMISSION_CHANNEL1}</span>
+              <span>판매경로 2: {SALES_COMMISSION_CHANNEL2.join(' 또는 ')}</span>
+            </li>
             <li>
               <strong>접수한 매장에서 구매 시 정산</strong>
               <span>다른 지점에서 구매하면 제외됩니다.</span>

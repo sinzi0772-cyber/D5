@@ -1,4 +1,4 @@
-import { customerIdentityKey, isSalesCommissionChannelEligible, maskCustomerName, readTsv } from './salesRaw'
+import { customerIdentityKey, isOneWonSaleAmount, isSalesCommissionChannelEligible, maskCustomerName, readTsv } from './salesRaw'
 import type { SalesRawIssue } from './salesRaw'
 
 export type SubscriptionRawDisposition = 'confirmed' | 'reserved' | 'excluded' | 'review'
@@ -79,6 +79,8 @@ export interface SubscriptionRawSummary {
   rejectedEvidenceItems: number
   errorCount: number
   warningCount: number
+  /** Original product rows remain available, but their 1원 basis is excluded. */
+  excludedOneWonItems?: number
 }
 export interface SubscriptionRawResult {
   items: SubscriptionRawItem[]
@@ -159,6 +161,7 @@ export function parseSubscriptionRaw(text: string, options: SubscriptionRawOptio
     const statusDisposition = disposition
     const basisAmountMissing = !field('멤버십혜택기준금액')
     const membershipBenefitBasisAmount = basisAmount(field('멤버십혜택기준금액'))
+    if (isOneWonSaleAmount(membershipBenefitBasisAmount)) issues.push({ severity: 'warning', code: 'one-won-sale-excluded', rowNumber, message: '1원 구독 행은 원본 기록만 보존하고 판매·수수료·판매경로 점검에서 제외합니다.' })
     const basisAmountInvalid = !basisAmountMissing && membershipBenefitBasisAmount === null
     const orderDate = dateOnly(field('주문일자'))
     let hasBlockingIssue = disposition === 'review'
@@ -191,7 +194,7 @@ export function parseSubscriptionRaw(text: string, options: SubscriptionRawOptio
       orderDate, orderStatusLabel, contractStatusLabel, logisticsStatusLabel, disposition, statusDisposition,
       membershipBenefitBasisAmount, basisAmountMissing, basisAmountInvalid, quantity, channel1: field('판매경로1'), channel2: field('판매경로2'),
       // Proof rejection is retained for reference, not used to exclude commission.
-      commissionChannelEligible: isSalesCommissionChannelEligible(field('판매경로1'), field('판매경로2')),
+      commissionChannelEligible: !isOneWonSaleAmount(membershipBenefitBasisAmount) && isSalesCommissionChannelEligible(field('판매경로1'), field('판매경로2')),
       evidenceApprovalStatus, isEvidenceRejected, hasReviewRequired: disposition === 'review', hasBlockingIssue,
     }
     // Comparison signatures never leave this runtime or get persisted with the result.
@@ -223,6 +226,11 @@ export function parseSubscriptionRaw(text: string, options: SubscriptionRawOptio
     }
     customer.items.push(item)
     const amount = item.membershipBenefitBasisAmount ?? 0
+    if (isOneWonSaleAmount(item.membershipBenefitBasisAmount)) {
+      customer.excludedBasisAmount += amount
+      customer.hasBlockingIssue ||= blockedIdentities.has(item.identityKey)
+      continue
+    }
     if (item.disposition === 'confirmed') customer.confirmedBasisAmount += amount
     else if (item.disposition === 'reserved') customer.reservedBasisAmount += amount
     else if (item.disposition === 'excluded') customer.excludedBasisAmount += amount
@@ -243,14 +251,15 @@ export function parseSubscriptionRaw(text: string, options: SubscriptionRawOptio
   const customers = [...customerMap.values()]
   const statusCounts: Record<string, number> = {}
   for (const item of items) statusCounts[item.orderStatusLabel || '(빈 값)'] = (statusCounts[item.orderStatusLabel || '(빈 값)'] || 0) + 1
-  for (const customer of customers) customer.admittedOrderCount = new Set(customer.items.filter(item => item.disposition === 'confirmed' || item.disposition === 'reserved').map(item => `${item.itemReference.split(':')[0]}:${item.orderReference}`)).size
+  for (const customer of customers) customer.admittedOrderCount = new Set(customer.items.filter(item => !isOneWonSaleAmount(item.membershipBenefitBasisAmount) && (item.disposition === 'confirmed' || item.disposition === 'reserved')).map(item => `${item.itemReference.split(':')[0]}:${item.orderReference}`)).size
   const sum = (key: 'admittedItemCount' | 'admittedOrderCount' | 'confirmedBasisAmount' | 'reservedBasisAmount' | 'admittedBasisAmount' | 'admittedChannelEligibleBasisAmount' | 'excludedBasisAmount' | 'reviewBasisAmount' | 'includedMissingBasisItems' | 'includedInvalidBasisItems' | 'rejectedEvidenceItems') => customers.reduce((total, customer) => total + customer[key], 0)
   return { items, customers, issues, summary: {
     inputRows, acceptedItems: items.length, duplicateItemRows, conflictingItems: conflicts.size, customerCount: customers.length, statusCounts,
-    confirmedItems: items.filter(item => item.disposition === 'confirmed').length,
-    reservedItems: items.filter(item => item.disposition === 'reserved').length,
-    excludedItems: items.filter(item => item.disposition === 'excluded').length,
-    reviewItems: items.filter(item => item.disposition === 'review').length,
+    confirmedItems: items.filter(item => !isOneWonSaleAmount(item.membershipBenefitBasisAmount) && item.disposition === 'confirmed').length,
+    reservedItems: items.filter(item => !isOneWonSaleAmount(item.membershipBenefitBasisAmount) && item.disposition === 'reserved').length,
+    excludedItems: items.filter(item => isOneWonSaleAmount(item.membershipBenefitBasisAmount) || item.disposition === 'excluded').length,
+    reviewItems: items.filter(item => !isOneWonSaleAmount(item.membershipBenefitBasisAmount) && item.disposition === 'review').length,
+    excludedOneWonItems: items.filter(item => isOneWonSaleAmount(item.membershipBenefitBasisAmount)).length,
     admittedItemCount: sum('admittedItemCount'), admittedOrderCount: sum('admittedOrderCount'),
     confirmedBasisAmount: sum('confirmedBasisAmount'), reservedBasisAmount: sum('reservedBasisAmount'), admittedBasisAmount: sum('admittedBasisAmount'),
     admittedChannelEligibleBasisAmount: sum('admittedChannelEligibleBasisAmount'), excludedBasisAmount: sum('excludedBasisAmount'), reviewBasisAmount: sum('reviewBasisAmount'),

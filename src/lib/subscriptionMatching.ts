@@ -1,5 +1,5 @@
 import type { Lead } from '../types'
-import { customerIdentityKey, isSalesCommissionChannelEligible } from './salesRaw'
+import { customerIdentityKey, isOneWonSaleAmount, isSalesCommissionChannelEligible } from './salesRaw'
 import type { SubscriptionRawCustomer, SubscriptionRawItem, SubscriptionRawResult } from './subscriptionRaw'
 import { partnerAppointmentExclusionReason } from './partnerAppointments'
 import type { PartnerAppointmentExclusionReason } from './partnerAppointments'
@@ -76,7 +76,7 @@ export interface SubscriptionMatchPlan {
   summary: SubscriptionMatchSummary
 }
 
-const isAdmitted = (item: SubscriptionRawItem) => item.statusDisposition === 'confirmed' || item.statusDisposition === 'reserved'
+const isAdmitted = (item: SubscriptionRawItem) => !isOneWonSaleAmount(item.membershipBenefitBasisAmount) && (item.statusDisposition === 'confirmed' || item.statusDisposition === 'reserved')
 const partnerIdentity = (value: string) => value.normalize('NFKC').trim().replace(/\s+/g, ' ')
 const isRejected = (item: SubscriptionRawItem) => item.isEvidenceRejected || item.evidenceApprovalStatus === '반려'
 
@@ -94,6 +94,11 @@ function amountsFor(items: SubscriptionRawItem[]): SubscriptionMatchAmounts {
   const amounts = emptyAmounts()
   const orderKeys = new Set<string>()
   for (const item of items) {
+    if (isOneWonSaleAmount(item.membershipBenefitBasisAmount)) {
+      amounts.excludedItemCount += 1
+      amounts.excludedBasisAmount += 1
+      continue
+    }
     if (item.statusDisposition === 'excluded') {
       amounts.excludedItemCount += 1
       if (item.membershipBenefitBasisAmount !== null) amounts.excludedBasisAmount += item.membershipBenefitBasisAmount
@@ -138,7 +143,7 @@ function matchCustomer(customer: SubscriptionRawCustomer, candidates: Lead[]): S
   if (amounts.missingBasisItems) reasons.push('missing-basis-items')
   if (amounts.rejectedItemCount) reasons.push('rejected-proof-items-included')
   if (admittedItems.some(item => !isSalesCommissionChannelEligible(item.channel1, item.channel2))) reasons.push('ineligible-channel-items-excluded')
-  const needsReview = customer.hasBlockingIssue || customer.items.some(item => item.hasBlockingIssue || item.statusDisposition === 'review')
+  const needsReview = customer.hasBlockingIssue || customer.items.some(item => !isOneWonSaleAmount(item.membershipBenefitBasisAmount) && (item.hasBlockingIssue || item.statusDisposition === 'review'))
   if (needsReview) reasons.push('raw-items-review-required')
   const entry: SubscriptionCustomerMatch = {
     disposition: 'excluded', identityKey: customer.identityKey, customerName: customer.customerName,

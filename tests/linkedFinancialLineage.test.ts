@@ -23,6 +23,10 @@ const owner = Object.freeze(lead('financial-owner', {
     itemCount: 2, confirmedItemCount: 1, pendingItemCount: 1, confirmedBasisAmount: 150000, pendingBasisAmount: 50000,
     eligibleConfirmedBasisAmount: 100000, eligiblePendingBasisAmount: 50000, includedStatuses: ['주문확정', '출하대기'], missingBasisItemCount: 0, rejectedProofItemCount: 0 } },
 }))
+const verified = (value: Lead): Lead => ({ ...value,
+  ...(value.lumpSumAmount !== undefined ? { salesRawPeriods: { '2026-09': { ...owner.salesRawPeriods!['2026-09'], confirmedAmount: value.lumpSumAmount, reservedAmount: 0, eligibleConfirmedAmount: value.lumpSumAmount, eligibleReservedAmount: 0 } } } : {}),
+  ...(value.subscriptionAmount !== undefined ? { subscriptionRawPeriods: { '2026-09': { ...owner.subscriptionRawPeriods!['2026-09'], confirmedBasisAmount: value.subscriptionAmount, pendingBasisAmount: 0, eligibleConfirmedBasisAmount: value.subscriptionAmount, eligiblePendingBasisAmount: 0 } } } : {}),
+})
 const alias = Object.freeze(lead('financial-alias', { caseBasisLeadId: owner.id, lumpSumSourceId: owner.id, subscriptionSourceId: owner.id,
   deliveryScheduledDate: '2026-12-31', phoneLast4: '0002' }))
 const third = Object.freeze(lead('financial-third', { caseBasisLeadId: owner.id, lumpSumSourceId: owner.id, subscriptionSourceId: owner.id,
@@ -65,7 +69,7 @@ const publication = buildPartnerPublication(shared, IWEDDING_PARTNER_ID, publish
 assert.deepEqual(parsePartnerPublication(publication, IWEDDING_PARTNER_ID), publication)
 for (const forbidden of ['financial-owner', 'financial-alias', 'lumpSumSourceId', 'subscriptionSourceId', 'caseBasisLeadId', 'caseSharingHistory', 'anonymous-sales', 'anonymous-subscription']) assert.equal(JSON.stringify(publication).includes(forbidden), false)
 
-const unequal = [lead('A', { lumpSumAmount: 100000, subscriptionAmount: 0 }), lead('B', { lumpSumAmount: 200000, subscriptionAmount: 0 })]
+const unequal = [verified(lead('A', { lumpSumAmount: 100000, subscriptionAmount: 0 })), verified(lead('B', { lumpSumAmount: 200000, subscriptionAmount: 0 }))]
 assert.equal(caseBasisFor(unequal).status, 'unresolved')
 assert.equal(displayedPurchaseAmountFor(unequal), 0)
 const unresolved = buildExecutiveMetrics(unequal, '2026-09', '2026-10-14')
@@ -86,12 +90,12 @@ for (const selected of ['A', 'B']) {
   assert.equal(buildExecutiveMetrics(chosen, '2026-09', '2026-10-14').current.sales, expected)
   assert.equal(buildCommissionSettlementMetrics(chosen).completedExpectedCommission, expected * .02)
 }
-const split = [lead('lump', { lumpSumAmount: 100000, subscriptionAmount: undefined }), lead('sub', { lumpSumAmount: undefined, subscriptionAmount: 200000 })]
+const split = [verified(lead('lump', { lumpSumAmount: 100000, subscriptionAmount: undefined })), verified(lead('sub', { lumpSumAmount: undefined, subscriptionAmount: 200000 }))]
 assert.equal(caseBasisFor(split).status, 'unresolved', 'Never combine A cash and B subscription')
 const chosenSplit = split.map(member => ({ ...member, caseBasisLeadId: 'lump' }))
 assert.equal(displayedPurchaseAmountFor(chosenSplit), 100000)
 assert.equal(buildExecutiveMetrics(chosenSplit, '2026-09', '2026-10-14').current.expectedCommission, 2000)
-const equal = [lead('same-A', { lumpSumAmount: 26, subscriptionAmount: 34 }), lead('same-B', { lumpSumAmount: 26, subscriptionAmount: 34 })]
+const equal = [verified(lead('same-A', { lumpSumAmount: 26, subscriptionAmount: 34 })), verified(lead('same-B', { lumpSumAmount: 26, subscriptionAmount: 34 }))]
 assert.equal(displayedPurchaseAmountFor(equal), 60, 'Identical economic duplicate data is counted once')
 assert.equal(buildCommissionSettlementMetrics(equal).completedExpectedCommission, 2, 'Round each method within one whole basis row')
 assert.equal(buildCommissionSettlementMetrics(equal).completedCustomerCount, 1)
@@ -119,7 +123,7 @@ assert.equal(expectedRebateFor(aliasFinancial), 4650, 'A selected legacy alias u
 assert.equal(buildCommissionSettlementMetrics(chosenAlias).months[0].month, '2027-02', 'Explicit basis date changes settlement; it is not an additional bucket')
 const unlinked = shared.map(member => ({ ...member, caseGroupId: undefined }))
 assert.equal(buildExecutiveMetrics(unlinked, '2026-09', '2026-10-14').current.expectedCommission, 4650, 'Unlinking cannot convert aliases into new purchases')
-assert.equal(expectedRebateFor({ ...owner, lumpSumAmount: 160000 }), 5450)
+assert.equal(expectedRebateFor({ ...owner, lumpSumAmount: 160000 }), 2250, 'A changed cash amount cannot reuse RAW eligibility; the verified subscription remains payable')
 assert.equal(expectedRebateFor({ ...owner, lumpSumAmount: 0, subscriptionAmount: 0 }), 0)
 assert.equal(confirmedSalesFor({ ...owner, lumpSumAmount: 75000, subscriptionAmount: 0, salesRawPeriods: { '2026-09': { ...owner.salesRawPeriods!['2026-09'], confirmedAmount: -25000, reservedAmount: 100000, eligibleConfirmedAmount: -25000, eligibleReservedAmount: 100000 } } }), -25000, 'Signed refund subtotals remain intact')
 for (const member of shared) {

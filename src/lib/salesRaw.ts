@@ -85,6 +85,8 @@ export interface SalesRawSummary {
   reviewCustomerCount: number
   errorCount: number
   warningCount: number
+  /** Source rows retained for audit, excluded from financial and route totals. */
+  excludedOneWonOrders?: number
 }
 export interface SalesRawResult {
   orders: SalesRawOrder[]
@@ -95,6 +97,9 @@ export interface SalesRawResult {
 
 export const SALES_COMMISSION_CHANNEL1 = '고객인증서비스(웨딩)'
 export const SALES_COMMISSION_CHANNEL2 = ['웨딩박람회(내부)', '웨딩업체연결(수수료지급)'] as const
+
+/** One-won source rows are administrative entries, not payable purchases. */
+export const isOneWonSaleAmount = (amount: unknown): boolean => amount === 1
 
 export function maskCustomerName(value: string): string {
   const clean = value.normalize('NFKC').trim().replace(/\s/g, '').replace(/[＊]/g, '*')
@@ -209,6 +214,7 @@ export function parseSalesRaw(text: string): SalesRawResult {
     if (!orderReference) issues.push({ severity: 'error', code: 'missing-order-reference', rowNumber, message: '주문번호가 없어 중복 판매를 확인할 수 없습니다.' })
     if (saleAmount === null) issues.push({ severity: 'error', code: 'invalid-sale-amount', rowNumber, message: '판매금액이 비어 있거나 유효한 정수 금액이 아닙니다.' })
     if (!identityKey || !orderReference || saleAmount === null) continue
+    if (isOneWonSaleAmount(saleAmount)) issues.push({ severity: 'warning', code: 'one-won-sale-excluded', rowNumber, message: '1원 판매 행은 원본 기록만 보존하고 판매·수수료·판매경로 점검에서 제외합니다.' })
     const beforeIssueCount = issues.length
     const statusLabel = field('주문확정여부')
     const orderStatus = orderState(statusLabel)
@@ -236,7 +242,7 @@ export function parseSalesRaw(text: string): SalesRawResult {
       seller: field('판매사원'), orderDate, confirmedDate, orderStatus, orderStatusLabel: statusLabel,
       orderCategory, orderType, saleAmount, paymentAmount, balanceAmount,
       channel1: field('판매경로1'), channel2: field('판매경로2'),
-      commissionEligible: isSalesCommissionChannelEligible(field('판매경로1'), field('판매경로2')),
+      commissionEligible: !isOneWonSaleAmount(saleAmount) && isSalesCommissionChannelEligible(field('판매경로1'), field('판매경로2')),
       isReturnOrRefund, hasReviewRequired: orderStatus === '기타' || isReturnOrRefund || issues.length > beforeIssueCount,
     }
     // Runtime comparison only: signatures and source rows never appear in returned results.
@@ -266,6 +272,7 @@ export function parseSalesRaw(text: string): SalesRawResult {
       customersByIdentity.set(order.identityKey, customer)
     }
     customer.orders.push(order)
+    if (isOneWonSaleAmount(order.saleAmount)) continue
     customer.saleAmount += order.saleAmount
     if (order.commissionEligible) customer.eligibleSaleAmount += order.saleAmount
     if (order.orderStatus === '확정') {
@@ -289,7 +296,7 @@ export function parseSalesRaw(text: string): SalesRawResult {
   for (const customer of customers) {
     customer.expectedCommission = Math.round(customer.eligibleSaleAmount * 0.02)
     customer.confirmedExpectedCommission = Math.round(customer.confirmedEligibleSaleAmount * 0.02)
-    customer.admittedOrderCount = customer.orders.filter(order => order.orderStatus !== '기타').length
+    customer.admittedOrderCount = customer.orders.filter(order => !isOneWonSaleAmount(order.saleAmount) && order.orderStatus !== '기타').length
     customer.admittedSaleAmount = customer.confirmedSaleAmount + customer.reservedSaleAmount + customer.tentativeSaleAmount
     customer.admittedEligibleSaleAmount = customer.confirmedEligibleSaleAmount + customer.reservedEligibleSaleAmount + customer.tentativeEligibleSaleAmount
     customer.admittedExpectedCommission = Math.round(customer.admittedEligibleSaleAmount * 0.02)
@@ -297,13 +304,14 @@ export function parseSalesRaw(text: string): SalesRawResult {
   const sum = (key: 'saleAmount' | 'eligibleSaleAmount' | 'confirmedSaleAmount' | 'confirmedEligibleSaleAmount' | 'pendingSaleAmount' | 'expectedCommission' | 'confirmedExpectedCommission' | 'reservedSaleAmount' | 'reservedEligibleSaleAmount' | 'tentativeSaleAmount' | 'tentativeEligibleSaleAmount' | 'admittedOrderCount' | 'admittedSaleAmount' | 'admittedEligibleSaleAmount' | 'admittedExpectedCommission') => customers.reduce((total, customer) => total + customer[key], 0)
   const summary: SalesRawSummary = {
     inputRows, acceptedOrders: orders.length, duplicateOrderRows, conflictingOrders: conflicts.size, customerCount: customers.length,
-    confirmedOrders: orders.filter(order => order.orderStatus === '확정').length,
-    reservedOrders: orders.filter(order => order.orderStatus === '예약').length,
-    tentativeOrders: orders.filter(order => order.orderStatus === '가예약').length,
-    unknownStatusOrders: orders.filter(order => order.orderStatus === '기타').length,
-    returnOrders: orders.filter(order => order.isReturnOrRefund).length,
-    eligibleOrders: orders.filter(order => order.commissionEligible).length,
-    ineligibleOrders: orders.filter(order => !order.commissionEligible).length,
+    confirmedOrders: orders.filter(order => !isOneWonSaleAmount(order.saleAmount) && order.orderStatus === '확정').length,
+    reservedOrders: orders.filter(order => !isOneWonSaleAmount(order.saleAmount) && order.orderStatus === '예약').length,
+    tentativeOrders: orders.filter(order => !isOneWonSaleAmount(order.saleAmount) && order.orderStatus === '가예약').length,
+    unknownStatusOrders: orders.filter(order => !isOneWonSaleAmount(order.saleAmount) && order.orderStatus === '기타').length,
+    returnOrders: orders.filter(order => !isOneWonSaleAmount(order.saleAmount) && order.isReturnOrRefund).length,
+    eligibleOrders: orders.filter(order => !isOneWonSaleAmount(order.saleAmount) && order.commissionEligible).length,
+    ineligibleOrders: orders.filter(order => !isOneWonSaleAmount(order.saleAmount) && !order.commissionEligible).length,
+    excludedOneWonOrders: orders.filter(order => isOneWonSaleAmount(order.saleAmount)).length,
     saleAmount: sum('saleAmount'), eligibleSaleAmount: sum('eligibleSaleAmount'), confirmedSaleAmount: sum('confirmedSaleAmount'),
     confirmedEligibleSaleAmount: sum('confirmedEligibleSaleAmount'), pendingSaleAmount: sum('pendingSaleAmount'),
     expectedCommission: sum('expectedCommission'), confirmedExpectedCommission: sum('confirmedExpectedCommission'),

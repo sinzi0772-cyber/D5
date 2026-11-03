@@ -1,0 +1,31 @@
+.sales-review-overlay{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;padding:24px}
+.sales-review-scrim{position:absolute;inset:0;width:100%;height:100%;padding:0;border:0;background:#18272488;backdrop-filter:blur(2px);cursor:default}
+.sales-review-modal{position:relative;display:flex;flex-direction:column;width:min(760px,100%);max-height:calc(100dvh - 48px);min-width:0;overflow:hidden;border-top:4px solid #c58a32;border-radius:16px;background:#fff;box-shadow:0 24px 80px #17292540;color:#234139}
+.sales-review-modal>header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:24px 26px 18px;border-bottom:1px solid #e6ece8}
+.sales-review-modal>header>div>span{display:flex;align-items:center;gap:6px;color:#9c6921;font-size:12px;font-weight:700}
+.sales-review-modal h2{margin:8px 0 0;font-size:21px;line-height:1.5;letter-spacing:-.6px;overflow-wrap:anywhere}
+.sales-review-modal>header>button{display:flex;align-items:center;justify-content:center;flex:none;width:34px;height:34px;padding:0;border:0;border-radius:50%;background:#f2f5f3;color:#587069;cursor:pointer}
+.sales-review-body{min-height:0;overflow:auto;overscroll-behavior:contain;padding:18px 26px 22px}
+.sales-review-body>p{margin:0;font-size:13px;line-height:1.8;color:#5a7167}
+.sales-review-body>.sales-review-note{margin-top:4px;color:#9c6921;font-size:12px}
+.sales-review-expected{margin-top:15px;padding:11px 12px;border:1px solid #e6ece7;border-radius:8px;background:#f8fbf9;font-size:11px}
+.sales-review-expected>summary{cursor:pointer;font-weight:600;color:#527366}
+.sales-review-modal dl{display:grid;gap:7px;margin:12px 0 0;font-size:12px;line-height:1.6}
+.sales-review-modal dl>div{display:grid;grid-template-columns:88px minmax(0,1fr);gap:10px}
+.sales-review-modal dt{color:#819188}
+.sales-review-modal dd{margin:0;overflow-wrap:anywhere}
+.sales-review-modal dd.different{font-weight:700;color:#a45e21}
+.sales-review-items{display:grid;gap:12px;margin:16px 0 0;padding:0;list-style:none}
+.sales-review-items>li{padding:15px;border:1px solid #eadfce;border-radius:10px;background:#fffdf8}
+.sales-review-item-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;font-size:12px}
+.sales-review-item-heading>div{display:grid;gap:4px;min-width:0}
+.sales-review-item-heading strong{font-size:14px}
+.sales-review-item-heading>div>span{color:#718276;overflow-wrap:anywhere}
+.sales-review-item-heading>span{flex:none;font-size:11px;color:#9d7439}
+.sales-review-manager{margin:8px 0 0;font-size:11px;color:#829087}
+.sales-review-modal .sales-review-customer{display:flex;align-items:center;gap:5px;margin:13px 0 0 auto;padding:6px 0;border:0;background:transparent;font:inherit;font-size:12px;font-weight:700;color:#26715b;cursor:pointer}
+.sales-review-modal>footer{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:16px 26px;border-top:1px solid #e6ece8;background:#fff}
+.sales-review-modal>footer>span{font-size:11px;line-height:1.6;color:#859086}
+.sales-review-modal :is(button,summary):focus-visible{outline:2px solid #32866a;outline-offset:3px}
+.heading-actions .sales-review-open{border-color:#e5d3b6;background:#fff9eb;color:#94621f}
+@media(max-width:600px){.sales-review-overlay{padding:12px}.sales-review-modal{max-height:calc(100dvh - 24px);border-radius:12px}.sales-review-modal>header{padding:18px 18px 15px}.sales-review-modal h2{font-size:18px}.sales-review-body{padding:15px 18px 18px}.sales-review-modal>footer{padding:14px 18px;align-items:flex-end}.sales-review-modal>footer>span{max-width:150px}.sales-review-item-heading{flex-direction:column;gap:6px}.sales-review-modal dl>div{grid-template-columns:78px minmax(0,1fr);gap:7px}}

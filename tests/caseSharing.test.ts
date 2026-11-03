@@ -56,7 +56,7 @@ for (const member of edited.leads) {
 assert.deepEqual(get(edited, 'a').salesRawPeriods, a.salesRawPeriods)
 assert.equal(get(edited, 'b').salesRawPeriods, undefined, 'Actual edits do not copy RAW')
 assert.equal(get(edited, 'b').caseSharingHistory?.[1].previous.subscriptionAmount, 80, 'Before explicit shared edit the old B manual value is audited')
-assert.equal(financialCaseLeadsFor(edited.leads).reduce((sum, member) => sum + expectedRebateFor(member), 0), 3 + 0, 'Changed lump sum becomes manual once; small subscription rounding stays exact')
+assert.equal(financialCaseLeadsFor(edited.leads).reduce((sum, member) => sum + expectedRebateFor(member), 0), 0, 'Changed manual money remains visible but does not prove an eligible sales route')
 const explicitManager = save(chosen.leads, activeB, { ...baseline, manager: '담당 C', managerEmployeeNo: '103' }, { formBaseline: baseline })
 assert.ok(explicitManager.leads.every(member => member.managerEmployeeNo === '103'))
 assert.equal(get(explicitManager, 'b').subscriptionAmount, 80, 'Assignment-only edits preserve financial originals')

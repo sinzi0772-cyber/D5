@@ -1,5 +1,5 @@
 import type { Lead } from '../types'
-import { customerIdentityKey, isSalesCommissionChannelEligible } from './salesRaw'
+import { customerIdentityKey, isOneWonSaleAmount, isSalesCommissionChannelEligible } from './salesRaw'
 import type { SalesRawCustomer, SalesRawOrder, SalesRawResult } from './salesRaw'
 import { partnerAppointmentExclusionReason } from './partnerAppointments'
 import type { PartnerAppointmentExclusionReason } from './partnerAppointments'
@@ -78,7 +78,7 @@ export interface SalesMatchPlan {
   summary: SalesMatchSummary
 }
 
-const isAdmitted = (order: SalesRawOrder) => order.orderStatus === '확정' || order.orderStatus === '예약' || order.orderStatus === '가예약'
+const isAdmitted = (order: SalesRawOrder) => !isOneWonSaleAmount(order.saleAmount) && (order.orderStatus === '확정' || order.orderStatus === '예약' || order.orderStatus === '가예약')
 const partnerIdentity = (partner: string) => partner.normalize('NFKC').trim().replace(/\s+/g, ' ')
 
 function amountsFor(orders: SalesRawOrder[]): SalesMatchAmounts {
@@ -145,7 +145,7 @@ function returnReviewReasons(orders: SalesRawOrder[]): SalesMatchReason[] {
 function matchCustomer(customer: SalesRawCustomer, candidates: Lead[]): SalesCustomerMatch {
   const admittedOrders = customer.orders.filter(isAdmitted)
   const reasons: SalesMatchReason[] = []
-  const hasUnknownStatus = customer.orders.some(order => order.orderStatus === '기타')
+  const hasUnknownStatus = customer.orders.some(order => !isOneWonSaleAmount(order.saleAmount) && order.orderStatus === '기타')
   if (hasUnknownStatus) reasons.push('unknown-status-orders-excluded')
   const entry: SalesCustomerMatch = {
     disposition: 'excluded', identityKey: customer.identityKey, customerName: customer.customerName,

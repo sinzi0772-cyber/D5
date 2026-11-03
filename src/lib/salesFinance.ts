@@ -87,7 +87,7 @@ export function salesRawAmountsFor(lead: FinancialLead): SalesRawAmounts {
   }
 }
 
-/** Use current RAW evidence or the approved manual amount of a partner appointment. */
+/** Commission uses only current, route-verified order evidence. */
 export function expectedRebateFor(lead: FinancialLead): number {
   return expectedRebateBreakdownFor(lead).total
 }
@@ -143,7 +143,11 @@ export function purchaseAmountSourceFor(lead: FinancialLead, kind: 'lumpSum' | '
   return { kind: current ? 'raw' : hasEnteredAmount ? 'manual' : 'empty', amount, rawAmount }
 }
 
-const isManualPartnerAppointment = (lead: FinancialLead) => lead.appointmentType === '이업종제휴' || lead.appointmentType === '상담예약(이업종)'
+/** Keep manual sales visible, but never assume their order routes are eligible. */
+export function commissionVerificationRequiredFor(lead: FinancialLead): boolean {
+  return isFinancialOwnerFor(lead, 'lumpSum') && lumpSumAmountFor(lead) > 0 && !salesRawAmountsFor(lead).current
+    || isFinancialOwnerFor(lead, 'subscription') && isSubscriptionRebatePartner(lead.partnerName) && subscriptionAmountFor(lead) > 0 && !subscriptionRawAmountsFor(lead).current
+}
 
 function lumpSumCommissionBasisFor(lead: FinancialLead): number {
   const projection = caseFinancialProjections.get(lead)
@@ -151,8 +155,8 @@ function lumpSumCommissionBasisFor(lead: FinancialLead): number {
   if (!isFinancialOwnerFor(lead, 'lumpSum')) return 0
   const raw = salesRawAmountsFor(lead)
   if (raw.current) return Math.max(0, raw.eligibleConfirmed + raw.eligibleReserved + raw.eligibleTentative)
-  // A mismatch is a manual amount, not permission to reuse an old RAW subtotal.
-  return isManualPartnerAppointment(lead) ? lumpSumAmountFor(lead) : 0
+  // A manual amount or a RAW mismatch does not prove an eligible order route.
+  return 0
 }
 
 function subscriptionCommissionBasisFor(lead: FinancialLead): number {
@@ -162,7 +166,7 @@ function subscriptionCommissionBasisFor(lead: FinancialLead): number {
   if (!isSubscriptionRebatePartner(lead.partnerName)) return 0
   const raw = subscriptionRawAmountsFor(lead)
   if (raw.current) return Math.max(0, raw.eligibleConfirmed + raw.eligiblePending)
-  return isManualPartnerAppointment(lead) ? subscriptionAmountFor(lead) : 0
+  return 0
 }
 
 export interface ExpectedRebateBreakdown {

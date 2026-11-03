@@ -3,7 +3,8 @@ import { buildPartnerPreview, canPreviewPartner } from '../src/lib/partnerPrevie
 import { expectedRebateFor } from '../src/lib/salesFinance.ts'
 import type { Lead } from '../src/types.ts'
 
-const lead = (id: string, changes: Partial<Lead> = {}): Lead => ({
+const lead = (id: string, changes: Partial<Lead> = {}): Lead => {
+  const value: Lead = {
   id, customerName: '김준수', phoneLast4: '01012340252', gender: '남',
   registeredAt: '2026-09-04', updatedAt: '2026-10-07',
   partnerName: '(주)다이렉트컴즈', appointmentType: '이업종제휴',
@@ -13,7 +14,24 @@ const lead = (id: string, changes: Partial<Lead> = {}): Lead => ({
   plannerName: '비공개 플래너', note: '비공개 메모',
   memoHistory: [{ id: 'memo', date: '2026-09-06', manager: '비공개 담당자', content: '비공개 상담내용' }],
   ...changes,
-})
+  }
+  // Privacy, category and month tests use purchases verified by eligible RAW routes.
+  return { ...value,
+    salesRawPeriods: value.lumpSumAmount === undefined ? undefined : { '2026-09': {
+      period: '2026-09', sourceHash: 'verified-lump-sum-fixture', importedAt: '2026-10-07',
+      orderCount: 1, confirmedOrderCount: 1, reservedOrderCount: 0,
+      confirmedAmount: value.lumpSumAmount, reservedAmount: 0,
+      eligibleConfirmedAmount: value.lumpSumAmount, eligibleReservedAmount: 0, returnAmount: 0,
+    } },
+    subscriptionRawPeriods: value.subscriptionAmount === undefined ? undefined : { '2026-09': {
+      period: '2026-09', sourceHash: 'verified-subscription-fixture', importedAt: '2026-10-07',
+      itemCount: 1, confirmedItemCount: 1, pendingItemCount: 0,
+      confirmedBasisAmount: value.subscriptionAmount, pendingBasisAmount: 0,
+      eligibleConfirmedBasisAmount: value.subscriptionAmount, eligiblePendingBasisAmount: 0,
+      includedStatuses: ['주문확정'], missingBasisItemCount: 0, rejectedProofItemCount: 0,
+    } },
+  }
+}
 
 for (const role of ['admin', 'store_manager', 'assistant_manager', 'manager']) assert.equal(canPreviewPartner(role), true)
 for (const role of [null, undefined, {}, 1, 'partner', 'demo_admin', '', 'ADMIN', ' admin ']) assert.equal(canPreviewPartner(role), false)
@@ -40,7 +58,7 @@ assert.equal(direct.customers.find(customer => customer.label.startsWith('김'))
 assert.equal(direct.customers.find(customer => customer.status === '관리중')?.expectedCommission, null)
 assert.equal(direct.customers.find(customer => customer.status === '관리중')?.expectedSettlementMonth, null)
 assert.equal(direct.settlements.reduce((sum, bucket) => sum + bucket.expectedCommission, 0) + direct.undatedExpectedCommission, direct.completedExpectedCommission)
-assert.deepEqual(direct.customers.map(customer => Object.keys(customer).sort()), direct.customers.map(() => ['key', 'label', 'registeredAt', 'status', 'deliveryScheduledDate', 'expectedCommission', 'expectedSettlementMonth', 'basisRequired', 'basisReason'].sort()))
+assert.deepEqual(direct.customers.map(customer => Object.keys(customer).sort()), direct.customers.map(customer => ['key', 'label', 'registeredAt', 'status', 'deliveryScheduledDate', 'expectedCommission', 'expectedSettlementMonth', 'basisRequired', 'basisReason', ...(customer.salesChannels ? ['salesChannels'] : [])].sort()))
 const serialized = JSON.stringify(direct)
 for (const forbidden of ['lumpSumAmount', 'subscriptionAmount', 'purchaseAmount', 'purchaseType', 'salesRawPeriods', 'subscriptionRawPeriods', 'customerName', 'phoneLast4', 'manager', 'memoHistory', 'plannerName', 'note', 'source-김준수', '김준수', '01012340252', '비공개', '7777', '8888']) assert.equal(serialized.includes(forbidden), false, `Do not project ${forbidden}`)
 assert.equal(JSON.stringify(rows), before)
@@ -119,4 +137,25 @@ for (const ownStatus of ['구매완료', '관리중'] as const) {
     }
   }
 }
-console.log('partnerPreview tests passed: exact staff capability, canonical company/month scope, linked cases, safe projection, preserved fees and planned settlement')
+const routeLead = lead('route-own', { partnerName: '아이웨딩', purchaseType: '일시불', subscriptionAmount: undefined, lumpSumAmount: 100000 })
+routeLead.salesRawPeriods!['2026-09'].channels = [
+  { channel1: '고객인증서비스(웨딩)', channel2: '웨딩박람회(내부)', orderCount: 1, amount: 60000 },
+  { channel1: '매장방문', channel2: '일반상담', orderCount: 1, amount: 40000 },
+]
+const routeBefore = JSON.stringify(routeLead)
+const routeModel = buildPartnerPreview([routeLead], '아이웨딩', '2026-09')
+assert.deepEqual(routeModel.customers[0].salesChannels, [
+  { kind: 'lumpSum', period: '2026-09', status: 'eligible', channel1: '고객인증서비스(웨딩)', channel2: '웨딩박람회(내부)' },
+  { kind: 'lumpSum', period: '2026-09', status: 'mismatch', channel1: '매장방문', channel2: '일반상담' },
+])
+for (const forbidden of ['amountCurrent', 'orderCount', 'sourceHash', '60000', '40000']) assert.equal(JSON.stringify(routeModel.customers[0].salesChannels).includes(forbidden), false)
+assert.equal(JSON.stringify(routeLead), routeBefore)
+const unused = { ...routeLead, id: 'unused', caseGroupId: 'route-group', caseBasisLeadId: 'route-own', salesRawPeriods: { '2026-09': { ...routeLead.salesRawPeriods!['2026-09'], channels: [{ channel1: '표시하지 않는 원본 경로', channel2: '별도 경로', orderCount: 1, amount: 100000 }] } } }
+const selectedRoutes = buildPartnerPreview([{ ...routeLead, caseGroupId: 'route-group', caseBasisLeadId: 'route-own' }, unused], '아이웨딩', '2026-09')
+assert.equal(JSON.stringify(selectedRoutes).includes('표시하지 않는 원본 경로'), false, 'Unselected originals cannot supply displayed routes')
+const mergedRoutes = buildPartnerPreview([{ ...routeLead, caseGroupId: 'route-group', caseBasisLeadId: 'route-own', caseMergeMemberIds: ['route-own', 'unused'] }, { ...unused, caseMergeMemberIds: ['route-own', 'unused'] }], '아이웨딩', '2026-09')
+assert.equal(mergedRoutes.customers[0].salesChannels?.length, 3, 'Only explicit monetary merge exposes both own originals route evidence')
+const redactedRoutes = buildPartnerPreview([{ ...routeLead, caseGroupId: 'foreign-route', caseBasisLeadId: 'foreign-basis' }, { ...unused, id: 'foreign-basis', partnerName: '다른 업체', caseGroupId: 'foreign-route', caseBasisLeadId: 'foreign-basis' }], '아이웨딩', '2026-09')
+assert.equal(redactedRoutes.customers[0].salesChannels, undefined)
+assert.equal(JSON.stringify(redactedRoutes).includes('표시하지 않는 원본 경로'), false, 'Foreign selected route evidence is never disclosed')
+console.log('partnerPreview tests passed: exact tenant scope, selected route evidence, no amounts/foreign paths, preserved fees and originals')

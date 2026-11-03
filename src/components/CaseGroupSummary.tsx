@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useId, useRef, useState, type ReactNode } from 'react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import type { Lead } from '../types'
 import { customerDisplayLabel } from '../lib/customerDisplay'
 
@@ -21,10 +22,15 @@ interface CaseGroupSummaryProps {
 
 /** Display only: choice and save behavior remain owned by the editor. */
 export function CaseGroupSummary({ members, activeLeadId, basisLabel, basisLeadId, amountMode, pendingReason, staged, choiceOpen, disabled, onChoose, onSelectMember, onUnlink, unlinkBusy, children }: CaseGroupSummaryProps) {
+  const [expanded, setExpanded] = useState(true)
+  const contentId = useId()
+  const originals = useRef<HTMLDetailsElement>(null)
+  const originalsToggle = useRef<HTMLElement>(null)
   const pending = amountMode === 'pending'
   const memberStatus = (member: Lead) => !pending && basisLeadId && member.id !== basisLeadId ? '집계 제외' : member.status
   return <section className={`linked-case case-group-summary${pending ? ' case-group-pending' : ''}`} aria-label="묶음 고객 요약">
-    <header><h3>묶음 고객</h3><span>1명으로 집계</span></header>
+    <header><h3>묶음 고객</h3><div className="case-group-heading-actions"><span>1명으로 집계</span><button type="button" className="case-group-toggle" aria-label={expanded ? '묶음 고객 접기' : '묶음 고객 펼치기'} aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(!expanded)}>{expanded ? '접기' : '펼치기'}{expanded ? <ChevronUp size={14} aria-hidden="true"/> : <ChevronDown size={14} aria-hidden="true"/>}</button></div></header>
+    <div id={contentId} className="case-group-content" hidden={!expanded}>
     <div className="case-group-members" aria-label="묶인 고객">
       {members.map(member => onSelectMember
         ? <button type="button" key={member.id} className={member.id === activeLeadId ? 'active' : ''} aria-pressed={member.id === activeLeadId} disabled={disabled || unlinkBusy} onClick={() => onSelectMember(member)}><span>{customerDisplayLabel(member)}</span><small title={`원본 상태: ${member.status}`}>{memberStatus(member)}</small></button>
@@ -36,11 +42,13 @@ export function CaseGroupSummary({ members, activeLeadId, basisLabel, basisLeadI
     </div>
     {pending ? <p className="case-group-warning" role="status">{pendingReason || '기준 고객을 선택해주세요.'}</p> : null}
     {!onChoose ? <p className="case-group-help">선택 변경은 관리자에게 요청해주세요.</p> : staged ? <p className="case-group-help">변경사항 저장 시 반영됩니다.</p> : null}
-    <details className="case-original-values">
-      <summary>원본 기록 {members.length}개 · 더보기</summary>
+    <details className="case-original-values" ref={originals}>
+      <summary ref={originalsToggle}>원본 기록 {members.length}개 · 더보기</summary>
       <p>원본·수기 입력·이력은 보존합니다. 정산은 기준 고객의 상태·배송일을 따릅니다.</p>
       {children}
       {onUnlink ? <button type="button" className="unlink-case" disabled={disabled || unlinkBusy} onClick={onUnlink}>{unlinkBusy ? '해제 중...' : members.length === 2 ? '두 고객 연결 해제' : '이 고객만 연결 해제'}</button> : null}
+      <button type="button" className="case-original-close" onClick={() => { if (originals.current) originals.current.open = false; originalsToggle.current?.focus() }}>원본 기록 닫기<ChevronUp size={13} aria-hidden="true"/></button>
     </details>
+    </div>
   </section>
 }

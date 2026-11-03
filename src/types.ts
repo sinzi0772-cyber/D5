@@ -29,6 +29,16 @@ export interface CaseSharingHistory {
   }
 }
 
+/** Actual source routes grouped without customer details or order identifiers. */
+export interface SalesChannelSummary {
+  channel1: string
+  channel2: string
+  orderCount: number
+  itemCount?: number
+  /** Null means at least one component amount is missing. Never substitute zero. */
+  amount: number | null
+}
+
 /** Customer-level RAW totals. Source phone numbers and order identifiers are not stored. */
 export interface SalesRawPeriod {
   period: string
@@ -47,6 +57,7 @@ export interface SalesRawPeriod {
   /** Original order stages remain distinct; these stages count as business sales. */
   completedStatuses?: readonly string[]
   returnAmount: number
+  channels?: readonly SalesChannelSummary[]
 }
 
 /** Subscription amounts use membership-benefit basis, not monthly fees or shipment prices. */
@@ -65,6 +76,7 @@ export interface SubscriptionRawPeriod {
   missingBasisItemCount: number
   /** Reference count only: rejected proof is included in eligible-route commission. */
   rejectedProofItemCount: number
+  channels?: readonly SalesChannelSummary[]
 }
 
 export interface Lead {

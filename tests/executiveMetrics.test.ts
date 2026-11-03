@@ -39,7 +39,7 @@ assert.equal(metrics.current.closed, 1)
 assert.equal(metrics.current.canceled, 1)
 assert.equal(metrics.current.conversionRate, 25)
 assert.equal(metrics.current.sales, 1_000_000, 'Only completed customer amounts are sales')
-assert.equal(metrics.current.expectedCommission, 160_000, 'Manual partner-appointment lump-sum amounts are included while ineligible subscription partners remain excluded')
+assert.equal(metrics.current.expectedCommission, 0, 'Manual amounts without matching RAW sales routes stay out of commission while sale totals remain intact')
 assert.equal(metrics.current.missingAmounts, 1)
 assert.equal(metrics.previous.cases, 1, 'Cross-month linked group belongs only to earliest intake month')
 assert.equal(metrics.previous.customerCount, 1)
@@ -78,7 +78,7 @@ assert.equal(partnerBAugust.current.cases, 1, 'Partner B keeps the complete grou
 assert.equal(partnerBAugust.current.customerCount, 1, 'Partner filter includes only its own customer')
 assert.equal(partnerBAugust.current.completed, 1)
 assert.equal(partnerBAugust.current.sales, 1_000_000)
-assert.equal(partnerBAugust.current.expectedCommission, 20_000, 'A manual lump-sum partner appointment is calculated from its own current amount')
+assert.equal(partnerBAugust.current.expectedCommission, 0, 'A partner appointment alone does not verify the manual purchase sales route')
 assert.equal(partnerBSeptember.current.cases, 1, 'The later linked member does not become a new September case')
 assert.equal(partnerBSeptember.current.completed, 0)
 assert.equal(partnerBSeptember.previous.cases, 1)
@@ -164,7 +164,7 @@ assert.equal(rawMetrics.managers.reduce((total, row) => total + executiveTotalSa
 const changedManualTotal = buildExecutiveMetrics([rawRows[3]], '2026-09', '2026-10-04').current
 assert.equal(changedManualTotal.reservedSales, 0, 'A changed manual amount does not retain old RAW pending money')
 assert.equal(executiveTotalSalesFor(changedManualTotal), 4_000_000, 'Current manual amount replaces stale RAW confirmed and pending bases')
-assert.equal(rawMetrics.current.expectedCommission, 180_000, 'Expected commission uses current RAW bases and current manual amounts without reusing stale RAW evidence')
+assert.equal(rawMetrics.current.expectedCommission, 70_000, 'Only current eligible RAW bases contribute; manual subscription and mismatched lump-sum amounts do not')
 assert.equal(rawMetrics.current.completed, 2, 'RAW financial evidence does not change manual outcome counts')
 assert.equal(rawMetrics.current.active, 1)
 assert.equal(rawMetrics.current.canceled, 1)
@@ -172,7 +172,7 @@ assert.equal(rawMetrics.current.completedCustomers, 2)
 assert.equal(rawMetrics.current.managementRecords, 1)
 assert.equal(rawMetrics.managers.find(row => row.name === 'A')?.sales, 2_000_000)
 assert.equal(rawMetrics.managers.find(row => row.name === 'A')?.reservedSales, 1_000_000)
-assert.equal(rawMetrics.managers.find(row => row.name === 'A')?.expectedCommission, 75_000, 'Expected manual subscription commission is independent of customer completion')
+assert.equal(rawMetrics.managers.find(row => row.name === 'A')?.expectedCommission, 60_000, 'Verified lump-sum money contributes while an unverified manual subscription does not')
 assert.equal(rawMetrics.partners.reduce((total, row) => total + row.sales, 0), rawMetrics.current.sales)
 assert.equal(rawMetrics.partners.reduce((total, row) => total + row.reservedSales, 0), rawMetrics.current.reservedSales)
 assert.equal(rawMetrics.partners.reduce((total, row) => total + row.expectedCommission, 0), rawMetrics.current.expectedCommission)
@@ -395,8 +395,8 @@ for (const row of getTopCommissionPartners(crossCompanyFinancialMetrics.partners
 for (const status of ['관리중', '구매완료', '상담 마감', '취소'] as const) {
   const manualSubscription = lead(`manual-subscription-${status}`, { status, manager: '담당', purchaseType: '구독', subscriptionAmount: 100 })
   const manualMetrics = buildExecutiveMetrics([manualSubscription], '2026-09', '2026-10-07')
-  assert.equal(manualMetrics.current.expectedCommission, expectedRebateFor(manualSubscription), 'Permitted manual subscription estimates must match purchase information for every customer status')
-  assert.equal(manualMetrics.current.expectedCommission, 2)
+  assert.equal(manualMetrics.current.expectedCommission, expectedRebateFor(manualSubscription), 'Dashboard and purchase information enforce the same route evidence for every status')
+  assert.equal(manualMetrics.current.expectedCommission, 0, 'A manual subscription amount alone never proves an eligible order route')
   assert.equal(manualMetrics.current.sales, status === '구매완료' ? 100 : 0, 'The existing manual sales-completion rule stays unchanged')
   assert.equal(manualMetrics.current.completed, status === '구매완료' ? 1 : 0)
 }
@@ -409,7 +409,9 @@ for (const appointmentType of [undefined, '미선택'] as const) {
 }
 
 const totalSalesRankingRows = [
-  lead('cash-ranking', { status: '구매완료', manager: 'A', partnerName: '일시불 합성 업체', purchaseType: '일시불', lumpSumAmount: 250000, deliveryScheduledDate: '2026-09-30' }),
+  lead('cash-ranking', { status: '구매완료', manager: 'A', partnerName: '일시불 합성 업체', purchaseType: '일시불', lumpSumAmount: 250000, deliveryScheduledDate: '2026-09-30',
+    salesRawPeriods: { '2026-09': rawPeriod({ orderCount: 1, confirmedOrderCount: 1, reservedOrderCount: 0, confirmedAmount: 250000, reservedAmount: 0, eligibleConfirmedAmount: 250000, eligibleReservedAmount: 0 }) },
+  }),
   lead('subscription-ranking', { status: '구매완료', manager: 'B', purchaseType: '구독', subscriptionAmount: 300000, deliveryScheduledDate: '2026-09-30',
     subscriptionRawPeriods: { '2026-09': { ...subscriptionRows[0].subscriptionRawPeriods!['2026-09'], confirmedBasisAmount: 100000, pendingBasisAmount: 200000, eligibleConfirmedBasisAmount: 100000, eligiblePendingBasisAmount: 200000 } },
   }),
@@ -468,7 +470,9 @@ assert.equal(chosenEmptyMetrics.current.completed, 0)
 assert.equal(chosenEmptyMetrics.current.missingAmounts, 0)
 assert.deepEqual(chosenEmptyMetrics.managers.map(row => row.name), ['선택 담당'])
 
-const mergedStatusRows = chosenEmptyRows.map(row => ({ ...row, caseMergeMemberIds: ['empty-chosen', 'empty-excluded'], purchaseType: '일시불' as const, lumpSumAmount: 100000 }))
+const mergedStatusRows = chosenEmptyRows.map(row => ({ ...row, caseMergeMemberIds: ['empty-chosen', 'empty-excluded'], purchaseType: '일시불' as const, lumpSumAmount: 100000,
+  salesRawPeriods: { '2026-09': rawPeriod({ orderCount: 1, confirmedOrderCount: 1, reservedOrderCount: 0, confirmedAmount: 100000, reservedAmount: 0, eligibleConfirmedAmount: 100000, eligibleReservedAmount: 0 }) },
+}))
 const mergedStatusMetrics = buildExecutiveMetrics(mergedStatusRows, '2026-09', '2026-10-19')
 assert.equal(mergedStatusMetrics.current.closed, 1, 'Explicit purchase-amount addition never combines both members operational statuses')
 assert.equal(mergedStatusMetrics.current.completed, 0)

@@ -4,7 +4,8 @@ import { expectedRebateFor } from '../src/lib/salesFinance.ts'
 import type { Lead } from '../src/types.ts'
 
 const publishedAt = '2026-10-09T05:10:00.000Z'
-const lead = (id: string, changes: Partial<Lead> = {}): Lead => ({
+const lead = (id: string, changes: Partial<Lead> = {}): Lead => {
+  const value: Lead = {
   id, registeredAt: '2026-09-21', updatedAt: publishedAt,
   customerName: '김준수', phoneLast4: '01012340252', gender: '남',
   partnerName: IWEDDING_PARTNER_NAME, appointmentType: '이업종제휴',
@@ -13,7 +14,24 @@ const lead = (id: string, changes: Partial<Lead> = {}): Lead => ({
   manager: '비공개 담당자', managerEmployeeNo: '98765', plannerName: '비공개 플래너',
   note: '비공개 상담 메모', memoHistory: [{ id: 'private-memo', date: '2026-10-01', manager: '비공개 담당자', content: '비공개 상담 내용' }],
   ...changes,
-})
+  }
+  // Publication privacy and month tests need eligible RAW evidence, not a manual fallback.
+  return { ...value,
+    salesRawPeriods: value.lumpSumAmount === undefined ? undefined : { '2026-09': {
+      period: '2026-09', sourceHash: 'verified-lump-sum-fixture', importedAt: publishedAt,
+      orderCount: 1, confirmedOrderCount: 1, reservedOrderCount: 0,
+      confirmedAmount: value.lumpSumAmount, reservedAmount: 0,
+      eligibleConfirmedAmount: value.lumpSumAmount, eligibleReservedAmount: 0, returnAmount: 0,
+    } },
+    subscriptionRawPeriods: value.subscriptionAmount === undefined ? undefined : { '2026-09': {
+      period: '2026-09', sourceHash: 'verified-subscription-fixture', importedAt: publishedAt,
+      itemCount: 1, confirmedItemCount: 1, pendingItemCount: 0,
+      confirmedBasisAmount: value.subscriptionAmount, pendingBasisAmount: 0,
+      eligibleConfirmedBasisAmount: value.subscriptionAmount, eligiblePendingBasisAmount: 0,
+      includedStatuses: ['주문확정'], missingBasisItemCount: 0, rejectedProofItemCount: 0,
+    } },
+  }
+}
 const rows = Object.freeze([
   Object.freeze(lead('foreign-01099998888', { partnerName: '(주)다이렉트컴즈', customerName: '다른회사김영희', phoneLast4: '8888', registeredAt: '2026-08-31', caseGroupId: 'private-shared-case', lumpSumAmount: 99999999 })),
   Object.freeze(lead('own-later-private-id', { partnerName: '아이웨딩', registeredAt: '2026-09-01', caseGroupId: 'private-shared-case', deliveryScheduledDate: '2026-12-31' })),
@@ -95,8 +113,33 @@ invalid(value => { value.months[1].customers.find((customer: any) => customer.ba
 invalid(value => { value.months[1].customers.find((customer: any) => customer.basisRequired).deliveryScheduledDate = '2026-09-30' })
 invalid(value => { delete value.months[1].customers[0].basisReason })
 const legacy = JSON.parse(JSON.stringify(buildPartnerPublication([lead('legacy')], IWEDDING_PARTNER_ID, publishedAt)))
-for (const model of legacy.months) { delete model.basisRequiredCount; for (const customer of model.customers) { delete customer.basisRequired; delete customer.basisReason } }
+for (const model of legacy.months) { delete model.basisRequiredCount; for (const customer of model.customers) { delete customer.basisRequired; delete customer.basisReason; delete customer.salesChannels } }
 assert.deepEqual(parsePartnerPublication(legacy, IWEDDING_PARTNER_ID), legacy, 'Strict older schema-1 publications remain readable without new confirmation fields')
+const channelLead = lead('route-proof', { purchaseType: '일시불', lumpSumAmount: 100000, subscriptionAmount: undefined })
+channelLead.salesRawPeriods!['2026-09'].channels = [{ channel1: '고객인증서비스(웨딩)', channel2: '웨딩업체연결(수수료지급)', orderCount: 1, amount: 100000 }]
+const channelPublication = buildPartnerPublication([channelLead], IWEDDING_PARTNER_ID, publishedAt)
+assert.deepEqual(parsePartnerPublication(channelPublication, IWEDDING_PARTNER_ID), channelPublication)
+assert.deepEqual(Object.keys(channelPublication.months[0].customers[0].salesChannels![0]).sort(), ['kind', 'period', 'status', 'channel1', 'channel2'].sort())
+for (const mutate of [
+  (route: any) => { route.amount = 100000 },
+  (route: any) => { route.orderCount = 1 },
+  (route: any) => { route.ownerId = 'private-source' },
+  (route: any) => { route.status = 'mismatch' },
+  (route: any) => { route.kind = 'cash' },
+  (route: any) => { route.period = '2026-13' },
+  (route: any) => { route.channel1 = 'a'.repeat(201) },
+  (route: any) => { route.channel2 = '줄바꿈\n경로' },
+  (route: any) => { route.channel2 = '  웨딩박람회(내부)' },
+]) {
+  const tampered = JSON.parse(JSON.stringify(channelPublication)); mutate(tampered.months[0].customers[0].salesChannels[0])
+  assert.equal(parsePartnerPublication(tampered, IWEDDING_PARTNER_ID), null, 'Route fields are bounded and route verdict cannot be spoofed')
+}
+const duplicateRoutes = JSON.parse(JSON.stringify(channelPublication))
+duplicateRoutes.months[0].customers[0].salesChannels.push(duplicateRoutes.months[0].customers[0].salesChannels[0])
+assert.equal(parsePartnerPublication(duplicateRoutes, IWEDDING_PARTNER_ID), null)
+invalid(value => { value.months[1].customers.find((customer: any) => customer.basisRequired).salesChannels = channelPublication.months[0].customers[0].salesChannels })
+const oldRouteFree = JSON.parse(JSON.stringify(channelPublication)); delete oldRouteFree.months[0].customers[0].salesChannels
+assert.deepEqual(parsePartnerPublication(oldRouteFree, IWEDDING_PARTNER_ID), oldRouteFree, 'A prior publication without route metadata remains readable')
 
 const categoryRows = [
   lead('own-complete'),

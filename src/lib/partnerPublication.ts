@@ -1,7 +1,8 @@
 import type { Lead, LeadStatus } from '../types'
 import { STATUSES } from '../types'
 import { expectedSettlementMonthFor, isValidDeliveryDate } from './commissionSettlement'
-import { buildPartnerPreview, getPartnerPreviewMonths, type PartnerPreviewCustomer, type PartnerPreviewModel, type PartnerPreviewSettlement } from './partnerPreview'
+import { buildPartnerPreview, getPartnerPreviewMonths, type PartnerPreviewCustomer, type PartnerPreviewModel, type PartnerPreviewSettlement, type PartnerSalesChannel } from './partnerPreview'
+import { isSalesCommissionChannelEligible } from './salesRaw'
 
 /** One explicitly approved tenant. This is not a client-selectable company registry. */
 export const IWEDDING_PARTNER_ID = 'iwedding'
@@ -23,6 +24,7 @@ const rootKeys = ['schemaVersion', 'partnerId', 'partnerName', 'publishedAt', 'm
 const modelKeys = ['partnerName', 'intakeMonth', 'receiptCount', 'customerCount', 'completedCount', 'activeCount', 'completedExpectedCommission', 'undatedExpectedCommission', 'undatedCustomerCount', 'settlements', 'customers']
 const customerKeys = ['key', 'label', 'registeredAt', 'status', 'deliveryScheduledDate', 'expectedCommission', 'expectedSettlementMonth']
 const settlementKeys = ['month', 'expectedCommission', 'customerCount']
+const channelKeys = ['kind', 'period', 'status', 'channel1', 'channel2']
 const validIntakeMonth = (value: unknown): value is string => typeof value === 'string' && /^(?!0000)\d{4}-(0[1-9]|1[0-2])$/.test(value)
 const validCount = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= MAX_PARTNER_PUBLICATION_CUSTOMERS
 const validFee = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
@@ -48,7 +50,9 @@ function validPublishedAt(value: unknown): value is string {
 
 function parseCustomer(value: unknown, index: number): PartnerPreviewCustomer | null {
   const enhanced = !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'basisRequired')
-  if (!exactDataRecord(value, enhanced ? [...customerKeys, 'basisRequired', 'basisReason'] : customerKeys)) return null
+  const hasChannels = !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'salesChannels')
+  const keys = enhanced ? [...customerKeys, 'basisRequired', 'basisReason'] : customerKeys
+  if (!exactDataRecord(value, hasChannels ? [...keys, 'salesChannels'] : keys)) return null
   if (value.key !== `customer-${index + 1}` || !safeDisplayLabel(value.label)) return null
   if (value.registeredAt !== null && !isValidDeliveryDate(value.registeredAt)) return null
   if (typeof value.status !== 'string' || !STATUSES.includes(value.status as LeadStatus)) return null
@@ -56,6 +60,24 @@ function parseCustomer(value: unknown, index: number): PartnerPreviewCustomer | 
   const completed = value.status === '구매완료'
   if (enhanced && (typeof value.basisRequired !== 'boolean' || value.basisReason !== (value.basisRequired ? '기준 고객 확인 필요' : null))) return null
   const required = enhanced && value.basisRequired === true
+  let salesChannels: PartnerSalesChannel[] | undefined
+  if (hasChannels) {
+    if (required || !Array.isArray(value.salesChannels) || value.salesChannels.length < 1 || value.salesChannels.length > 240) return null
+    salesChannels = []
+    const seen = new Set<string>()
+    for (const entry of value.salesChannels) {
+      if (!exactDataRecord(entry, channelKeys) || entry.kind !== 'lumpSum' && entry.kind !== 'subscription') return null
+      if (entry.period !== null && !validIntakeMonth(entry.period)) return null
+      if (![entry.channel1, entry.channel2].every(label => typeof label === 'string' && label.length <= 200 && label.trim() === label && !/[\p{C}]/u.test(label))) return null
+      const channel1 = entry.channel1 as string, channel2 = entry.channel2 as string
+      const status = !channel1 || !channel2 ? 'unverified' : isSalesCommissionChannelEligible(channel1, channel2) ? 'eligible' : 'mismatch'
+      if (entry.status !== status) return null
+      const route: PartnerSalesChannel = { kind: entry.kind as PartnerSalesChannel['kind'], period: entry.period as string | null, status, channel1, channel2 }
+      const key = JSON.stringify(route)
+      if (seen.has(key)) return null
+      seen.add(key); salesChannels.push(route)
+    }
+  }
   if (required && (value.expectedCommission !== null || value.deliveryScheduledDate !== null || value.expectedSettlementMonth !== null)) return null
   if (!required && (completed ? !validFee(value.expectedCommission) : value.expectedCommission !== null)) return null
   const expectedMonth = completed && !required ? expectedSettlementMonthFor({ deliveryScheduledDate: value.deliveryScheduledDate as string | undefined }) : null
@@ -69,6 +91,7 @@ function parseCustomer(value: unknown, index: number): PartnerPreviewCustomer | 
     expectedCommission: value.expectedCommission as number | null,
     expectedSettlementMonth: expectedMonth,
     ...(enhanced ? { basisRequired: required, basisReason: required ? '기준 고객 확인 필요' as const : null } : {}),
+    ...(salesChannels ? { salesChannels } : {}),
   }
 }
 

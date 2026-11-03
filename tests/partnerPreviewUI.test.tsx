@@ -10,6 +10,11 @@ const rows: Lead[] = [{
   partnerName: '(주)다이렉트컴즈', appointmentType: '이업종제휴',
   status: '구매완료', visitState: '방문', deliveryScheduledDate: '2026-09-30',
   purchaseType: '일시불', lumpSumAmount: 20864000,
+  salesRawPeriods: { '2026-09': {
+    period: '2026-09', sourceHash: 'verified-route-ui-fixture', importedAt: '2026-10-08',
+    orderCount: 1, confirmedOrderCount: 1, reservedOrderCount: 0,
+    confirmedAmount: 20864000, reservedAmount: 0, eligibleConfirmedAmount: 20864000, eligibleReservedAmount: 0, returnAmount: 0,
+  } },
   manager: '비공개 담당자', managerEmployeeNo: '98765', note: '비공개 상담 메모',
 }, {
   id: 'active-id', registeredAt: '2026-09-20', updatedAt: '2026-10-08',
@@ -87,4 +92,13 @@ assert.equal(pendingMarkup.includes('0원'), false, 'Pending basis is not presen
 assert.equal(pendingMarkup.includes('박** / 4444'), false, 'One safe display identity, not a second customer row')
 const pendingTable = [...pendingMarkup.matchAll(/<table\b([^>]*)>([\s\S]*?)<\/table>/g)].find(([, attributes]) => attributes.includes('aria-label="연결 고객 목록"'))!
 assert.equal((pendingTable[2].match(/<tbody>([\s\S]*?)<\/tbody>/)?.[1].match(/<tr\b/g) || []).length, 1)
-console.log('partnerPreview UI tests passed: masked customers, fee-only output, accessible read-only sorting, immutable models and empty-company isolation')
+const routeModel = { ...model, customers: [{ ...model.customers[0], salesChannels: [
+  { kind: 'lumpSum' as const, period: '2026-09', status: 'mismatch' as const, channel1: '매장방문', channel2: '일반상담' },
+  { kind: 'subscription' as const, period: '2026-09', status: 'eligible' as const, channel1: '고객인증서비스(웨딩)', channel2: '웨딩박람회(내부)' },
+] }] }
+const routeMarkup = renderToStaticMarkup(<PartnerPreview model={routeModel}/>)
+for (const label of ['판매경로 · 경로 불일치', '매장방문', '일반상담', '경로 일치', '일시불', '구독']) assert(routeMarkup.includes(label))
+assert.match(routeMarkup, /<details class="partner-preview-sales-channels has-mismatch">/)
+assert(!routeMarkup.includes('<details open'), 'Sales route details stay compact until opened')
+assert(!routeMarkup.includes('20,864,000'), 'Showing actual routes must not expose total sales amounts')
+console.log('partnerPreview UI tests passed: safe compact route details, masked customers, sorting and immutable models')
