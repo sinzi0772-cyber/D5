@@ -73,7 +73,7 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
     {loading ? <p role="status">업체 자료를 확인하는 중입니다.</p> : error ? <p className="partner-portal-error" role="alert">{error}</p> : null}
     {selected ? <PartnerPreview model={selected} presentation="portal"/> : publication && !loading && !error ? <section className="partner-preview partner-preview-portal"><p>연결 고객 자료가 없습니다.</p></section> : null}
     {publication ? <details className="partner-portal-info"><summary>자료 갱신 정보</summary><div><span>자료 갱신 {stamp(publication.publishedAt)}</span>{checkedAt ? <span>서버 확인 {stamp(checkedAt)}</span> : null}</div><p className="partner-portal-note">묶음은 선택한 기준으로 계산합니다. ‘자료 확인’은 관리자가 갱신한 최신 게시본을 조회합니다.</p></details> : null}
-    {settlementGuideOpen ? <SettlementGuideModal onClose={closeSettlementGuide}/> : null}
+    {settlementGuideOpen ? <SettlementGuideModal onClose={closeSettlementGuide} audience="partner"/> : null}
     {updateHistoryOpen ? <UpdateHistoryModal onClose={closeUpdateHistory}/> : null}
   </main>
 }

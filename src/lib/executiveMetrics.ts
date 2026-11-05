@@ -1,4 +1,5 @@
 import type { Lead } from '../types'
+import { managementMemoEntriesFor } from './memoHistory'
 import { completedSalesFor, expectedRebateFor, financialPendingAmountFor, totalPurchaseAmountFor } from './salesFinance'
 import { caseBasisGroupsFor, financialCaseLeadFor } from './caseBasis'
 import { canonicalPartnerName } from './partners'
@@ -49,7 +50,7 @@ const dateOnly = (value?: string): string => {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? date : ''
 }
 const validMonth = (month: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(month)
-const memoCount = (lead: Lead) => lead.memoHistory?.length || (lead.note?.trim() ? 1 : 0)
+const memoCount = (lead: Lead) => managementMemoEntriesFor(lead).length
 const groupCases = (leads: readonly Lead[]): ScopedCase[] => caseBasisGroupsFor(leads).map(group => ({ ...group, visibleMembers: group.members }))
 const casesForMonth = (cases: readonly ScopedCase[], month: string) => cases.filter(item => dateOnly(item.registeredAt).startsWith(`${month}-`))
 const casesForPartner = (cases: readonly ScopedCase[], partnerName?: string): ScopedCase[] => partnerName
@@ -98,8 +99,9 @@ export const getExecutiveMonthCaseLeads = (leads: readonly Lead[], month: string
   .flatMap(item => { const lead = operationalLead(item); return lead ? [lead] : [] })
 const previousMonthFor = (month: string) => { const [year, number] = month.split('-').map(Number); return new Date(Date.UTC(year, number - 2, 1)).toISOString().slice(0, 7) }
 const latestManagementDate = (lead: Lead) => {
-  const memoDates = (lead.memoHistory || []).map(memo => dateOnly(memo.date)).filter(Boolean).sort()
-  return memoDates.at(-1) || (lead.note?.trim() ? dateOnly(lead.updatedAt) : '') || dateOnly(lead.registeredAt)
+  const managementMemos = managementMemoEntriesFor(lead)
+  const memoDates = managementMemos.map(memo => dateOnly(memo.date)).filter(Boolean).sort()
+  return memoDates.at(-1) || (managementMemos.length && lead.note?.trim() ? dateOnly(lead.updatedAt) : '') || dateOnly(lead.registeredAt)
 }
 export const buildExecutiveMetrics = (leads: readonly Lead[], month: string, today: string, partnerName?: string): ExecutiveMetrics => {
   if (!validMonth(month)) throw new RangeError('접수월은 YYYY-MM 형식이어야 합니다.')

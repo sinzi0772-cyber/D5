@@ -1,5 +1,6 @@
 import { customerIdentityKey, isOneWonSaleAmount, isSalesCommissionChannelEligible, maskCustomerName, readTsv } from './salesRaw'
 import type { SalesRawIssue } from './salesRaw'
+import { saleDateFromColumns } from './purchaseDates'
 
 export type SubscriptionRawDisposition = 'confirmed' | 'reserved' | 'excluded' | 'review'
 export interface SubscriptionRawOptions {
@@ -19,6 +20,8 @@ export interface SubscriptionRawItem {
   customerName: string
   phoneLast4: string
   orderDate: string
+  /** Explicit source 판매일/판매일자; never substituted with 주문일자. */
+  saleDate?: string
   orderStatusLabel: string
   contractStatusLabel: string
   logisticsStatusLabel: string
@@ -188,10 +191,11 @@ export function parseSubscriptionRaw(text: string, options: SubscriptionRawOptio
     if (quantityText && quantity === null) issues.push({ severity: 'warning', code: 'invalid-quantity', rowNumber, message: '수량을 읽을 수 없습니다. 표시된 멤버십혜택 기준금액만 사용합니다.' })
     const evidenceApprovalStatus = field('경로판촉증빙승인여부')
     const isEvidenceRejected = /반려|거절|불승인/.test(evidenceApprovalStatus)
+    const saleDate = saleDateFromColumns(field)
     const item: SubscriptionRawItem = {
       rowNumber, itemReference, orderReference, lineReference, identityKey,
       customerName: maskCustomerName(field('구매고객명')), phoneLast4: field('전화번호').replace(/\D/g, '').slice(-4),
-      orderDate, orderStatusLabel, contractStatusLabel, logisticsStatusLabel, disposition, statusDisposition,
+      orderDate, ...(saleDate ? { saleDate } : {}), orderStatusLabel, contractStatusLabel, logisticsStatusLabel, disposition, statusDisposition,
       membershipBenefitBasisAmount, basisAmountMissing, basisAmountInvalid, quantity, channel1: field('판매경로1'), channel2: field('판매경로2'),
       // Proof rejection is retained for reference, not used to exclude commission.
       commissionChannelEligible: !isOneWonSaleAmount(membershipBenefitBasisAmount) && isSalesCommissionChannelEligible(field('판매경로1'), field('판매경로2')),

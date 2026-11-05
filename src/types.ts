@@ -44,6 +44,8 @@ export interface SalesRawPeriod {
   period: string
   sourceHash: string
   importedAt: string
+  /** Valid explicit 판매일/판매일자 values from admitted source orders. */
+  saleDates?: readonly string[]
   orderCount: number
   confirmedOrderCount: number
   reservedOrderCount: number
@@ -65,6 +67,8 @@ export interface SubscriptionRawPeriod {
   period: string
   sourceHash: string
   importedAt: string
+  /** Valid explicit 판매일/판매일자 values from admitted source product lines. */
+  saleDates?: readonly string[]
   itemCount: number
   confirmedItemCount: number
   pendingItemCount: number

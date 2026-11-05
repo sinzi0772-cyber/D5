@@ -1,3 +1,5 @@
+import { saleDateFromColumns } from './purchaseDates'
+
 /** Sales imports retain masked names and phone suffixes only. Never store source rows. */
 export type SalesRawOrderStatus = '확정' | '예약' | '가예약' | '기타'
 export interface SalesRawIssue {
@@ -16,6 +18,8 @@ export interface SalesRawOrder {
   seller: string
   orderDate: string
   confirmedDate: string
+  /** Explicit 판매일/판매일자 only; an order or confirmation date is not a fallback. */
+  saleDate?: string
   orderStatus: SalesRawOrderStatus
   orderStatusLabel: string
   orderCategory: string
@@ -236,10 +240,11 @@ export function parseSalesRaw(text: string): SalesRawResult {
     }
     const paymentAmount = optionalMoney('결제금액')
     const balanceAmount = optionalMoney('잔액')
+    const saleDate = saleDateFromColumns(field)
     const order: SalesRawOrder = {
       rowNumber, orderReference, originalOrderReference: field('원주문번호'), identityKey,
       customerName: maskCustomerName(field('고객명')), phoneLast4: field('핸드폰번호').replace(/\D/g, '').slice(-4),
-      seller: field('판매사원'), orderDate, confirmedDate, orderStatus, orderStatusLabel: statusLabel,
+      seller: field('판매사원'), orderDate, confirmedDate, ...(saleDate ? { saleDate } : {}), orderStatus, orderStatusLabel: statusLabel,
       orderCategory, orderType, saleAmount, paymentAmount, balanceAmount,
       channel1: field('판매경로1'), channel2: field('판매경로2'),
       commissionEligible: !isOneWonSaleAmount(saleAmount) && isSalesCommissionChannelEligible(field('판매경로1'), field('판매경로2')),

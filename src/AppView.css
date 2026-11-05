@@ -64,3 +64,6 @@
 .case-group-summary button:disabled{opacity:.55;cursor:not-allowed}
 .case-group-summary :is(button,summary):focus-visible{outline:2px solid #32866a;outline-offset:3px}
 @media(max-width:440px){.drawer .case-group-summary{padding:13px}.case-group-treatment dl>div{grid-template-columns:50px minmax(0,1fr);gap:6px}.case-group-summary .case-group-change{padding:8px}.drawer .case-group-treatment{gap:8px}.case-group-summary .case-group-members button{padding:8px}.case-group-summary .case-group-members button small{font-size:8px}}
+.management-chip.management-cancellation{border-color:#e6cda6;background:#fff7e9;color:#985d1d}
+.memo-system-record{border-color:#ead5b5;background:#fffbf3}
+.memo-system-record .memo-round strong,.memo-system-record .memo-round span{color:#9a641e}

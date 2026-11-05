@@ -3,6 +3,7 @@ import { ArrowUpRight, CheckCircle2, Clock3, Printer, UsersRound, X } from 'luci
 import { buildExecutiveMetrics, executiveTotalSalesFor, getExecutiveMonthCaseLeads, getTopCommissionPartners, getTopReferralPartners, type ExecutivePeriodSummary } from '../lib/executiveMetrics'
 import { customerDisplayLabel } from '../lib/customerDisplay'
 import type { Lead } from '../types'
+import { latestManagementMemoDateFor } from '../lib/memoHistory'
 import { MonthlyCommissionPanel } from './MonthlyCommissionPanel'
 import './ExecutiveDashboard.css'
 
@@ -100,7 +101,7 @@ export function ExecutiveDashboard({ leads, partnerLabel, month, onSelectLead, o
 }
 
 function latestMemoDate(lead: Lead) {
-  return lead.memoHistory?.length ? [...lead.memoHistory].map(entry => entry.date).sort().at(-1) : lead.note ? lead.updatedAt.slice(0, 10) : undefined
+  return latestManagementMemoDateFor(lead)
 }
 const signed = (value: number) => `${value > 0 ? '+' : ''}${Number(value.toFixed(1)).toLocaleString('ko-KR')}`
 const tone = (value: number): 'up' | 'down' | 'neutral' => value > 0 ? 'up' : value < 0 ? 'down' : 'neutral'

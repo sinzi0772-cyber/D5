@@ -6,7 +6,7 @@ import './SettlementGuideModal.css'
 
 const focusableSelector = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-export function SettlementGuideModal({ onClose }: { onClose: () => void }) {
+export function SettlementGuideModal({ onClose, audience = 'staff' }: { onClose: () => void; audience?: 'staff' | 'partner' }) {
   const dialogRef = useRef<HTMLElement>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
 
@@ -93,11 +93,11 @@ export function SettlementGuideModal({ onClose }: { onClose: () => void }) {
         <div className="guide-policy">
           <h3>정산 기준</h3>
           <ul>
-            <li>
+            {audience === 'staff' ? <li>
               <strong>일시불·구독 모두 판매경로 일치 주문만 정산</strong>
               <span>판매경로 1: {SALES_COMMISSION_CHANNEL1}</span>
               <span>판매경로 2: {SALES_COMMISSION_CHANNEL2.join(' 또는 ')}</span>
-            </li>
+            </li> : null}
             <li>
               <strong>접수한 매장에서 구매 시 정산</strong>
               <span>다른 지점에서 구매하면 제외됩니다.</span>
