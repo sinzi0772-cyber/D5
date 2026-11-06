@@ -82,9 +82,9 @@ function stableValue(value: unknown): unknown {
   return value
 }
 
-/** Includes personal fields too: a stale form must not replace a newer memo or date. */
-export function caseSharingRevisionFor(lead: Lead): string {
-  return JSON.stringify(stableValue(lead))
+/** Compare all snapshot fields, including personal edits, independent of Firestore map order. */
+export function caseSharingRevisionFor(snapshot: Lead | CaseGroupGuard | null): string {
+  return JSON.stringify(stableValue(snapshot))
 }
 
 function fail(code: string, message: string): never {

@@ -236,6 +236,28 @@ async function main(): Promise<void> {
   assert.equal(basisLinkStore.leads.get('joining')!.lumpSumAmount, 900)
 
   const originalPair = members.map(member => ({ ...member, caseBasisLeadId: 'a' }))
+  const orderedGuard = { ...originalGuard, updatedAt: '2026-10-01T00:00:00.000Z', updatedBy: actorId }
+  const reorderedGuard = {
+    updatedBy: orderedGuard.updatedBy, updatedAt: orderedGuard.updatedAt,
+    managerEmployeeNo: orderedGuard.managerEmployeeNo,
+    revision: orderedGuard.revision, memberIds: orderedGuard.memberIds,
+  }
+  const reorderedSave = new MemoryStore(members, [[groupId, orderedGuard]])
+  reorderedSave.beforeTransaction = () => reorderedSave.guards.set(groupId, reorderedGuard)
+  await saveCaseCustomerWithStore(reorderedSave, basisInput())
+  assert.equal(reorderedSave.guards.get(groupId)!.basisLeadId, 'a', 'Field order changes do not block saving the selected basis')
+
+  const reorderedUnlink = new MemoryStore(members, [[groupId, orderedGuard]])
+  reorderedUnlink.beforeTransaction = () => reorderedUnlink.guards.set(groupId, reorderedGuard)
+  await unlinkCaseCustomerWithStore(reorderedUnlink, unlinkInput(b, members))
+  assert.deepEqual(reorderedUnlink.guards.get(groupId)!.memberIds, [], 'Field order changes do not block unlinking')
+
+  const concurrentUnlink = new MemoryStore(members, [[groupId, orderedGuard]])
+  concurrentUnlink.beforeTransaction = () => concurrentUnlink.guards.set(groupId, { ...reorderedGuard, revision: orderedGuard.revision + 1 })
+  await assert.rejects(() => unlinkCaseCustomerWithStore(concurrentUnlink, unlinkInput(b, members)),
+    error => error instanceof CaseSaveError && error.code === 'CASE_SAVE_STALE_GROUP')
+  assert.equal(concurrentUnlink.committedWrites, 0, 'A real revision change still prevents writes')
+
   const unlinkStore = new MemoryStore(originalPair, [[groupId, guardFor(originalPair, { managerEmployeeNo: null, basisLeadId: 'a' })]])
   await unlinkCaseCustomerWithStore(unlinkStore, unlinkInput(originalPair[1], originalPair))
   for (const member of originalPair) {

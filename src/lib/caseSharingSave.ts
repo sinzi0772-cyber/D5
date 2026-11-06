@@ -303,7 +303,7 @@ export async function saveCaseCustomerWithStore(store: CaseSharingStore, input: 
     const freshRows = await Promise.all(finalIds.map(async id => ({ id, data: await transaction.getLead(id) })))
     input.assertSession()
     validateGuard(freshGuard)
-    if (!sameValue(freshGuard, initialGuard)) fail('CASE_SAVE_STALE_GROUP', '저장 중 연결 고객 구성이 변경되었습니다. 다시 확인해주세요.')
+    if (caseSharingRevisionFor(freshGuard) !== caseSharingRevisionFor(initialGuard)) fail('CASE_SAVE_STALE_GROUP', '저장 중 연결 고객 구성이 변경되었습니다. 다시 확인해주세요.')
     const currentMembers = freshRows.map(row => {
       if (row.id === input.original.id && input.creating) {
         if (row.data) fail('CASE_SAVE_CUSTOMER_EXISTS', '이미 등록된 고객입니다. 상세 화면을 다시 열어 확인해주세요.')
@@ -438,7 +438,7 @@ export async function unlinkCaseCustomerWithStore(store: CaseSharingStore, input
     const freshRows = await Promise.all(members.map(async member => ({ id: member.id, data: await transaction.getLead(member.id) })))
     input.assertSession()
     validateGuard(freshGuard)
-    if (!sameValue(freshGuard, initialGuard)) fail('CASE_SAVE_STALE_GROUP', '저장 중 연결 고객 구성이 변경되었습니다. 다시 확인해주세요.')
+    if (caseSharingRevisionFor(freshGuard) !== caseSharingRevisionFor(initialGuard)) fail('CASE_SAVE_STALE_GROUP', '저장 중 연결 고객 구성이 변경되었습니다. 다시 확인해주세요.')
     const current = freshRows.map(row => assertFresh(row.data, baselineById.get(row.id)!))
     const previousBasis = persistedBasisFor(current, freshGuard)
     const removed = current.length <= 2 ? current : current.filter(member => member.id === input.lead.id)
