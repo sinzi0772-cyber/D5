@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react'
+import { useId, useMemo, useState, type ReactNode } from 'react'
 import type { PartnerPreviewModel, PartnerSalesChannel } from '../lib/partnerPreview'
 import { isApprovedSubscriptionReviewPartner } from '../lib/salesChannelReview'
 import { SUBSCRIPTION_REVIEW_PARTNERS } from '../lib/subscriptionPartners'
@@ -56,7 +56,11 @@ function CustomerSalesChannels({ channels: allChannels, partnerName }: { channel
 }
 
 /** Accepts only the safe projection; no saved documents or staff-only callbacks. */
-export function PartnerPreview({ model, presentation = 'preview' }: { model: PartnerPreviewModel; presentation?: 'preview' | 'portal' }) {
+export function PartnerPreview({ model, presentation = 'preview', intakeMonthControl }: {
+  model: PartnerPreviewModel
+  presentation?: 'preview' | 'portal'
+  intakeMonthControl?: ReactNode
+}) {
   const [requestedSettlement, setRequestedSettlement] = useState('')
   const [customerSort, setCustomerSort] = useState<PartnerSort<PartnerCustomerSortKey>>(DEFAULT_CUSTOMER_SORT)
   const [settlementSort, setSettlementSort] = useState<PartnerSort<PartnerSettlementSortKey>>(DEFAULT_SETTLEMENT_SORT)
@@ -64,6 +68,18 @@ export function PartnerPreview({ model, presentation = 'preview' }: { model: Par
   const settlements = useMemo(() => sortPartnerSettlements(model.settlements, settlementSort), [model.settlements, settlementSort])
   const feeCardId = useId()
   const feeCard = getPartnerSettlementCard(model, requestedSettlement)
+  const groupMonthControls = presentation === 'portal' && Boolean(intakeMonthControl)
+  const hasSettlementMonths = feeCard.options.length > 0
+  const settlementMonthControl = (hasSettlementMonths || groupMonthControls) ? (
+    <label className={groupMonthControls ? undefined : 'partner-preview-fee-period'}>
+      <span>정산월</span>
+      <select aria-label="예상 수수료 정산월" value={feeCard.selection} disabled={!hasSettlementMonths} onChange={event => setRequestedSettlement(event.target.value)}>
+        {hasSettlementMonths
+          ? feeCard.options.map(option => <option key={option.value} value={option.value}>{option.month ? monthLabel(option.month) : '정산월 미정'}</option>)
+          : <option value="">정산 내역 없음</option>}
+      </select>
+    </label>
+  ) : null
   const SectionHeading = presentation === 'portal' ? 'h2' : 'h3'
   const feeCaption = feeCard.selection === 'undated'
     ? `배송예정일 입력 필요 · 고객 ${count(feeCard.customerCount)}명`
@@ -76,10 +92,21 @@ export function PartnerPreview({ model, presentation = 'preview' }: { model: Par
     </header>
 
     {model.partnerName ? <>
+      {groupMonthControls ? <div className="partner-portal-period" role="group" aria-label="조회 기준 월">
+        {intakeMonthControl}
+        {settlementMonthControl}
+      </div> : null}
       <div className="partner-preview-stats">
         <div><span>접수</span><strong>{count(model.receiptCount)}<small>건</small></strong><p>고객 {count(model.customerCount)}명</p></div>
         <div><span>판매 건수</span><strong>{count(model.completedCount)}<small>건</small></strong><p>관리중 {count(model.activeCount)}건</p></div>
-        <div className="partner-preview-fee" id={feeCardId} aria-label="월별 예상 수수료"><div className="partner-preview-fee-heading"><span>예상 수수료</span>{feeCard.options.length > 0 ? <label className="partner-preview-fee-period"><span>정산월</span><select aria-label="예상 수수료 정산월" value={feeCard.selection} onChange={event => setRequestedSettlement(event.target.value)}>{feeCard.options.map(option => <option key={option.value} value={option.value}>{option.month ? monthLabel(option.month) : '정산월 미정'}</option>)}</select></label> : null}</div><strong aria-live="polite">{model.basisRequiredCount && !feeCard.options.length ? '기준 확인 필요' : won(feeCard.expectedCommission)}</strong><p>{feeCaption}</p></div>
+        <div className="partner-preview-fee" id={feeCardId} aria-label="월별 예상 수수료">
+          <div className="partner-preview-fee-heading">
+            <span>예상 수수료</span>
+            {groupMonthControls ? null : settlementMonthControl}
+          </div>
+          <strong aria-live="polite">{model.basisRequiredCount && !hasSettlementMonths ? '기준 확인 필요' : won(feeCard.expectedCommission)}</strong>
+          <p>{feeCaption}</p>
+        </div>
       </div>
       {(model.basisRequiredCount || 0) > 0 ? <p className="partner-preview-undated" role="status">묶음 기준 미선택 {count(model.basisRequiredCount!)}명 · 예상 수수료 제외</p> : null}
 
