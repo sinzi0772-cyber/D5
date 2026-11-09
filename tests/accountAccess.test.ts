@@ -46,6 +46,13 @@ assert.equal(firstLoginProfile.mustChangePassword, true, 'Validation must not cl
 assert.deepEqual(approvedProfile, { employeeNo, displayName: '테스트 직원', role: 'manager' }, 'Validation must not alter approval data')
 
 const partnerIdentity = PARTNER_ACCOUNTS.iwedding
+const iniIdentity = PARTNER_ACCOUNTS.iniwedding
+const iniProfile = { ...iniIdentity, role: 'partner', active: true, approved: true, mustChangePassword: false }
+assert.strictEqual(checkedPartnerIdentity(iniIdentity.loginId, iniProfile), iniIdentity)
+assert.equal(accountAccessError(iniIdentity.loginId, iniProfile), null)
+assert.equal(checkedPartnerIdentity(partnerIdentity.loginId, iniProfile), null)
+assert.equal(checkedPartnerIdentity(iniIdentity.loginId, { ...iniProfile, partnerId: partnerIdentity.partnerId }), null)
+assert.equal(checkedPartnerIdentity(iniIdentity.loginId, { ...iniProfile, partnerName: partnerIdentity.partnerName }), null)
 assert.deepEqual(partnerIdentity, { loginId: 'E90227', partnerId: 'iwedding', partnerName: '(주)아이패밀리에스씨' })
 assert.equal(Object.isFrozen(PARTNER_ACCOUNTS), true)
 assert.equal(Object.isFrozen(partnerIdentity), true)

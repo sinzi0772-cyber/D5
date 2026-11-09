@@ -3,10 +3,10 @@ import { STATUSES } from '../types'
 import { expectedSettlementMonthFor, isValidDeliveryDate } from './commissionSettlement'
 import { buildPartnerPreview, getPartnerPreviewMonths, type PartnerPreviewCustomer, type PartnerPreviewModel, type PartnerPreviewSettlement, type PartnerSalesChannel } from './partnerPreview'
 import { isSalesCommissionChannelEligible } from './salesRaw'
+import { PARTNER_ACCOUNTS, partnerIdentityFor } from './partnerIdentity'
 
-/** One explicitly approved tenant. This is not a client-selectable company registry. */
-export const IWEDDING_PARTNER_ID = 'iwedding'
-export const IWEDDING_PARTNER_NAME = '(주)아이패밀리에스씨'
+export const IWEDDING_PARTNER_ID = PARTNER_ACCOUNTS.iwedding.partnerId
+export const IWEDDING_PARTNER_NAME = PARTNER_ACCOUNTS.iwedding.partnerName
 export const MAX_PARTNER_PUBLICATION_BYTES = 750_000
 export const MAX_PARTNER_PUBLICATION_CUSTOMERS = 2_000
 const maxMonths = 120
@@ -14,8 +14,8 @@ const maxMonths = 120
 /** Saved under /partnerViews/{partnerId}; contains no source customer documents. */
 export interface PartnerPublication {
   schemaVersion: 1
-  partnerId: typeof IWEDDING_PARTNER_ID
-  partnerName: typeof IWEDDING_PARTNER_NAME
+  partnerId: string
+  partnerName: string
   publishedAt: string
   months: PartnerPreviewModel[]
 }
@@ -95,9 +95,9 @@ function parseCustomer(value: unknown, index: number): PartnerPreviewCustomer | 
   }
 }
 
-function parseMonthModel(value: unknown): PartnerPreviewModel | null {
+function parseMonthModel(value: unknown, partnerName: string): PartnerPreviewModel | null {
   const enhanced = !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'basisRequiredCount')
-  if (!exactDataRecord(value, enhanced ? [...modelKeys, 'basisRequiredCount'] : modelKeys) || value.partnerName !== IWEDDING_PARTNER_NAME || !validIntakeMonth(value.intakeMonth)) return null
+  if (!exactDataRecord(value, enhanced ? [...modelKeys, 'basisRequiredCount'] : modelKeys) || value.partnerName !== partnerName || !validIntakeMonth(value.intakeMonth)) return null
   if (enhanced && !validCount(value.basisRequiredCount)) return null
   if (!Array.isArray(value.customers) || value.customers.length === 0 || value.customers.length > MAX_PARTNER_PUBLICATION_CUSTOMERS) return null
   if (!Array.isArray(value.settlements) || value.settlements.length > value.customers.length) return null
@@ -154,7 +154,7 @@ function parseMonthModel(value: unknown): PartnerPreviewModel | null {
     settlements.push({ month: expected.month, expectedCommission: expected.expectedCommission, customerCount: expected.customerCount })
   }
   return {
-    partnerName: IWEDDING_PARTNER_NAME,
+    partnerName,
     intakeMonth: value.intakeMonth,
     receiptCount: value.receiptCount as number,
     customerCount: value.customerCount as number,
@@ -172,21 +172,22 @@ function parseMonthModel(value: unknown): PartnerPreviewModel | null {
 /** Fail closed on a foreign tenant, unknown fields, unmasked data or invalid totals. */
 export function parsePartnerPublication(value: unknown, expectedPartnerId: string): PartnerPublication | null {
   try {
-    if (expectedPartnerId !== IWEDDING_PARTNER_ID || !exactDataRecord(value, rootKeys)) return null
-    if (value.schemaVersion !== 1 || value.partnerId !== expectedPartnerId || value.partnerName !== IWEDDING_PARTNER_NAME || !validPublishedAt(value.publishedAt)) return null
+    const identity = partnerIdentityFor(expectedPartnerId)
+    if (!identity || !exactDataRecord(value, rootKeys)) return null
+    if (value.schemaVersion !== 1 || value.partnerId !== identity.partnerId || value.partnerName !== identity.partnerName || !validPublishedAt(value.publishedAt)) return null
     if (!Array.isArray(value.months) || value.months.length > maxMonths) return null
     const months: PartnerPreviewModel[] = []
     const seen = new Set<string>()
     let totalCustomers = 0
     for (const item of value.months) {
-      const model = parseMonthModel(item)
+      const model = parseMonthModel(item, identity.partnerName)
       if (!model || seen.has(model.intakeMonth) || (months.length > 0 && model.intakeMonth >= months[months.length - 1].intakeMonth)) return null
       seen.add(model.intakeMonth)
       totalCustomers += model.customerCount
       if (totalCustomers > MAX_PARTNER_PUBLICATION_CUSTOMERS) return null
       months.push(model)
     }
-    const result: PartnerPublication = { schemaVersion: 1, partnerId: IWEDDING_PARTNER_ID, partnerName: IWEDDING_PARTNER_NAME, publishedAt: value.publishedAt, months }
+    const result: PartnerPublication = { schemaVersion: 1, partnerId: identity.partnerId, partnerName: identity.partnerName, publishedAt: value.publishedAt, months }
     return encodedBytes(result) <= MAX_PARTNER_PUBLICATION_BYTES ? result : null
   } catch {
     return null
@@ -195,18 +196,20 @@ export function parsePartnerPublication(value: unknown, expectedPartnerId: strin
 
 /** Trusted publisher only. Build from complete cases, then expose only one tenant. */
 export function buildPartnerPublication(leads: readonly Lead[], partnerId: string, publishedAt: string): PartnerPublication {
-  if (partnerId !== IWEDDING_PARTNER_ID) throw new RangeError('승인된 업체 ID가 아닙니다.')
+  const identity = partnerIdentityFor(partnerId)
+  if (!identity) throw new RangeError('승인된 업체 ID가 아닙니다.')
+  const { partnerName } = identity
   if (!validPublishedAt(publishedAt)) throw new RangeError('게시 시각은 올바른 ISO UTC 형식이어야 합니다.')
   const months: PartnerPreviewModel[] = []
   let totalCustomers = 0
-  for (const month of getPartnerPreviewMonths(leads, IWEDDING_PARTNER_NAME)) {
-    const model = buildPartnerPreview(leads, IWEDDING_PARTNER_NAME, month)
+  for (const month of getPartnerPreviewMonths(leads, partnerName)) {
+    const model = buildPartnerPreview(leads, partnerName, month)
     if (!model.customerCount) continue
     totalCustomers += model.customerCount
     if (months.length >= maxMonths || totalCustomers > MAX_PARTNER_PUBLICATION_CUSTOMERS) throw new RangeError('업체 공개 문서가 허용 크기를 초과합니다. 분할 게시가 필요합니다.')
     months.push(model)
   }
-  const publication: PartnerPublication = { schemaVersion: 1, partnerId: IWEDDING_PARTNER_ID, partnerName: IWEDDING_PARTNER_NAME, publishedAt, months }
+  const publication: PartnerPublication = { schemaVersion: 1, partnerId, partnerName, publishedAt, months }
   if (encodedBytes(publication) > MAX_PARTNER_PUBLICATION_BYTES) throw new RangeError('업체 공개 문서가 허용 크기를 초과합니다. 분할 게시가 필요합니다.')
   const validated = parsePartnerPublication(publication, partnerId)
   if (!validated) throw new TypeError('업체 공개 자료에 허용되지 않는 값이 있습니다.')

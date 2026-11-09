@@ -22,7 +22,7 @@ import { SUBSCRIPTION_REVIEW_PARTNERS } from './lib/subscriptionPartners'
 import { DeliveryScheduleField } from './components/DeliveryScheduleField'
 import { PurchaseDates } from './components/PurchaseDates'
 import { sortAccessRowsByVisits, type AccessCountDirection } from './lib/accessLogSorting'
-import { buildPartnerPublication, IWEDDING_PARTNER_ID } from './lib/partnerPublication'
+import { buildPartnerPublication } from './lib/partnerPublication'
 import { leadFromDocument } from './lib/leadDocument'
 import { parseSeptemberSource } from './lib/septemberSource'
 import { buildPartnerPreview, canPreviewPartner, getPartnerPreviewMonths } from './lib/partnerPreview'
@@ -271,7 +271,7 @@ export default function App() {
   const closeSalesReview = useCallback(() => setSalesReviewOpen(false), [])
   const closeSettlementGuide = useCallback(() => setSettlementGuideOpen(false), [])
   const [septemberSource, setSeptemberSource] = useState<readonly SeptemberAppointment[] | null>(null)
-  const publishedRevision = useRef('')
+  const publishedRevision = useRef(new Map<string, string>())
   const referralReadiness = useRef<ReferralReadiness | null>(null)
   const septemberSyncRun = useRef<{ readiness: ReferralReadiness } | null>(null)
   const sessionKey = JSON.stringify([currentUser?.id, currentUser?.loginId, currentUser?.role, currentUser?.mustChangePassword, currentUser?.partnerId])
@@ -302,7 +302,7 @@ export default function App() {
       setSeptemberSource(null)
       setServerConfirmed(false)
       referralReadiness.current = null
-      publishedRevision.current = ''
+      publishedRevision.current.clear()
       setActive(null)
       setCreating(false)
       setQuery('')
@@ -504,15 +504,18 @@ export default function App() {
     const firestoreDb = db
     const timer = window.setTimeout(async () => {
       if (latestSessionKey.current !== ownSession || auth?.currentUser?.uid !== currentUser.id || !referralReadiness.current?.serverConfirmed) return
-      try {
-        const publication = buildPartnerPublication(leads, IWEDDING_PARTNER_ID, new Date().toISOString())
-        const content = JSON.stringify(publication.months)
-        if (publishedRevision.current === content) return
-        await setDoc(doc(firestoreDb, 'partnerViews', IWEDDING_PARTNER_ID), publication)
-        if (latestSessionKey.current === ownSession) publishedRevision.current = content
-      } catch {
-        if (latestSessionKey.current === ownSession) setToast('업체 자료 게시본을 갱신하지 못했습니다. 관리자 권한을 확인해 주세요.')
-      }
+      const publishedAt = new Date().toISOString()
+      await Promise.all(Object.values(PARTNER_ACCOUNTS).map(async ({ partnerId }) => {
+        try {
+          const publication = buildPartnerPublication(leads, partnerId, publishedAt)
+          const content = JSON.stringify(publication.months)
+          if (publishedRevision.current.get(partnerId) === content) return
+          await setDoc(doc(firestoreDb, 'partnerViews', partnerId), publication)
+          if (latestSessionKey.current === ownSession) publishedRevision.current.set(partnerId, content)
+        } catch {
+          if (latestSessionKey.current === ownSession) setToast('업체 자료 게시본을 갱신하지 못했습니다. 관리자 권한을 확인해 주세요.')
+        }
+      }))
     }, 800)
     return () => window.clearTimeout(timer)
   }, [sessionKey, leads, dataReady, serverConfirmed, dataError])

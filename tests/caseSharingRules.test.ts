@@ -162,7 +162,8 @@ function evaluate(database: Database, after: Database, documentPath: string, ope
   }
   let failure: string | undefined
   let allowed = false
-  const candidates = (rules.get(collection) || []).filter(rule => rule.operations.includes(operation) || rule.operations.includes('write') && operation !== 'read')
+  const operationGroup = operation === 'get' || operation === 'list' ? 'read' : 'write'
+  const candidates = (rules.get(collection) || []).filter(rule => rule.operations.includes(operation) || rule.operations.includes(operationGroup))
   for (const rule of candidates) {
     context[rule.variable] = id
     try {
@@ -198,6 +199,8 @@ const authFor = (uid: string, email = `${uid}@synthetic.local`): Auth => ({ uid,
 const admin = authFor('admin')
 const manager = authFor('manager')
 const partner = authFor('partner', 'e90227@d5.local')
+const iniPartner = authFor('ini-partner', 'e75351@d5.local')
+const iniProfile = { role: 'partner', active: true, approved: true, loginId: 'E75351', partnerId: 'iniwedding', partnerName: '(주) 아이니웨딩네트웍스', mustChangePassword: false }
 const profiles: [string, Data][] = [
   ['profiles/admin', { role: 'admin', employeeNo: '1000', active: true, approved: true }],
   ['profiles/store', { role: 'store_manager', employeeNo: '1001', active: true, approved: true }],
@@ -206,6 +209,7 @@ const profiles: [string, Data][] = [
   ['profiles/special', { role: 'admin', employeeNo: '1292', active: true, approved: true }],
   ['profiles/disabled', { role: 'admin', employeeNo: '1003', disabled: true, active: true, approved: true }],
   ['profiles/partner', { role: 'partner', employeeNo: '1292', active: true, approved: true, loginId: 'E90227', partnerId: 'iwedding', partnerName: '(주)아이패밀리에스씨', mustChangePassword: false }],
+  ['profiles/ini-partner', iniProfile],
 ]
 const caseId = 'case-test'
 const now = '2026-10-13T03:00:00.000Z'
@@ -400,14 +404,36 @@ const initialGuardSeed = seed(['referrals/owner', owner])
 assertBatch('valid initial guard create allowed', initialGuardSeed, [{ path: `caseGroups/${caseId}`, data: guard(['owner'], { revision: 1 }) }], admin, true)
 
 for (const uid of ['store', 'assistant']) assertBatch(`${uid} retains privileged linked save`, base, priceWrites(uid), authFor(uid), true)
-for (const auth of [authFor('special'), authFor('disabled'), partner, null]) {
+for (const auth of [authFor('special'), authFor('disabled'), partner, iniPartner, null]) {
   assertBatch('excluded employee, disabled, partner and unauthenticated cannot mutate referrals', base, [{ path: 'referrals/owner', data: { ...owner, note: '권한 밖 수정' } }], auth, false)
 }
-const views = seed(['partnerViews/iwedding', { partnerId: 'iwedding' }], ['partnerViews/other', { partnerId: 'other' }], ['referrals/owner', owner], [`caseGroups/${caseId}`, guard(['owner'])], ['usage/admin', {}], ['adminSources/source', {}])
-assert.equal(evaluate(views, views, 'partnerViews/iwedding', 'read', partner).allowed, true)
-for (const path of ['partnerViews/other', 'referrals/owner', `caseGroups/${caseId}`, 'usage/admin', 'adminSources/source']) assert.equal(evaluate(views, views, path, 'read', partner).allowed, false, `Partner read scope: ${path}`)
-for (const path of ['referrals/owner', `caseGroups/${caseId}`, 'usage/admin']) assert.equal(evaluate(views, views, path, 'read', authFor('special')).allowed, false, `Employee 1292 remains excluded: ${path}`)
-assert.equal(evaluate(views, views, 'profiles/special', 'read', authFor('special')).allowed, true, 'The excluded employee may still read their own profile')
+const iweddingView = { schemaVersion: 1, partnerId: 'iwedding', partnerName: '(주)아이패밀리에스씨', publishedAt: now, months: [] }
+const iniView = { ...iweddingView, partnerId: 'iniwedding', partnerName: iniProfile.partnerName }
+const views = seed(['partnerViews/iwedding', iweddingView], ['partnerViews/iniwedding', iniView], ['partnerViews/other', { partnerId: 'other' }], ['referrals/owner', owner], [`caseGroups/${caseId}`, guard(['owner'])], ['usage/admin', {}], ['adminSources/source', {}])
+for (const [auth, own, other] of [[partner, 'iwedding', 'iniwedding'], [iniPartner, 'iniwedding', 'iwedding']] as const) {
+  assert.equal(evaluate(views, views, `partnerViews/${own}`, 'get', auth).allowed, true)
+  assert.equal(evaluate(views, views, `partnerViews/${own}`, 'list', auth).allowed, false, 'Partners cannot list, even for their own document')
+  for (const path of [`partnerViews/${other}`, 'partnerViews/other', 'referrals/owner', `caseGroups/${caseId}`, 'usage/admin', 'adminSources/source']) {
+    assert.equal(evaluate(views, views, path, 'get', auth).allowed, false, `Partner read scope: ${path}`)
+  }
+}
+assert.equal(evaluate(views, views, 'partnerViews/iniwedding', 'list', admin).allowed, true, 'Authorized staff retain publication list access')
+assert.equal(evaluate(views, views, 'partnerViews/iniwedding', 'get', authFor('ini-partner', 'e90227@d5.local')).allowed, false, 'Tenant profile must match token email')
+for (const change of [{ partnerId: 'iwedding' }, { partnerName: iweddingView.partnerName }, { loginId: 'E90227' }, { approved: false }, { active: false }, { mustChangePassword: true }]) {
+  const invalid = new Map(views)
+  invalid.set('profiles/ini-partner', { ...iniProfile, ...change })
+  assert.equal(evaluate(invalid, invalid, 'partnerViews/iniwedding', 'get', iniPartner).allowed, false, 'Invalid or not-ready profile cannot read publication')
+}
+for (const publication of [iweddingView, iniView]) {
+  const path = `partnerViews/${publication.partnerId}`
+  assertBatch('admin can publish a matching tenant view', seed(), [{ path, data: publication }], admin, true)
+  assertBatch('partner cannot edit a tenant view', views, [{ path, data: publication }], iniPartner, false)
+}
+assertBatch('admin cannot publish a cross-tenant name', views, [{ path: 'partnerViews/iniwedding', data: { ...iniView, partnerName: iweddingView.partnerName } }], admin, false)
+assertBatch('admin cannot publish an unknown tenant', views, [{ path: 'partnerViews/other', data: { ...iniView, partnerId: 'other' } }], admin, false)
+assertBatch('partner cannot switch tenant profile', views, [{ path: 'profiles/ini-partner', data: { ...iniProfile, partnerId: 'iwedding' } }], iniPartner, false)
+for (const path of ['referrals/owner', `caseGroups/${caseId}`, 'usage/admin']) assert.equal(evaluate(views, views, path, 'get', authFor('special')).allowed, false, `Employee 1292 remains excluded: ${path}`)
+assert.equal(evaluate(views, views, 'profiles/special', 'get', authFor('special')).allowed, true, 'The excluded employee may still read their own profile')
 
 const mergedIds = ['alias', 'owner']
 const mergeWrites: Write[] = [

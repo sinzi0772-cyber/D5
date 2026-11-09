@@ -24,12 +24,19 @@ service cloud.firestore {
         && myProfile().employeeNo is string && myProfile().employeeNo != '1292';
     }
 
+    function approvedPartnerName(partnerId, partnerName) {
+      return (partnerId == 'iwedding' && partnerName == '(주)아이패밀리에스씨')
+        || (partnerId == 'iniwedding' && partnerName == '(주) 아이니웨딩네트웍스');
+    }
+
     function isPartner() {
       return signedIn() && enabledProfile() && myProfile().role == 'partner'
         && myProfile().active == true && myProfile().approved == true
-        && myProfile().loginId == 'E90227' && myProfile().partnerId == 'iwedding'
-        && myProfile().partnerName == '(주)아이패밀리에스씨'
-        && request.auth.token.email == 'e90227@d5.local';
+        && approvedPartnerName(myProfile().partnerId, myProfile().partnerName)
+        && ((myProfile().partnerId == 'iwedding' && myProfile().loginId == 'E90227'
+            && request.auth.token.email == 'e90227@d5.local')
+          || (myProfile().partnerId == 'iniwedding' && myProfile().loginId == 'E75351'
+            && request.auth.token.email == 'e75351@d5.local'));
     }
 
     function canManageAll() {
@@ -371,14 +378,14 @@ service cloud.firestore {
       allow write: if false;
     }
     match /partnerViews/{partnerId} {
-      allow read: if canManageAll()
+      allow get: if canManageAll()
         || (isPartner() && myProfile().mustChangePassword == false && partnerId == myProfile().partnerId);
+      allow list: if canManageAll();
       allow create, update: if canManageAll()
-        && partnerId == 'iwedding'
         && request.resource.data.keys().hasOnly(['schemaVersion', 'partnerId', 'partnerName', 'publishedAt', 'months'])
         && request.resource.data.schemaVersion == 1
         && request.resource.data.partnerId == partnerId
-        && request.resource.data.partnerName == '(주)아이패밀리에스씨'
+        && approvedPartnerName(partnerId, request.resource.data.partnerName)
         && request.resource.data.publishedAt is string
         && request.resource.data.months is list;
       allow delete: if false;

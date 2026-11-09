@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { buildPartnerPublication, IWEDDING_PARTNER_ID, IWEDDING_PARTNER_NAME, MAX_PARTNER_PUBLICATION_BYTES, MAX_PARTNER_PUBLICATION_CUSTOMERS, parsePartnerPublication } from '../src/lib/partnerPublication.ts'
+import { PARTNER_ACCOUNTS } from '../src/lib/partnerIdentity.ts'
 import { expectedRebateFor } from '../src/lib/salesFinance.ts'
 import type { Lead } from '../src/types.ts'
 
@@ -42,6 +43,20 @@ const rows = Object.freeze([
 ])
 const before = JSON.stringify(rows)
 const publication = buildPartnerPublication(rows, IWEDDING_PARTNER_ID, publishedAt)
+const ini = PARTNER_ACCOUNTS.iniwedding
+const iniPublication = buildPartnerPublication([
+  ...rows,
+  lead('ini-1', { partnerName: '(주)아이니웨딩네트웍스' }),
+  lead('ini-2', { partnerName: '(주) 아이니웨딩네트웍스' }),
+  lead('similarly-named', { partnerName: '(주) 아이니웨딩' }),
+], ini.partnerId, publishedAt)
+assert.equal(iniPublication.partnerName, ini.partnerName)
+assert.equal(iniPublication.months.reduce((total, month) => total + month.customerCount, 0), 2)
+assert.deepEqual(parsePartnerPublication(iniPublication, ini.partnerId), iniPublication)
+assert.equal(parsePartnerPublication(iniPublication, IWEDDING_PARTNER_ID), null)
+assert.equal(parsePartnerPublication(publication, ini.partnerId), null)
+assert.equal(parsePartnerPublication({ ...iniPublication, months: publication.months }, ini.partnerId), null, 'Foreign monthly data cannot pass under the new account')
+assert.throws(() => buildPartnerPublication(rows, 'constructor', publishedAt), /승인된 업체 ID/)
 assert.equal(publication.schemaVersion, 1)
 assert.equal(publication.partnerName, IWEDDING_PARTNER_NAME)
 assert.equal(publication.partnerId, 'iwedding')

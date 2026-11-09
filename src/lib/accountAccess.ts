@@ -1,4 +1,4 @@
-import { PARTNER_ACCOUNTS, type PartnerIdentity } from './partnerIdentity'
+import { partnerIdentityFor, type PartnerIdentity } from './partnerIdentity'
 
 export const SHARED_ACCOUNT_EMPLOYEE_NO = '1292'
 export const SHARED_ACCOUNT_MESSAGE = '사용할 수 없는 계정입니다. 본인 ID로 로그인해주세요.'
@@ -10,9 +10,9 @@ const inactiveStatuses = new Set(['inactive', 'disabled', 'suspended'])
 export function checkedPartnerIdentity(loginId: string, profile?: Record<string, unknown>): PartnerIdentity | null {
   if (!profile || profile.role !== 'partner' || profile.active !== true || profile.approved !== true
     || profile.disabled === true || (typeof profile.status === 'string' && inactiveStatuses.has(profile.status))) return null
-  if (typeof profile.partnerId !== 'string' || !Object.prototype.hasOwnProperty.call(PARTNER_ACCOUNTS, profile.partnerId)) return null
-  const identity = PARTNER_ACCOUNTS[profile.partnerId]
-  if (loginId !== identity.loginId || profile.loginId !== identity.loginId || profile.partnerName !== identity.partnerName) return null
+  if (typeof profile.partnerId !== 'string') return null
+  const identity = partnerIdentityFor(profile.partnerId)
+  if (!identity || loginId !== identity.loginId || profile.loginId !== identity.loginId || profile.partnerName !== identity.partnerName) return null
   return identity
 }
 
