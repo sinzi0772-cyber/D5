@@ -1,7 +1,9 @@
 import type { Lead } from '../types'
 import { customerDisplayLabel } from './customerDisplay'
 import { canonicalPartnerName } from './partners'
-import { getStoredSalesChannels } from './salesChannels'
+import { getStoredSalesChannels, type StoredSalesChannel } from './salesChannels'
+import { purchaseAmountSourceFor } from './salesFinance'
+import { isOneWonSaleAmount } from './salesRaw'
 
 export interface SalesChannelReviewViewer {
   role: string
@@ -15,9 +17,13 @@ export interface SalesChannelReviewItem {
   caseKey: string
   leadId: string
   customerLabel: string
+  intakeDate: string
   partnerName: string
   kind: 'lumpSum' | 'subscription'
+  status: 'mismatch' | 'unverified'
   period: string | null
+  periods?: readonly string[]
+  unverifiedReason?: 'missing-route' | 'amount-discrepancy'
   channel1: string
   channel2: string
   managerLabel: string
@@ -49,6 +55,15 @@ function viewerCanReview(lead: Lead, viewer: SalesChannelReviewViewer): boolean 
   return Boolean(employeeNo) && text(lead.managerEmployeeNo) === employeeNo
 }
 
+function hasRouteEvidence(route: StoredSalesChannel): boolean {
+  return route.orderCount > 0 || (route.itemCount ?? 0) > 0 || (route.amount !== null && route.amount !== 0)
+}
+
+function commonPath(routes: readonly StoredSalesChannel[], key: 'channel1' | 'channel2'): string {
+  const path = routes[0]?.[key] ?? ''
+  return routes.every(route => route[key] === path) ? path : ''
+}
+
 /** Read-only review of actual stored order routes. A financial basis selection
  * cannot turn an independent original order into a copied purchase. Shared
  * aliases are skipped; their direct source owner supplies the one review row.
@@ -65,26 +80,51 @@ export function getSalesChannelReviewItems(
   for (const lead of byId.values()) {
     if (!viewerCanReview(lead, viewer)
       || lead.appointmentType !== '이업종제휴' && lead.appointmentType !== '상담예약(이업종)') continue
-    for (const route of getStoredSalesChannels(lead)) {
-      if (route.status !== 'mismatch' || route.amount === 1) continue
-      if (route.kind === 'subscription' && !isApprovedSubscriptionReviewPartner(lead.partnerName, approvedSubscriptionPartners)) continue
-      const sourceId = route.kind === 'lumpSum' ? lead.lumpSumSourceId : lead.subscriptionSourceId
+    const routes = getStoredSalesChannels(lead)
+    const common = {
+      caseKey: text(lead.caseGroupId) ? 'case:' + lead.caseGroupId : 'lead:' + lead.id,
+      leadId: lead.id,
+      customerLabel: customerDisplayLabel(lead),
+      intakeDate: lead.registeredAt,
+      partnerName: canonicalPartnerName(lead.partnerName),
+      managerLabel: text(lead.manager) || '미배정',
+    }
+    for (const kind of ['lumpSum', 'subscription'] as const) {
+      if (kind === 'subscription' && !isApprovedSubscriptionReviewPartner(lead.partnerName, approvedSubscriptionPartners)) continue
+      const sourceId = kind === 'lumpSum' ? lead.lumpSumSourceId : lead.subscriptionSourceId
       if (sourceId !== undefined && sourceId !== lead.id) continue
-      const caseKey = text(lead.caseGroupId) ? 'case:' + lead.caseGroupId : 'lead:' + lead.id
-      const identity = JSON.stringify([lead.id, route.kind, route.period, route.channel1, route.channel2])
-      const periods = route.kind === 'lumpSum' ? lead.salesRawPeriods : lead.subscriptionRawPeriods
-      const sourceHash = route.period ? text(periods?.[route.period]?.sourceHash) : ''
-      let candidate = candidates.get(identity)
-      if (!candidate) {
-        candidate = { item: {
-          caseKey, leadId: lead.id, customerLabel: customerDisplayLabel(lead),
-          partnerName: canonicalPartnerName(lead.partnerName), kind: route.kind, period: route.period,
-          channel1: route.channel1, channel2: route.channel2, managerLabel: text(lead.manager) || '미배정',
-        }, facts: [] }
-        candidates.set(identity, candidate)
-      }
+      const ownRoutes = routes.filter(route => route.kind === kind && !isOneWonSaleAmount(route.amount))
+      const periods = kind === 'lumpSum' ? lead.salesRawPeriods : lead.subscriptionRawPeriods
       // These facts stay inside the fingerprint; the popup receives no sales amount or order reference.
-      candidate.facts.push([sourceHash, route.amount, route.orderCount, route.itemCount ?? null, route.amountCurrent])
+      const factsFor = (route: StoredSalesChannel) => [route.period ? text(periods?.[route.period]?.sourceHash) : '',
+        route.amount, route.orderCount, route.itemCount ?? null, route.amountCurrent]
+      const mismatches = ownRoutes.filter(route => route.status === 'mismatch')
+      for (const route of mismatches) {
+        const identity = JSON.stringify([lead.id, kind, route.period, route.channel1, route.channel2])
+        let candidate = candidates.get(identity)
+        if (!candidate) {
+          candidate = { item: { ...common, kind, status: 'mismatch', period: route.period,
+            channel1: route.channel1, channel2: route.channel2 }, facts: [] }
+          candidates.set(identity, candidate)
+        }
+        candidate.facts.push(factsFor(route))
+      }
+
+      const missingRoutes = ownRoutes.filter(route => route.status === 'unverified' && hasRouteEvidence(route))
+      const entered = purchaseAmountSourceFor(lead, kind)
+      const amountDiscrepancy = entered.kind === 'manual' && entered.amount > 0 && !isOneWonSaleAmount(entered.amount)
+        && entered.rawAmount !== null && entered.rawAmount !== entered.amount
+        && (!mismatches.length || entered.amount > entered.rawAmount)
+      if (!missingRoutes.length && !amountDiscrepancy) continue
+
+      const knownPeriods = [...new Set(missingRoutes.flatMap(route => route.period ? [route.period] : []))].sort().reverse()
+      candidates.set(JSON.stringify([lead.id, kind, 'unverified']), {
+        item: { ...common, kind, status: 'unverified', period: knownPeriods.length === 1 ? knownPeriods[0] : null,
+          ...(knownPeriods.length > 1 ? { periods: knownPeriods } : {}),
+          unverifiedReason: missingRoutes.length ? 'missing-route' : 'amount-discrepancy',
+          channel1: commonPath(missingRoutes, 'channel1'), channel2: commonPath(missingRoutes, 'channel2') },
+        facts: [entered, ...missingRoutes.map(route => [route.period, route.channel1, route.channel2, ...factsFor(route)])],
+      })
     }
   }
   return [...candidates.entries()].map(([identity, { item, facts }]) => {
