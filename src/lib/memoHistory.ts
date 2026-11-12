@@ -6,6 +6,25 @@ type MemoLead = Pick<Lead, 'memoHistory' | 'note' | 'updatedAt' | 'manager'>
 export const isBestCancellationMemo = (entry: Pick<MemoEntry, 'id'>): boolean =>
   typeof entry.id === 'string' && entry.id.startsWith(BEST_CANCELLATION_MEMO_PREFIX)
 
+const partialCancellation = /(?:부분|일부)(?:\s*(?:품목|항목|주문))?\s*취소/u
+const explicitFullCancellation = /(?:전체|전부|전량|전액|완전)\s*(?:주문\s*)?취소/u
+// The original importer counts source lines by customer, purchase kind and period.
+const mixedSourceCancellation = /^BEST 주문 취소 확인 · (?:일시불|구독) · [^\r\n]+\r?\n취소 항목 [1-9]\d*건 · 확정·(?:예약|출하대기) 항목 [1-9]\d*건\(같은 원본\)\.(?:\r?\n|$)/u
+
+/** Display a full cancellation without changing the stored audit or staff notes. */
+export function memoEntriesForDisplay(entries: readonly MemoEntry[]): MemoEntry[] {
+  return entries.flatMap(entry => {
+    if (!isBestCancellationMemo(entry)) return [entry]
+    if (partialCancellation.test(entry.content)) {
+      const full = entry.content.split(/\r?\n|[;,]\s*|\s+[·/]\s+/u)
+        .filter(part => explicitFullCancellation.test(part) && !partialCancellation.test(part))
+        .map(part => part.trim())
+      return full.length ? [{ ...entry, content: full.join('\n') }] : []
+    }
+    return mixedSourceCancellation.test(entry.content) && !explicitFullCancellation.test(entry.content) ? [] : [entry]
+  })
+}
+
 const hasLegacyHumanNote = (lead: MemoLead): boolean => Boolean(lead.note?.trim()
   && !(lead.memoHistory || []).some(entry => isBestCancellationMemo(entry) && entry.content === lead.note))
 

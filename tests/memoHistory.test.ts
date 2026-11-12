@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { allMemoEntriesFor, managementMemoEntriesFor, latestManagementMemoDateFor, memoHistoryRevisionFor, isBestCancellationMemo } from '../src/lib/memoHistory'
+import { allMemoEntriesFor, managementMemoEntriesFor, latestManagementMemoDateFor, memoHistoryRevisionFor, isBestCancellationMemo, memoEntriesForDisplay } from '../src/lib/memoHistory'
 import { buildExecutiveMetrics } from '../src/lib/executiveMetrics'
 import type { Lead, MemoEntry } from '../src/types'
 
@@ -45,5 +45,27 @@ assert.equal(latestManagementMemoDateFor(oldTabCopy), undefined)
 assert.equal(buildExecutiveMetrics([oldTabCopy], '2026-10', '2026-11-03').current.managementRecords, 0)
 assert.deepEqual(buildExecutiveMetrics([oldTabCopy], '2026-10', '2026-11-03').actions.stale.map(item => item.id), [base.id])
 assert.equal(managementMemoEntriesFor({ ...base, memoHistory: [], note: '   ' }).length, 0)
+
+const sourceMemo = (id: string, kind: '일시불' | '구독', activeCount: number): MemoEntry => ({
+  ...system,
+  id: 'best-cancel-' + id,
+  content: 'BEST 주문 취소 확인 · ' + kind + ' · 2026.10 원본(2026.11.01 기준)\n'
+    + '취소 항목 2건 · 확정·' + (kind === '일시불' ? '예약' : '출하대기') + ' 항목 ' + activeCount + '건(같은 원본).\n'
+    + '실제 취소일 미확인. 표시 날짜는 원본 확인일입니다.',
+})
+const mixedCash = sourceMemo('cash-mixed', '일시불', 8)
+const mixedSubscription = sourceMemo('subscription-mixed', '구독', 13)
+const standaloneCash = sourceMemo('cash-standalone', '일시불', 0)
+const standaloneSubscription = sourceMemo('subscription-standalone', '구독', 0)
+const explicitPartial = { ...system, id: 'best-cancel-partial', content: 'BEST 주문 취소 확인\n부분 취소 1건' }
+const explicitMixed = { ...system, id: 'best-cancel-explicit-mixed', content: '일부 품목 취소 1건 · 전액 취소 2건' }
+const partialHumanNote = { ...human, content: '부분취소 문의로 고객 연락' }
+const cancellationMemos = [system, mixedCash, standaloneCash, mixedSubscription, standaloneSubscription, explicitPartial, explicitMixed, partialHumanNote]
+const rawHistory = JSON.stringify(cancellationMemos)
+assert.deepEqual(memoEntriesForDisplay(cancellationMemos), [
+  system, standaloneCash, standaloneSubscription, { ...explicitMixed, content: '전액 취소 2건' }, partialHumanNote,
+])
+assert.equal(JSON.stringify(cancellationMemos), rawHistory, 'Display filtering must leave the full audit intact')
+assert.deepEqual(allMemoEntriesFor({ ...base, memoHistory: cancellationMemos }), cancellationMemos)
 console.log('PASS memo history: cancellation records remain visible without altering human activity, legacy notes or metrics')
 

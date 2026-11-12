@@ -14,11 +14,11 @@ export function getVisiblePurchaseMembers(lead: Lead, visibleLeads: Lead[]): Lea
 
 /** Null is the displayed dash; an imported, verified zero is a real 0원 amount. */
 export function purchaseSortValue(lead: Lead, visibleLeads: Lead[], completeLeads: readonly Lead[] = visibleLeads): number | null {
-  if (!getVisiblePurchaseMembers(lead, visibleLeads).length) return null
+  if (lead.status === '취소' || !getVisiblePurchaseMembers(lead, visibleLeads).length) return null
   const group = caseBasisGroupsFor(completeLeads).find(item => item.members.some(member => member.id === lead.id))
   if (!group || !group.selection.basis || canonicalPartnerName(group.selection.basis.partnerName) !== canonicalPartnerName(lead.partnerName)) return null
   const basis = financialCaseLeadFor(group.selection, group.members)
-  if (!basis) return null
+  if (!basis || basis.status === '취소') return null
   const total = financialTotalPurchaseAmountFor(basis)
   return total > 0 || salesRawAmountsFor(basis).current || subscriptionRawAmountsFor(basis).current ? total : null
 }

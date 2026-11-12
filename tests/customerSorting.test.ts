@@ -22,6 +22,8 @@ assert.deepEqual(sorted('desc'), ['hundred', 'ten', 'raw-zero', 'missing'])
 assert.deepEqual(sorted('asc'), ['raw-zero', 'ten', 'hundred', 'missing'])
 assert.equal(purchaseSortValue(zero, values), 0)
 assert.equal(purchaseSortValue(missing, values), null)
+const canceled = lead('canceled', { status: '취소', purchaseType: '일시불', lumpSumAmount: 999 })
+assert.equal(purchaseSortValue(canceled, [...values, canceled]), null)
 assert.equal(purchaseSortValue(lead('manual-zero', { purchaseType: '일시불', lumpSumAmount: 0 }), []), null)
 
 const coupleA = lead('couple-a', { caseGroupId: 'couple', purchaseType: '일시불', lumpSumAmount: 10 })
@@ -35,6 +37,10 @@ assert.equal(purchaseSortValue(coupleA, [coupleA, coupleA, coupleB]), null, 'Rep
 const chosen = [coupleA, coupleB].map(member => ({ ...member, caseBasisLeadId: coupleA.id }))
 assert.equal(purchaseSortValue(chosen[1], chosen, chosen), 10, 'The selected whole A row is used, not A+B')
 assert.equal(purchaseSortValue(chosen[1], [chosen[1]], chosen), 10, 'Resolve complete group before applying a display filter')
+const canceledBasis = [{ ...chosen[0], status: '취소' as const }, chosen[1]]
+assert.equal(purchaseSortValue(canceledBasis[1], [canceledBasis[1]], canceledBasis), null, 'A canceled case basis hides purchase info for a secondary row')
+const canceledPeer = [chosen[0], { ...chosen[1], status: '취소' as const }]
+assert.equal(purchaseSortValue(canceledPeer[0], canceledPeer), 10, 'A canceled secondary customer does not hide the active basis')
 assert.equal(purchaseSortValue(other, [coupleA, coupleB]), null, 'Out-of-scope individual cannot supply an amount')
 assert.equal(comparePurchaseAmounts(null, null, 'desc'), 0)
 assert.equal(comparePurchaseAmounts(100, 100, 'asc'), 0)
