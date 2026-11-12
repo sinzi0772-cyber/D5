@@ -13,7 +13,7 @@ const rows: Lead[] = [{
   salesRawPeriods: { '2026-09': {
     period: '2026-09', sourceHash: 'verified-route-ui-fixture', importedAt: '2026-10-08',
     orderCount: 1, confirmedOrderCount: 1, reservedOrderCount: 0,
-    confirmedAmount: 20864000, reservedAmount: 0, eligibleConfirmedAmount: 20864000, eligibleReservedAmount: 0, returnAmount: 0,
+    confirmedAmount: 20864000, reservedAmount: 0, settlementBasisAmount: 20864000, eligibleConfirmedAmount: 20864000, eligibleReservedAmount: 0, returnAmount: 0,
   } },
   manager: '비공개 담당자', managerEmployeeNo: '98765', note: '비공개 상담 메모',
 }, {

@@ -22,6 +22,8 @@ export interface SalesRawOrder {
   saleDate?: string
   orderStatus: SalesRawOrderStatus
   orderStatusLabel: string
+  /** Original 상세현황 주문상태, before confirmation-state normalization. */
+  sourceOrderStatus?: string
   orderCategory: string
   orderType: string
   saleAmount: number
@@ -221,6 +223,7 @@ export function parseSalesRaw(text: string): SalesRawResult {
     if (isOneWonSaleAmount(saleAmount)) issues.push({ severity: 'warning', code: 'one-won-sale-excluded', rowNumber, message: '1원 판매 행은 원본 기록만 보존하고 판매·수수료·판매경로 점검에서 제외합니다.' })
     const beforeIssueCount = issues.length
     const statusLabel = field('주문확정여부')
+    const sourceOrderStatus = field('원본주문상태')
     const orderStatus = orderState(statusLabel)
     const orderCategory = field('주문구분')
     const orderType = field('주문유형')
@@ -245,6 +248,7 @@ export function parseSalesRaw(text: string): SalesRawResult {
       rowNumber, orderReference, originalOrderReference: field('원주문번호'), identityKey,
       customerName: maskCustomerName(field('고객명')), phoneLast4: field('핸드폰번호').replace(/\D/g, '').slice(-4),
       seller: field('판매사원'), orderDate, confirmedDate, ...(saleDate ? { saleDate } : {}), orderStatus, orderStatusLabel: statusLabel,
+      ...(sourceOrderStatus ? { sourceOrderStatus } : {}),
       orderCategory, orderType, saleAmount, paymentAmount, balanceAmount,
       channel1: field('판매경로1'), channel2: field('판매경로2'),
       commissionEligible: !isOneWonSaleAmount(saleAmount) && isSalesCommissionChannelEligible(field('판매경로1'), field('판매경로2')),

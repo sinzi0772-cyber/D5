@@ -16,13 +16,14 @@ const rawLead = (id: string, changes: Partial<Lead> = {}): Lead => makeLead(id, 
   salesRawPeriods: {
     '2026-09': { period: '2026-09', sourceHash: `synthetic-${id}`, importedAt: '2026-10-14T01:00:00.000Z',
       orderCount: 1, confirmedOrderCount: 1, reservedOrderCount: 0,
-      confirmedAmount: 100000, reservedAmount: 0, eligibleConfirmedAmount: 60000, eligibleReservedAmount: 0, returnAmount: 0 },
+      confirmedAmount: 100000, reservedAmount: 0, eligibleConfirmedAmount: 60000, eligibleReservedAmount: 0, returnAmount: 0,
+      settlementBasisAmount: 100000 },
   },
   subscriptionRawPeriods: {
     '2026-09': { period: '2026-09', sourceHash: `synthetic-sub-${id}`, importedAt: '2026-10-14T01:00:00.000Z',
       itemCount: 1, confirmedItemCount: 1, pendingItemCount: 0, confirmedBasisAmount: 200000,
       pendingBasisAmount: 0, eligibleConfirmedBasisAmount: 120000, eligiblePendingBasisAmount: 0,
-      includedStatuses: ['주문확정'], missingBasisItemCount: 0, rejectedProofItemCount: 0 },
+      includedStatuses: ['마감됨'], missingBasisItemCount: 0, rejectedProofItemCount: 0, settlementBasisAmount: 200000 },
   }, ...changes,
 })
 const eligibleLead = (id: string, changes: Partial<Lead> = {}): Lead => {
@@ -30,9 +31,11 @@ const eligibleLead = (id: string, changes: Partial<Lead> = {}): Lead => {
   const raw = rawLead(id)
   return { ...value,
     salesRawPeriods: { '2026-09': { ...raw.salesRawPeriods!['2026-09'],
-      confirmedAmount: value.lumpSumAmount || 0, eligibleConfirmedAmount: value.lumpSumAmount || 0 } },
+      confirmedAmount: value.lumpSumAmount || 0, eligibleConfirmedAmount: value.lumpSumAmount || 0,
+      settlementBasisAmount: value.lumpSumAmount || 0 } },
     subscriptionRawPeriods: { '2026-09': { ...raw.subscriptionRawPeriods!['2026-09'],
-      confirmedBasisAmount: value.subscriptionAmount || 0, eligibleConfirmedBasisAmount: value.subscriptionAmount || 0 } },
+      confirmedBasisAmount: value.subscriptionAmount || 0, eligibleConfirmedBasisAmount: value.subscriptionAmount || 0,
+      settlementBasisAmount: value.subscriptionAmount || 0 } },
   }
 }
 const blank = (id: string, changes: Partial<Lead> = {}): Lead => makeLead(id, {
@@ -71,6 +74,12 @@ const matchedRouteRaw = rawLead('A', {
   subscriptionRawPeriods: { '2026-09': { ...a.subscriptionRawPeriods!['2026-09'], eligibleConfirmedBasisAmount: 200000 } },
 })
 assert.equal(caseBasisFor([matchedRouteRaw, makeLead('B')]).status, 'unresolved', 'Equal sales with verified versus unverified commission evidence need an explicit basis')
+const differentSettlementRaw = rawLead('B', {
+  salesRawPeriods: { '2026-09': { ...a.salesRawPeriods!['2026-09'], settlementBasisAmount: 0 } },
+})
+assert.equal(caseBasisFor([a, differentSettlementRaw]).basis?.id, 'A', 'A settlement-only difference keeps the stable purchase basis')
+assert.equal(feeTotal([a, differentSettlementRaw]), 5000, 'The stable basis supplies the one settlement amount')
+assert.equal(caseBasisFor([differentSettlementRaw, makeLead('A')]).status, 'unresolved', 'Current RAW and manual-only purchases still require a basis choice')
 
 for (const difference of [
   { lumpSumAmount: 100001 }, { subscriptionAmount: 200001 }, { status: '관리중' as const },

@@ -16,20 +16,20 @@ const lead = (id: string, changes: Partial<Lead> = {}): Lead => {
   note: '비공개 상담 메모', memoHistory: [{ id: 'private-memo', date: '2026-10-01', manager: '비공개 담당자', content: '비공개 상담 내용' }],
   ...changes,
   }
-  // Publication privacy and month tests need eligible RAW evidence, not a manual fallback.
+  // Publication privacy and month tests use verified RAW settlement basis.
   return { ...value,
     salesRawPeriods: value.lumpSumAmount === undefined ? undefined : { '2026-09': {
       period: '2026-09', sourceHash: 'verified-lump-sum-fixture', importedAt: publishedAt,
       orderCount: 1, confirmedOrderCount: 1, reservedOrderCount: 0,
-      confirmedAmount: value.lumpSumAmount, reservedAmount: 0,
+      confirmedAmount: value.lumpSumAmount, reservedAmount: 0, settlementBasisAmount: value.lumpSumAmount,
       eligibleConfirmedAmount: value.lumpSumAmount, eligibleReservedAmount: 0, returnAmount: 0,
     } },
     subscriptionRawPeriods: value.subscriptionAmount === undefined ? undefined : { '2026-09': {
       period: '2026-09', sourceHash: 'verified-subscription-fixture', importedAt: publishedAt,
       itemCount: 1, confirmedItemCount: 1, pendingItemCount: 0,
-      confirmedBasisAmount: value.subscriptionAmount, pendingBasisAmount: 0,
+      confirmedBasisAmount: value.subscriptionAmount, pendingBasisAmount: 0, settlementBasisAmount: value.subscriptionAmount,
       eligibleConfirmedBasisAmount: value.subscriptionAmount, eligiblePendingBasisAmount: 0,
-      includedStatuses: ['주문확정'], missingBasisItemCount: 0, rejectedProofItemCount: 0,
+      includedStatuses: ['마감됨'], missingBasisItemCount: 0, rejectedProofItemCount: 0,
     } },
   }
 }

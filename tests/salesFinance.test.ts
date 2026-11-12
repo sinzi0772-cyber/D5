@@ -2,40 +2,40 @@ import assert from 'node:assert/strict'
 import { commissionVerificationRequiredFor, completedSalesFor, confirmedSalesFor, expectedLumpSumRebateFor, expectedRebateBreakdownFor, expectedRebateFor, expectedSubscriptionRebateFor, isSubscriptionRebatePartner, purchaseAmountSourceFor, salesRawAmountsFor, totalPurchaseAmountFor } from '../src/lib/salesFinance.ts'
 import { getStoredSalesChannels } from '../src/lib/salesChannels'
 
-const lead = { id: 'fixture', customerName: '가*나', phoneLast4: '0001', registeredAt: '2026-09-01', updatedAt: '2026-10-04', gender: '미입력', partnerName: '(주)아이니웨딩네트웍스', appointmentType: '이업종제휴', status: '관리중', visitState: '미정', purchaseType: '일시불+구독', lumpSumAmount: 150000, subscriptionAmount: 10000, salesRawPeriods: { '2026-09': { period: '2026-09', sourceHash: 'fixture', importedAt: '2026-10-04', orderCount: 2, confirmedOrderCount: 1, reservedOrderCount: 1, confirmedAmount: 100000, reservedAmount: 50000, eligibleConfirmedAmount: 80000, eligibleReservedAmount: 40000, returnAmount: 0 } } } as const
-assert.equal(expectedRebateFor(lead), 3000)
-assert.deepEqual(expectedRebateBreakdownFor(lead), { lumpSumBasis: 150000, subscriptionBasis: 0, lumpSumCommission: 3000, subscriptionCommission: 0, total: 3000 })
+const lead = { id: 'fixture', customerName: '가*나', phoneLast4: '0001', registeredAt: '2026-09-01', updatedAt: '2026-10-04', gender: '미입력', partnerName: '(주)아이니웨딩네트웍스', appointmentType: '이업종제휴', status: '관리중', visitState: '미정', purchaseType: '일시불+구독', lumpSumAmount: 150000, subscriptionAmount: 10000, salesRawPeriods: { '2026-09': { period: '2026-09', sourceHash: 'fixture', importedAt: '2026-10-04', orderCount: 2, confirmedOrderCount: 1, reservedOrderCount: 1, confirmedAmount: 100000, reservedAmount: 50000, eligibleConfirmedAmount: 80000, eligibleReservedAmount: 40000, returnAmount: 0, settlementBasisAmount: 100000 } } } as const
+assert.equal(expectedRebateFor(lead), 2000)
+assert.deepEqual(expectedRebateBreakdownFor(lead), { lumpSumBasis: 100000, subscriptionBasis: 0, lumpSumCommission: 2000, subscriptionCommission: 0, total: 2000 })
 assert.equal(confirmedSalesFor(lead), 100000)
 assert.equal(salesRawAmountsFor(lead).reserved, 50000)
 assert.equal(expectedRebateFor({ ...lead, salesRawPeriods: undefined }), 0, 'A partner appointment alone does not verify a sale for manual amounts')
 assert.equal(expectedRebateFor({ ...lead, lumpSumAmount: 160000 }), 0, 'Changed manual amount must not reuse old RAW or earn commission without verification')
-assert.equal(expectedRebateFor({ ...lead, partnerName: '기타업체' }), 3000)
+assert.equal(expectedRebateFor({ ...lead, partnerName: '기타업체' }), 2000)
 assert.equal(confirmedSalesFor({ ...lead, status: '구매완료' }), 110000)
-const refund = { ...lead, lumpSumAmount: 75000, subscriptionAmount: 0, salesRawPeriods: { '2026-09': { ...lead.salesRawPeriods['2026-09'], confirmedAmount: -25000, reservedAmount: 100000, eligibleConfirmedAmount: -25000, eligibleReservedAmount: 100000 } } }
-assert.equal(expectedRebateFor(refund), 1500)
+const refund = { ...lead, lumpSumAmount: 75000, subscriptionAmount: 0, salesRawPeriods: { '2026-09': { ...lead.salesRawPeriods['2026-09'], confirmedAmount: -25000, reservedAmount: 100000, eligibleConfirmedAmount: -25000, eligibleReservedAmount: 100000, settlementBasisAmount: -25000 } } }
+assert.equal(expectedRebateFor(refund), 0)
 assert.equal(confirmedSalesFor(refund), -25000)
 assert.equal(salesRawAmountsFor(refund).confirmed + salesRawAmountsFor(refund).reserved, 75000)
-const subscription = { ...lead, status: '관리중', subscriptionAmount: 200000, subscriptionRawPeriods: { '2026-09': { period: '2026-09', sourceHash: 'anonymous-subscription', importedAt: '2026-10-04', itemCount: 3, confirmedItemCount: 2, pendingItemCount: 1, confirmedBasisAmount: 150000, pendingBasisAmount: 50000, eligibleConfirmedBasisAmount: 100000, eligiblePendingBasisAmount: 50000, includedStatuses: ['주문확정', '마감됨', '출하대기'], missingBasisItemCount: 1, rejectedProofItemCount: 1 } } } as const
-assert.equal(expectedRebateFor(subscription), 6000, 'The current BEST totals for both purchase methods contribute to expected commission')
+const subscription = { ...lead, status: '관리중', subscriptionAmount: 200000, subscriptionRawPeriods: { '2026-09': { period: '2026-09', sourceHash: 'anonymous-subscription', importedAt: '2026-10-04', itemCount: 3, confirmedItemCount: 2, pendingItemCount: 1, confirmedBasisAmount: 150000, pendingBasisAmount: 50000, eligibleConfirmedBasisAmount: 100000, eligiblePendingBasisAmount: 50000, includedStatuses: ['주문확정', '마감됨', '출하대기'], missingBasisItemCount: 1, rejectedProofItemCount: 1, settlementBasisAmount: 150000 } } } as const
+assert.equal(expectedRebateFor(subscription), 4250, 'Only the payable source statuses contribute to commission even when the current BEST total is higher')
 assert.equal(confirmedSalesFor(subscription), 250000, 'Raw subscription confirmed basis counts without changing manual status')
-assert.equal(expectedRebateFor({ ...subscription, partnerName: '기타업체' }), 3000)
-assert.equal(expectedRebateFor({ ...subscription, partnerName: '(주)아이패밀리에스씨' }), 6000)
-assert.equal(expectedRebateFor({ ...subscription, partnerName: '아이웨딩' }), 6000)
-assert.equal(expectedRebateFor({ ...subscription, partnerName: '(주)아이패밀리에스씨협력업체' }), 3000)
+assert.equal(expectedRebateFor({ ...subscription, partnerName: '기타업체' }), 2000)
+assert.equal(expectedRebateFor({ ...subscription, partnerName: '(주)아이패밀리에스씨' }), 4250)
+assert.equal(expectedRebateFor({ ...subscription, partnerName: '아이웨딩' }), 4250)
+assert.equal(expectedRebateFor({ ...subscription, partnerName: '(주)아이패밀리에스씨협력업체' }), 2000)
 for (const partnerName of ['주식회사 베리굿웨딩컴퍼니', '(주)베리굿웨딩컴퍼니', '㈜베리굿웨딩컴퍼니', '베리굿웨딩컴퍼니']) {
   const eligiblePartner = { ...subscription, partnerName }
   assert.equal(isSubscriptionRebatePartner(partnerName), true)
-  assert.equal(expectedSubscriptionRebateFor(eligiblePartner), 3000, 'The approved partner receives commission on the current membership basis')
-  assert.equal(expectedRebateFor(eligiblePartner), 6000, 'Adding the subscription partner must preserve lump-sum commission')
+  assert.equal(expectedSubscriptionRebateFor(eligiblePartner), 2250, 'The approved partner receives commission on the current membership basis')
+  assert.equal(expectedRebateFor(eligiblePartner), 4250, 'Adding the subscription partner must preserve lump-sum commission')
   assert.equal(expectedSubscriptionRebateFor({ ...eligiblePartner, subscriptionAmount: 300000 }), 0, 'A manual subscription amount requires matching BEST evidence')
 }
 for (const partnerName of ['베리굿웨딩컴퍼니협력사', '베리굿웨딩', '다른베리굿웨딩컴퍼니']) {
   assert.equal(isSubscriptionRebatePartner(partnerName), false, 'Similar company names must not be eligible automatically')
-  assert.equal(expectedRebateFor({ ...subscription, partnerName }), 3000)
+  assert.equal(expectedRebateFor({ ...subscription, partnerName }), 2000)
 }
-assert.equal(expectedRebateFor({ ...subscription, subscriptionAmount: 300000 }), 3000, 'Unverified manual subscription does not remove verified lump-sum commission')
-assert.equal(expectedRebateFor({ ...subscription, lumpSumAmount: 150000 }), 6000, 'Subscription calculation preserves lump-sum basis')
-const rejectedOnlySale = { ...subscription, status: '구매완료', lumpSumAmount: 0, salesRawPeriods: undefined, subscriptionRawPeriods: { '2026-09': { ...subscription.subscriptionRawPeriods['2026-09'], confirmedBasisAmount: 200000, pendingBasisAmount: 0, eligibleConfirmedBasisAmount: 200000, eligiblePendingBasisAmount: 0, rejectedProofItemCount: 2 } } } as const
+assert.equal(expectedRebateFor({ ...subscription, subscriptionAmount: 300000 }), 2000, 'Unverified manual subscription does not remove verified lump-sum commission')
+assert.equal(expectedRebateFor({ ...subscription, lumpSumAmount: 150000 }), 4250, 'Subscription calculation preserves lump-sum basis')
+const rejectedOnlySale = { ...subscription, status: '구매완료', lumpSumAmount: 0, salesRawPeriods: undefined, subscriptionRawPeriods: { '2026-09': { ...subscription.subscriptionRawPeriods['2026-09'], confirmedBasisAmount: 200000, pendingBasisAmount: 0, eligibleConfirmedBasisAmount: 200000, eligiblePendingBasisAmount: 0, rejectedProofItemCount: 2, settlementBasisAmount: 200000 } } } as const
 assert.equal(completedSalesFor(rejectedOnlySale), 200000, 'Rejected promotion proof must not erase the actual completed sale')
 assert.equal(confirmedSalesFor(rejectedOnlySale), 200000)
 assert.equal(expectedSubscriptionRebateFor(rejectedOnlySale), 3000, 'Rejected proof must count in the approved partner commission')
@@ -48,8 +48,22 @@ assert.equal(salesRawAmountsFor(completedPolicy).completed, 200000)
 assert.equal(salesRawAmountsFor(completedPolicy).pending, 0, 'Completed reservations must not be shown as pending again')
 assert.equal(completedSalesFor(completedPolicy), 210000)
 assert.equal(confirmedSalesFor(completedPolicy), 110000, 'Original order-confirmed amount must not be forged by business completion')
-assert.equal(expectedRebateFor(completedPolicy), 4000)
+assert.equal(expectedRebateFor(completedPolicy), 2000)
 assert.equal(expectedRebateFor({ ...completedPolicy, lumpSumAmount: 250000 }), 0, 'Changed manual amount cannot reuse tentative RAW evidence or the full unverified amount')
+
+const legacyConfirmationOnly = { ...subscription,
+  salesRawPeriods: { '2026-09': { ...lead.salesRawPeriods['2026-09'], settlementBasisAmount: undefined } },
+  subscriptionRawPeriods: { '2026-09': { ...subscription.subscriptionRawPeriods['2026-09'], settlementBasisAmount: undefined } },
+}
+assert.equal(expectedRebateFor(legacyConfirmationOnly), 0, 'Legacy confirmed totals alone cannot establish a payable source status')
+assert.equal(commissionVerificationRequiredFor(legacyConfirmationOnly), true)
+assert.equal(totalPurchaseAmountFor(legacyConfirmationOnly), 350000, 'Missing settlement evidence keeps the gross total intact')
+const zeroSettlement = { ...legacyConfirmationOnly,
+  salesRawPeriods: { '2026-09': { ...lead.salesRawPeriods['2026-09'], settlementBasisAmount: 0 } },
+  subscriptionRawPeriods: { '2026-09': { ...subscription.subscriptionRawPeriods['2026-09'], settlementBasisAmount: 0 } },
+}
+assert.equal(expectedRebateFor(zeroSettlement), 0)
+assert.equal(commissionVerificationRequiredFor(zeroSettlement), false, 'An explicit verified zero needs no status evidence review')
 
 const roundingFixture = (lumpSumBasis: number, subscriptionBasis: number) => ({
   ...subscription,
@@ -57,11 +71,11 @@ const roundingFixture = (lumpSumBasis: number, subscriptionBasis: number) => ({
   subscriptionAmount: subscriptionBasis,
   salesRawPeriods: { '2026-09': {
     ...lead.salesRawPeriods['2026-09'], confirmedAmount: lumpSumBasis, reservedAmount: 0,
-    eligibleConfirmedAmount: lumpSumBasis, eligibleReservedAmount: 0,
+    eligibleConfirmedAmount: lumpSumBasis, eligibleReservedAmount: 0, settlementBasisAmount: lumpSumBasis,
   } },
   subscriptionRawPeriods: { '2026-09': {
     ...subscription.subscriptionRawPeriods['2026-09'], confirmedBasisAmount: subscriptionBasis, pendingBasisAmount: 0,
-    eligibleConfirmedBasisAmount: subscriptionBasis, eligiblePendingBasisAmount: 0,
+    eligibleConfirmedBasisAmount: subscriptionBasis, eligiblePendingBasisAmount: 0, settlementBasisAmount: subscriptionBasis,
   } },
 })
 const bothMethodsRoundUp = roundingFixture(26, 34)

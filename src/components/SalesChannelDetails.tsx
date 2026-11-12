@@ -68,7 +68,7 @@ function SalesChannelRecord({ row, title, target, correction, onSaveRoute }: {
     <header><strong>{title}</strong><span className={`sales-channel-state ${row.status}`}>{statusLabel[row.status]}</span></header>
     <dl aria-label="BEST 원본 판매경로"><div><dt>판매경로 1</dt><dd>{row.channel1 || '미확인'}</dd></div><div><dt>판매경로 2</dt><dd>{row.channel2 || '미확인'}</dd></div></dl>
     {correction && <dl className="sales-channel-confirmed"><div><dt>직원 확인 1</dt><dd>{correction.correctedChannel1}</dd></div><div><dt>직원 확인 2</dt><dd>{correction.correctedChannel2}</dd></div></dl>}
-    {row.status === 'unverified' ? <p>원본 판매경로 확인이 필요합니다.</p> : !row.amountCurrent ? <p>입력 금액과 원본 금액이 달라 수수료 확인이 필요합니다.</p> : null}
+    {row.status === 'unverified' ? <p>원본 판매경로 확인이 필요합니다.</p> : !row.amountCurrent ? <p>입력 금액과 판매 원본 금액이 다릅니다.</p> : null}
     {onSaveRoute && (draft ? <div className="sales-channel-route-edit">
       <div className="sales-channel-route-fields">
         <label>판매경로 1<select value={draft.correctedChannel1} disabled={saving || Boolean(stale)} onChange={event => {

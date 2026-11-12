@@ -15,20 +15,20 @@ const lead = (id: string, changes: Partial<Lead> = {}): Lead => {
   memoHistory: [{ id: 'memo', date: '2026-09-06', manager: '비공개 담당자', content: '비공개 상담내용' }],
   ...changes,
   }
-  // Privacy, category and month tests use purchases verified by eligible RAW routes.
+  // Privacy, category and month tests use purchases with verified RAW settlement basis.
   return { ...value,
     salesRawPeriods: value.lumpSumAmount === undefined ? undefined : { '2026-09': {
       period: '2026-09', sourceHash: 'verified-lump-sum-fixture', importedAt: '2026-10-07',
       orderCount: 1, confirmedOrderCount: 1, reservedOrderCount: 0,
-      confirmedAmount: value.lumpSumAmount, reservedAmount: 0,
+      confirmedAmount: value.lumpSumAmount, reservedAmount: 0, settlementBasisAmount: value.lumpSumAmount,
       eligibleConfirmedAmount: value.lumpSumAmount, eligibleReservedAmount: 0, returnAmount: 0,
     } },
     subscriptionRawPeriods: value.subscriptionAmount === undefined ? undefined : { '2026-09': {
       period: '2026-09', sourceHash: 'verified-subscription-fixture', importedAt: '2026-10-07',
       itemCount: 1, confirmedItemCount: 1, pendingItemCount: 0,
-      confirmedBasisAmount: value.subscriptionAmount, pendingBasisAmount: 0,
+      confirmedBasisAmount: value.subscriptionAmount, pendingBasisAmount: 0, settlementBasisAmount: value.subscriptionAmount,
       eligibleConfirmedBasisAmount: value.subscriptionAmount, eligiblePendingBasisAmount: 0,
-      includedStatuses: ['주문확정'], missingBasisItemCount: 0, rejectedProofItemCount: 0,
+      includedStatuses: ['마감됨'], missingBasisItemCount: 0, rejectedProofItemCount: 0,
     } },
   }
 }

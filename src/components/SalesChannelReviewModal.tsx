@@ -45,7 +45,7 @@ export function SalesChannelReviewModal({ items, onClose, onSelectLead }: {
     <section className="sales-review-modal" role="dialog" aria-modal="true" aria-labelledby="sales-review-title" aria-describedby="sales-review-description" ref={dialog} tabIndex={-1}>
       <header><div><span><AlertCircle size={16} aria-hidden="true"/>판매경로 점검 · {items.length}개</span><h2 id="sales-review-title">웨딩업체 연결 주문의 판매경로를 확인해주세요</h2></div><button type="button" ref={closeButton} aria-label="닫기" onClick={onClose}><X size={20}/></button></header>
       <div className="sales-review-body">
-        <p id="sales-review-description">제휴업체가 연결한 구매완료 고객의 확정 주문을 점검합니다. 예상 수수료는 판매 RAW 기준으로 계산합니다.</p>
+        <p id="sales-review-description">제휴업체가 연결한 구매완료 고객의 확정 주문을 점검합니다. 예상 수수료는 판매 RAW의 일시불 ‘매출’과 구독 ‘마감됨’을 기준으로 계산합니다.</p>
         <details className="sales-review-expected"><summary>판매경로 점검 기준 보기</summary><dl><div><dt>판매경로 1</dt><dd>{SALES_COMMISSION_CHANNEL1}</dd></div><div><dt>판매경로 2</dt><dd>{SALES_COMMISSION_CHANNEL2.join(' 또는 ')}</dd></div></dl></details>
         {groups.map(({ status, label, rows }) => rows.length > 0 && <section className="sales-review-group" key={status} aria-label={label}>
           <h3>{label} {rows.length}건</h3>

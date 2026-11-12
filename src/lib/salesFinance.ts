@@ -34,6 +34,7 @@ export interface CaseFinancialProjection {
   completedSales: number
   lumpSumSource: PurchaseAmountSource
   subscriptionSource: PurchaseAmountSource
+  commissionVerificationRequired: boolean
 }
 const caseFinancialProjections = new WeakMap<object, CaseFinancialProjection>()
 export function registerCaseFinancialProjection(lead: Lead, totals: CaseFinancialProjection): Lead {
@@ -87,7 +88,7 @@ export function salesRawAmountsFor(lead: FinancialLead): SalesRawAmounts {
   }
 }
 
-/** Commission uses only current, route-verified order evidence. */
+/** Commission uses current RAW rows in the payable source status. */
 export function expectedRebateFor(lead: FinancialLead): number {
   return expectedRebateBreakdownFor(lead).total
 }
@@ -143,29 +144,31 @@ export function purchaseAmountSourceFor(lead: FinancialLead, kind: 'lumpSum' | '
   return { kind: current ? 'raw' : hasEnteredAmount ? 'manual' : 'empty', amount, rawAmount }
 }
 
-/** Match entered amounts with the linked BEST sales evidence before estimating commission. */
+/** Verify the entered total and the original status breakdown before estimating commission. */
 export function commissionVerificationRequiredFor(lead: FinancialLead): boolean {
-  return isFinancialOwnerFor(lead, 'lumpSum') && lumpSumAmountFor(lead) > 0 && !salesRawAmountsFor(lead).current
-    || isFinancialOwnerFor(lead, 'subscription') && isSubscriptionRebatePartner(lead.partnerName) && subscriptionAmountFor(lead) > 0 && !subscriptionRawAmountsFor(lead).current
+  const projection = caseFinancialProjections.get(lead)
+  if (projection) return projection.commissionVerificationRequired
+  return isFinancialOwnerFor(lead, 'lumpSum') && lumpSumAmountFor(lead) > 0 && (!salesRawAmountsFor(lead).current
+    || Object.values(lead.salesRawPeriods || {}).some(period => period.confirmedOrderCount > 0 && !Number.isSafeInteger(period.settlementBasisAmount)))
+    || isFinancialOwnerFor(lead, 'subscription') && isSubscriptionRebatePartner(lead.partnerName) && subscriptionAmountFor(lead) > 0 && (!subscriptionRawAmountsFor(lead).current
+    || Object.values(lead.subscriptionRawPeriods || {}).some(period => period.confirmedItemCount > 0 && !validSubscriptionSettlementBasis(period.settlementBasisAmount)))
 }
 
-function lumpSumCommissionBasisFor(lead: FinancialLead): number {
-  const projection = caseFinancialProjections.get(lead)
-  if (projection) return projection.lumpSumBasis
-  if (!isFinancialOwnerFor(lead, 'lumpSum')) return 0
-  const raw = salesRawAmountsFor(lead)
-  if (raw.current) return Math.max(0, raw.confirmed + raw.reserved + raw.tentative)
-  return 0
-}
+const validSubscriptionSettlementBasis = (amount: number | undefined): amount is number => typeof amount === 'number' && Number.isSafeInteger(amount) && amount >= 0
 
-function subscriptionCommissionBasisFor(lead: FinancialLead): number {
+/** Preserve signed cash RAW subtotals until the logical case is totaled. */
+export function signedCommissionBasisFor(lead: FinancialLead, kind: 'lumpSum' | 'subscription'): number {
   const projection = caseFinancialProjections.get(lead)
-  if (projection) return projection.subscriptionBasis
-  if (!isFinancialOwnerFor(lead, 'subscription')) return 0
-  if (!isSubscriptionRebatePartner(lead.partnerName)) return 0
-  const raw = subscriptionRawAmountsFor(lead)
-  if (raw.current) return Math.max(0, raw.confirmed + raw.pending)
-  return 0
+  if (projection) return kind === 'lumpSum' ? projection.lumpSumBasis : projection.subscriptionBasis
+  if (!isFinancialOwnerFor(lead, kind)) return 0
+  if (kind === 'lumpSum') {
+    if (!salesRawAmountsFor(lead).current) return 0
+    return Object.values(lead.salesRawPeriods || {}).reduce((total, { settlementBasisAmount }) =>
+      total + (typeof settlementBasisAmount === 'number' && Number.isSafeInteger(settlementBasisAmount) ? settlementBasisAmount : 0), 0)
+  }
+  if (!isSubscriptionRebatePartner(lead.partnerName) || !subscriptionRawAmountsFor(lead).current) return 0
+  return Object.values(lead.subscriptionRawPeriods || {}).reduce((total, { settlementBasisAmount }) =>
+    total + (validSubscriptionSettlementBasis(settlementBasisAmount) ? settlementBasisAmount : 0), 0)
 }
 
 export interface ExpectedRebateBreakdown {
@@ -178,8 +181,8 @@ export interface ExpectedRebateBreakdown {
 
 /** Round each purchase method to whole won before adding customer and case totals. */
 export function expectedRebateBreakdownFor(lead: FinancialLead): ExpectedRebateBreakdown {
-  const lumpSumBasis = lumpSumCommissionBasisFor(lead)
-  const subscriptionBasis = subscriptionCommissionBasisFor(lead)
+  const lumpSumBasis = Math.max(0, signedCommissionBasisFor(lead, 'lumpSum'))
+  const subscriptionBasis = signedCommissionBasisFor(lead, 'subscription')
   const lumpSumCommission = Math.round(lumpSumBasis * 2 / 100)
   const subscriptionCommission = Math.round(subscriptionBasis * 3 / 200)
   return {

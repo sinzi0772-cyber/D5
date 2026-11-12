@@ -11,17 +11,17 @@ const lead = (id: string, changes: Partial<Lead> = {}): Lead => {
   status: '구매완료', visitState: '방문', purchaseType: '일시불',
   lumpSumAmount: 1000000, ...changes,
   }
-  // These fixtures exercise settlement scopes using route-verified orders.
+  // These fixtures exercise settlement scopes using exact-status RAW basis amounts.
   if (!Object.hasOwn(changes, 'salesRawPeriods')) value.salesRawPeriods = { '2026-09': {
     period: '2026-09', sourceHash: 'synthetic-eligible-sales', importedAt: '2026-10-07', orderCount: 1,
-    confirmedOrderCount: 1, reservedOrderCount: 0, confirmedAmount: value.lumpSumAmount || 0, reservedAmount: 0,
+    confirmedOrderCount: 1, reservedOrderCount: 0, confirmedAmount: value.lumpSumAmount || 0, reservedAmount: 0, settlementBasisAmount: value.lumpSumAmount || 0,
     eligibleConfirmedAmount: value.lumpSumAmount || 0, eligibleReservedAmount: 0, returnAmount: 0,
   } }
   if (!Object.hasOwn(changes, 'subscriptionRawPeriods')) value.subscriptionRawPeriods = { '2026-09': {
     period: '2026-09', sourceHash: 'synthetic-eligible-subscription', importedAt: '2026-10-07', itemCount: 1,
-    confirmedItemCount: 1, pendingItemCount: 0, confirmedBasisAmount: value.subscriptionAmount || 0, pendingBasisAmount: 0,
+    confirmedItemCount: 1, pendingItemCount: 0, confirmedBasisAmount: value.subscriptionAmount || 0, pendingBasisAmount: 0, settlementBasisAmount: value.subscriptionAmount || 0,
     eligibleConfirmedBasisAmount: value.subscriptionAmount || 0, eligiblePendingBasisAmount: 0,
-    includedStatuses: ['주문확정'], missingBasisItemCount: 0, rejectedProofItemCount: 0,
+    includedStatuses: ['마감됨'], missingBasisItemCount: 0, rejectedProofItemCount: 0,
   } }
   return value
 }
@@ -127,7 +127,7 @@ assert.equal(roundingMetrics.months[0].customerCount, 1)
 assert.equal(roundingMetrics.months[0].caseCount, 1)
 const manualAmount = lead('manual-preserved', { deliveryScheduledDate: '2026-09-07', purchaseType: '일시불+구독', lumpSumAmount: 20864000, subscriptionAmount: 1891000, salesRawPeriods: undefined, subscriptionRawPeriods: undefined, manager: '수기 담당', note: '수기 메모' })
 const manualBefore = JSON.stringify(manualAmount)
-assert.equal(buildCommissionSettlementMetrics([manualAmount]).months[0].expectedCommission, 0, 'A date alone cannot admit a manually entered amount without verified sales routes')
+assert.equal(buildCommissionSettlementMetrics([manualAmount]).months[0].expectedCommission, 0, 'A date alone cannot admit a manually entered amount without verified RAW settlement basis')
 assert.equal(buildCommissionSettlementMetrics([manualAmount]).months[0].month, '2026-11')
 assert.equal(JSON.stringify(manualAmount), manualBefore)
 assert.deepEqual(buildCommissionSettlementMetrics([lead('before-year-maximum', { deliveryScheduledDate: '9999-09-01' }), lead('year-maximum', { deliveryScheduledDate: '9999-12-31' })]).months.map(row => row.month), ['9999-11', '10000-02'], 'Chronological order survives year rollover at the input-year boundary')

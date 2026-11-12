@@ -71,6 +71,8 @@ export interface SalesRawPeriod {
   confirmedAmount: number
   reservedAmount: number
   tentativeAmount?: number
+  /** Signed sales total from original 주문상태=매출 rows. Missing until verified. */
+  settlementBasisAmount?: number
   eligibleConfirmedAmount: number
   eligibleReservedAmount: number
   eligibleTentativeAmount?: number
@@ -92,6 +94,8 @@ export interface SubscriptionRawPeriod {
   pendingItemCount: number
   confirmedBasisAmount: number
   pendingBasisAmount: number
+  /** Membership basis from original 주문상태=마감됨 rows. Missing until verified. */
+  settlementBasisAmount?: number
   eligibleConfirmedBasisAmount: number
   eligiblePendingBasisAmount: number
   includedStatuses: readonly string[]

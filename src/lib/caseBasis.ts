@@ -1,6 +1,6 @@
 import type { Lead } from '../types'
 import { canonicalPartnerName } from './partners'
-import { completedSalesFor, confirmedSalesFor, expectedRebateBreakdownFor, financialPendingAmountFor, isSubscriptionRebatePartner, purchaseAmountSourceFor, registerCaseFinancialProjection, salesRawAmountsFor, subscriptionRawAmountsFor } from './salesFinance'
+import { commissionVerificationRequiredFor, completedSalesFor, confirmedSalesFor, financialPendingAmountFor, isSubscriptionRebatePartner, purchaseAmountSourceFor, registerCaseFinancialProjection, salesRawAmountsFor, signedCommissionBasisFor, subscriptionRawAmountsFor } from './salesFinance'
 import type { CaseFinancialProjection, PurchaseAmountSource, SalesRawAmounts, SubscriptionRawAmounts } from './salesFinance'
 
 export interface CaseBasisSelection {
@@ -118,13 +118,17 @@ function projectedBasis(lead: Lead, members: readonly Lead[]): { lead?: Lead; re
 }
 
 function economicSignature(lead: Lead): string {
-  const rebate = expectedRebateBreakdownFor(lead)
   const sales = salesRawAmountsFor(lead)
+  const subscription = subscriptionRawAmountsFor(lead)
+  // Compare purchase evidence independently of the commission policy.
+  const cashEvidence = sales.current ? Math.max(0, sales.confirmed + sales.reserved + sales.tentative) : 0
+  const subscriptionEvidence = subscription.current && isSubscriptionRebatePartner(lead.partnerName)
+    ? Math.max(0, subscription.confirmed + subscription.pending) : 0
   const currentRefund = sales.current ? Object.values(lead.salesRawPeriods || {}).reduce((sum, period) => sum + (Number.isFinite(period.returnAmount) ? period.returnAmount : 0), 0) : 0
   return JSON.stringify([
     partner(lead), enteredAmount(lead, 'lumpSum') ?? null, enteredAmount(lead, 'subscription') ?? null,
     lead.status, lead.deliveryScheduledDate || '', lead.managerEmployeeNo || lead.manager || '',
-    rebate.lumpSumBasis, rebate.subscriptionBasis, rebate.lumpSumCommission, rebate.subscriptionCommission,
+    cashEvidence, subscriptionEvidence,
     confirmedSalesFor(lead), completedSalesFor(lead), financialPendingAmountFor(lead),
     currentRefund,
   ])
@@ -171,6 +175,7 @@ function mergedProjection(basis: Lead, members: readonly Lead[], ids: readonly s
   const bases: Record<Kind, number> = { lumpSum: 0, subscription: 0 }
   const sourceInfo: Record<Kind, PurchaseAmountSource[]> = { lumpSum: [], subscription: [] }
   let pendingAmount = 0, confirmedSales = 0, completedSales = 0
+  let commissionVerificationRequired = false
   for (const kind of kinds) for (const owner of roots[kind]) {
     // Manual completion follows the chosen primary customer's personal state.
     // RAW stages retain their own factual confirmed/pending/refund evidence.
@@ -195,22 +200,20 @@ function mergedProjection(basis: Lead, members: readonly Lead[], ids: readonly s
     pendingAmount += financialPendingAmountFor(calculation)
     confirmedSales += confirmedSalesFor(calculation)
     completedSales += completedSalesFor(calculation)
-    const rebate = expectedRebateBreakdownFor(calculation)
+    bases[kind] += signedCommissionBasisFor(calculation, kind)
+    commissionVerificationRequired ||= commissionVerificationRequiredFor(calculation)
     if (kind === 'lumpSum') {
       const raw = salesRawAmountsFor(calculation)
       salesRaw.current &&= raw.current
       if (raw.current) {
         for (const key of ['confirmed', 'reserved', 'tentative', 'completed', 'pending', 'eligibleConfirmed', 'eligibleReserved', 'eligibleTentative'] as const) salesRaw[key] += raw[key]
-        // Refunds remain signed until the combined method basis is clamped.
-        bases.lumpSum += raw.confirmed + raw.reserved + raw.tentative
-      } else bases.lumpSum += rebate.lumpSumBasis
+      }
     } else {
       const raw = subscriptionRawAmountsFor(calculation)
       subscriptionRaw.current &&= raw.current
       if (raw.current) {
         for (const key of ['confirmed', 'pending', 'eligibleConfirmed', 'eligiblePending'] as const) subscriptionRaw[key] += raw[key]
-        if (isSubscriptionRebatePartner(calculation.partnerName)) bases.subscription += raw.confirmed + raw.pending
-      } else bases.subscription += rebate.subscriptionBasis
+      }
     }
   }
   const summarySource = (kind: Kind): PurchaseAmountSource => {
@@ -221,7 +224,7 @@ function mergedProjection(basis: Lead, members: readonly Lead[], ids: readonly s
   }
   const totals: CaseFinancialProjection = {
     lumpSumBasis: Math.max(0, bases.lumpSum), subscriptionBasis: Math.max(0, bases.subscription), salesRaw, subscriptionRaw,
-    pendingAmount, confirmedSales, completedSales, lumpSumSource: summarySource('lumpSum'), subscriptionSource: summarySource('subscription'),
+    pendingAmount, confirmedSales, completedSales, lumpSumSource: summarySource('lumpSum'), subscriptionSource: summarySource('subscription'), commissionVerificationRequired,
   }
   if ((amounts.lumpSum || 0) + (amounts.subscription || 0) > Number.MAX_SAFE_INTEGER) return { reason: '합산 총판매금액이 올바른 계산 범위를 초과합니다. 원본 금액을 확인해주세요.' }
   if (Object.values(totals).some(value => typeof value === 'number' && !Number.isFinite(value))) return { reason: '합산 수수료 근거를 계산할 수 없습니다. 원본 자료를 확인해주세요.' }

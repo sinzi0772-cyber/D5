@@ -4,6 +4,7 @@ import { parseSubscriptionRaw } from '../src/lib/subscriptionRaw'
 import { buildSalesMatchPlan } from '../src/lib/salesMatching'
 import { buildSubscriptionMatchPlan } from '../src/lib/subscriptionMatching'
 import { aggregateSalesChannels, aggregateSubscriptionChannels, getStoredSalesChannels } from '../src/lib/salesChannels'
+import { expectedRebateBreakdownFor } from '../src/lib/salesFinance'
 
 const wedding = SALES_COMMISSION_CHANNEL1, route = SALES_COMMISSION_CHANNEL2[0]
 const tsv = (rows: readonly (readonly unknown[])[]) => rows.map(row => row.join('\t')).join('\n')
@@ -68,14 +69,15 @@ assert.equal(buildSubscriptionMatchPlan(cached, [lead]).summary.matched.eligible
 
 const period = { period: '2026-10', sourceHash: 'synthetic', importedAt: '2026-11-01', orderCount: 1,
   confirmedOrderCount: 1, reservedOrderCount: 0, confirmedAmount: 1, reservedAmount: 0, eligibleConfirmedAmount: 1,
-  eligibleReservedAmount: 0, returnAmount: 0, channels: [{ channel1: wedding, channel2: 'wrong', orderCount: 1, amount: 1 }] }
-const stored = { purchaseType: '일시불', lumpSumAmount: 1, salesRawPeriods: { '2026-10': period } } as const
+  eligibleReservedAmount: 0, returnAmount: 0, settlementBasisAmount: 0, channels: [{ channel1: wedding, channel2: 'wrong', orderCount: 1, amount: 1 }] }
+const stored = { ...lead, purchaseType: '일시불', lumpSumAmount: 1, salesRawPeriods: { '2026-10': period } } as const
 const storedBefore = JSON.stringify(stored)
 assert.deepEqual(getStoredSalesChannels(stored), [])
+assert.equal(expectedRebateBreakdownFor(stored).lumpSumBasis, 0, 'A historical one-won row stays outside the settlement basis')
 assert.deepEqual(getStoredSalesChannels({ purchaseType: '일시불', purchaseAmount: 1 }), [])
 assert.deepEqual(getStoredSalesChannels({ ...stored, salesRawPeriods: { '2026-10': { ...period, channels: undefined } } }), [])
 assert.equal(JSON.stringify(stored), storedBefore, 'Original stored/manual one-won values are retained')
 const negative = { ...stored, lumpSumAmount: 0, salesRawPeriods: { '2026-10': { ...period, confirmedAmount: -1,
-  channels: [{ channel1: wedding, channel2: route, orderCount: 1, amount: -1 }] } } }
+  settlementBasisAmount: -1, channels: [{ channel1: wedding, channel2: route, orderCount: 1, amount: -1 }] } } }
 assert.equal(getStoredSalesChannels(negative)[0].amount, -1)
 console.log('oneWonExclusion: original source audit, exact positive-one filtering, cached matchers, mixed customers, signed refunds, route metadata and manual preservation passed')

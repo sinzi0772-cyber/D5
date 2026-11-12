@@ -10,7 +10,7 @@ const lead = (id: string, amount: number): Lead => ({ id, registeredAt: '2026-09
   deliveryScheduledDate: '2026-09-30', salesRawPeriods: { '2026-09': {
     period: '2026-09', sourceHash: 'synthetic-eligible-sales', importedAt: '2026-10-14', orderCount: 1,
     confirmedOrderCount: 1, reservedOrderCount: 0, confirmedAmount: amount, reservedAmount: 0,
-    eligibleConfirmedAmount: amount, eligibleReservedAmount: 0, returnAmount: 0,
+    eligibleConfirmedAmount: amount, eligibleReservedAmount: 0, returnAmount: 0, settlementBasisAmount: amount,
   } } })
 const pending = [lead('A', 100000), lead('B', 200000)]
 const before = JSON.stringify(pending)

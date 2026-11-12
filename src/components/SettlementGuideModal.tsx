@@ -93,10 +93,15 @@ export function SettlementGuideModal({ onClose, audience = 'staff' }: { onClose:
         <div className="guide-policy">
           <h3>정산 기준</h3>
           <ul>
+            <li>
+              <strong>제휴 연결 주문의 판매 RAW 기준</strong>
+              <span>일시불은 ‘매출’, 구독은 ‘마감됨’ 건만 예상 수수료에 반영합니다.</span>
+              <span>구독 수수료는 대상 제휴업체에 적용합니다.</span>
+            </li>
             {audience === 'staff' ? <li>
-              <strong>제휴 연결이 확인된 일시불·구독 구매를 정산</strong>
-              <span>점검 기준 판매경로 1: {SALES_COMMISSION_CHANNEL1}</span>
-              <span>점검 기준 판매경로 2: {SALES_COMMISSION_CHANNEL2.join(' 또는 ')}</span>
+              <strong>판매경로 점검 기준</strong>
+              <span>판매경로 1: {SALES_COMMISSION_CHANNEL1}</span>
+              <span>판매경로 2: {SALES_COMMISSION_CHANNEL2.join(' 또는 ')}</span>
             </li> : null}
             <li>
               <strong>접수한 매장에서 구매 시 정산</strong>

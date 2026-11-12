@@ -19,13 +19,13 @@ const lead = (id: string, partnerName: string, amount: number): Lead => ({
   salesRawPeriods: { '2026-10': {
     period: '2026-10', sourceHash: 'synthetic-eligible-sales', importedAt: '2026-10-14T00:00:00.000Z',
     orderCount: 1, confirmedOrderCount: 1, reservedOrderCount: 0,
-    confirmedAmount: amount, reservedAmount: 0, eligibleConfirmedAmount: amount, eligibleReservedAmount: 0, returnAmount: 0,
+    confirmedAmount: amount, reservedAmount: 0, settlementBasisAmount: amount, eligibleConfirmedAmount: amount, eligibleReservedAmount: 0, returnAmount: 0,
   } },
   subscriptionRawPeriods: { '2026-10': {
     period: '2026-10', sourceHash: 'synthetic-eligible-subscription', importedAt: '2026-10-14T00:00:00.000Z',
     itemCount: 1, confirmedItemCount: 1, pendingItemCount: 0,
-    confirmedBasisAmount: amount / 2, pendingBasisAmount: 0, eligibleConfirmedBasisAmount: amount / 2, eligiblePendingBasisAmount: 0,
-    includedStatuses: ['매출확정'], missingBasisItemCount: 0, rejectedProofItemCount: 0,
+    confirmedBasisAmount: amount / 2, pendingBasisAmount: 0, settlementBasisAmount: amount / 2, eligibleConfirmedBasisAmount: amount / 2, eligiblePendingBasisAmount: 0,
+    includedStatuses: ['마감됨'], missingBasisItemCount: 0, rejectedProofItemCount: 0,
   } },
 })
 const rows = Object.freeze([

@@ -18,14 +18,15 @@ const owner = Object.freeze(lead('financial-owner', {
   caseBasisLeadId: 'financial-owner', lumpSumSourceId: 'financial-owner', subscriptionSourceId: 'financial-owner',
   salesRawPeriods: { '2026-09': { period: '2026-09', sourceHash: 'anonymous-sales', importedAt: publishedAt,
     orderCount: 2, confirmedOrderCount: 1, reservedOrderCount: 1, confirmedAmount: 100000, reservedAmount: 50000,
-    eligibleConfirmedAmount: 80000, eligibleReservedAmount: 40000, returnAmount: 0 } },
+    eligibleConfirmedAmount: 80000, eligibleReservedAmount: 40000, returnAmount: 0, settlementBasisAmount: 100000 } },
   subscriptionRawPeriods: { '2026-09': { period: '2026-09', sourceHash: 'anonymous-subscription', importedAt: publishedAt,
     itemCount: 2, confirmedItemCount: 1, pendingItemCount: 1, confirmedBasisAmount: 150000, pendingBasisAmount: 50000,
-    eligibleConfirmedBasisAmount: 100000, eligiblePendingBasisAmount: 50000, includedStatuses: ['주문확정', '출하대기'], missingBasisItemCount: 0, rejectedProofItemCount: 0 } },
+    eligibleConfirmedBasisAmount: 100000, eligiblePendingBasisAmount: 50000, includedStatuses: ['마감됨', '출하대기'],
+    missingBasisItemCount: 0, rejectedProofItemCount: 0, settlementBasisAmount: 150000 } },
 }))
 const verified = (value: Lead): Lead => ({ ...value,
-  ...(value.lumpSumAmount !== undefined ? { salesRawPeriods: { '2026-09': { ...owner.salesRawPeriods!['2026-09'], confirmedAmount: value.lumpSumAmount, reservedAmount: 0, eligibleConfirmedAmount: value.lumpSumAmount, eligibleReservedAmount: 0 } } } : {}),
-  ...(value.subscriptionAmount !== undefined ? { subscriptionRawPeriods: { '2026-09': { ...owner.subscriptionRawPeriods!['2026-09'], confirmedBasisAmount: value.subscriptionAmount, pendingBasisAmount: 0, eligibleConfirmedBasisAmount: value.subscriptionAmount, eligiblePendingBasisAmount: 0 } } } : {}),
+  ...(value.lumpSumAmount !== undefined ? { salesRawPeriods: { '2026-09': { ...owner.salesRawPeriods!['2026-09'], confirmedAmount: value.lumpSumAmount, reservedAmount: 0, eligibleConfirmedAmount: value.lumpSumAmount, eligibleReservedAmount: 0, settlementBasisAmount: value.lumpSumAmount } } } : {}),
+  ...(value.subscriptionAmount !== undefined ? { subscriptionRawPeriods: { '2026-09': { ...owner.subscriptionRawPeriods!['2026-09'], confirmedBasisAmount: value.subscriptionAmount, pendingBasisAmount: 0, eligibleConfirmedBasisAmount: value.subscriptionAmount, eligiblePendingBasisAmount: 0, settlementBasisAmount: value.subscriptionAmount } } } : {}),
 })
 const alias = Object.freeze(lead('financial-alias', { caseBasisLeadId: owner.id, lumpSumSourceId: owner.id, subscriptionSourceId: owner.id,
   deliveryScheduledDate: '2026-12-31', phoneLast4: '0002' }))
@@ -38,7 +39,7 @@ assert.equal(displayedPurchaseAmountFor(shared), 350000)
 assert.equal(displayedPurchaseAmountFor([alias]), 0, 'A partial group cannot reelect an unseen source')
 assert.equal(displayedPurchaseAmountFor([owner, lead('independent', { caseGroupId: undefined })]), 700000, 'Separate customers still sum normally')
 assert.equal(financialTotalPurchaseAmountFor(alias), 0)
-assert.deepEqual(expectedRebateBreakdownFor(owner), { lumpSumBasis: 150000, subscriptionBasis: 200000, lumpSumCommission: 3000, subscriptionCommission: 3000, total: 6000 })
+assert.deepEqual(expectedRebateBreakdownFor(owner), { lumpSumBasis: 100000, subscriptionBasis: 150000, lumpSumCommission: 2000, subscriptionCommission: 2250, total: 4250 })
 assert.equal(expectedRebateFor(alias), 0)
 assert.equal(confirmedSalesFor(owner), 250000)
 assert.equal(completedSalesFor(owner), 250000)
@@ -49,7 +50,7 @@ assert.equal(executive.current.customerCount, 1)
 assert.equal(executive.current.completedCustomers, 1)
 assert.equal(executive.current.sales, 250000)
 assert.equal(executive.current.reservedSales, 100000)
-assert.equal(executive.current.expectedCommission, 6000)
+assert.equal(executive.current.expectedCommission, 4250)
 assert.equal(executiveTotalSalesFor(executive.current), 350000)
 assert.equal(executive.current.basisRequiredCount, 0)
 assert.equal(purchaseSortValue(alias, [...shared]), 350000)
@@ -58,13 +59,13 @@ assert.equal(purchaseSortValue(alias, [alias]), null, 'Incomplete source without
 const settlement = buildCommissionSettlementMetrics(shared)
 assert.equal(settlement.completedCustomerCount, 1)
 assert.equal(settlement.unfinishedCustomerCount, 0)
-assert.equal(settlement.completedExpectedCommission, 6000)
-assert.deepEqual(settlement.months.map(row => [row.month, row.customerCount, row.expectedCommission]), [['2026-11', 1, 6000]], 'Only the basis customer delivery date schedules money')
+assert.equal(settlement.completedExpectedCommission, 4250)
+assert.deepEqual(settlement.months.map(row => [row.month, row.customerCount, row.expectedCommission]), [['2026-11', 1, 4250]], 'Only the basis customer delivery date schedules money')
 const preview = buildPartnerPreview(shared, IWEDDING_PARTNER_NAME, '2026-09')
 assert.equal(preview.customerCount, 1)
 assert.equal(preview.receiptCount, 1)
 assert.equal(preview.customers.length, 1)
-assert.equal(preview.completedExpectedCommission, 6000)
+assert.equal(preview.completedExpectedCommission, 4250)
 const publication = buildPartnerPublication(shared, IWEDDING_PARTNER_ID, publishedAt)
 assert.deepEqual(parsePartnerPublication(publication, IWEDDING_PARTNER_ID), publication)
 for (const forbidden of ['financial-owner', 'financial-alias', 'lumpSumSourceId', 'subscriptionSourceId', 'caseBasisLeadId', 'caseSharingHistory', 'anonymous-sales', 'anonymous-subscription']) assert.equal(JSON.stringify(publication).includes(forbidden), false)
@@ -119,13 +120,13 @@ assert.equal(purchaseSortValue(ownCompany, cross, cross), null, 'Foreign financi
 
 const chosenAlias = shared.map(member => ({ ...member, caseBasisLeadId: alias.id }))
 const aliasFinancial = financialCaseLeadFor(caseBasisFor(chosenAlias), chosenAlias)!
-assert.equal(expectedRebateFor(aliasFinancial), 6000, 'A selected legacy alias uses only equal, direct, same-company owner RAW evidence')
+assert.equal(expectedRebateFor(aliasFinancial), 4250, 'A selected legacy alias uses only equal, direct, same-company owner RAW evidence')
 assert.equal(buildCommissionSettlementMetrics(chosenAlias).months[0].month, '2027-02', 'Explicit basis date changes settlement; it is not an additional bucket')
 const unlinked = shared.map(member => ({ ...member, caseGroupId: undefined }))
-assert.equal(buildExecutiveMetrics(unlinked, '2026-09', '2026-10-14').current.expectedCommission, 6000, 'Unlinking cannot convert aliases into new purchases')
-assert.equal(expectedRebateFor({ ...owner, lumpSumAmount: 160000 }), 3000, 'A changed cash amount needs BEST verification; the current subscription remains payable')
+assert.equal(buildExecutiveMetrics(unlinked, '2026-09', '2026-10-14').current.expectedCommission, 4250, 'Unlinking cannot convert aliases into new purchases')
+assert.equal(expectedRebateFor({ ...owner, lumpSumAmount: 160000 }), 2250, 'A changed cash amount needs BEST verification; the current subscription remains payable')
 assert.equal(expectedRebateFor({ ...owner, lumpSumAmount: 0, subscriptionAmount: 0 }), 0)
-assert.equal(confirmedSalesFor({ ...owner, lumpSumAmount: 75000, subscriptionAmount: 0, salesRawPeriods: { '2026-09': { ...owner.salesRawPeriods!['2026-09'], confirmedAmount: -25000, reservedAmount: 100000, eligibleConfirmedAmount: -25000, eligibleReservedAmount: 100000 } } }), -25000, 'Signed refund subtotals remain intact')
+assert.equal(confirmedSalesFor({ ...owner, lumpSumAmount: 75000, subscriptionAmount: 0, salesRawPeriods: { '2026-09': { ...owner.salesRawPeriods!['2026-09'], confirmedAmount: -25000, reservedAmount: 100000, eligibleConfirmedAmount: -25000, eligibleReservedAmount: 100000, settlementBasisAmount: -25000 } } }), -25000, 'Signed refund subtotals remain intact')
 for (const member of shared) {
   const reloaded = leadFromDocument(member.id, JSON.parse(JSON.stringify(member)))
   assert.equal(financialTotalPurchaseAmountFor(reloaded), financialTotalPurchaseAmountFor(member))

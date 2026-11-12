@@ -27,7 +27,7 @@ assert(review({ partnerName: '다른 업체' }).differences.includes('제휴업�
 
 const raw = { '2026-10': { period: '2026-10', sourceHash: 'synthetic', importedAt: '2026-11-01',
   orderCount: 1, confirmedOrderCount: 1, reservedOrderCount: 0, confirmedAmount: 100, reservedAmount: 0,
-  eligibleConfirmedAmount: 100, eligibleReservedAmount: 0, returnAmount: 0 } }
+  eligibleConfirmedAmount: 100, eligibleReservedAmount: 0, returnAmount: 0, settlementBasisAmount: 100 } }
 const evidenceMembers = [lead('A', { purchaseType: '일시불', lumpSumAmount: 100, salesRawPeriods: raw }), lead('B', { purchaseType: '일시불', lumpSumAmount: 100 })]
 const before = JSON.stringify(evidenceMembers)
 assert.deepEqual(getCaseBasisReviewDetails(evidenceMembers, generic).differences, ['수수료 근거'], 'Equal entered prices can still carry different verified order evidence')
