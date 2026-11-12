@@ -6,6 +6,11 @@ const raw = Object.freeze({ registeredAt: '2026-09-01', customerName: '김*수',
 const lead = leadFromDocument('saved-id', raw)
 assert.equal(lead.partnerName, '(주)아이패밀리에스씨')
 assert.equal(lead.phoneLast4, '0023')
+assert.equal(lead.bestCustomerNumber, undefined)
+assert.equal(leadFromDocument('id', { bestCustomerNumber: '0023456789' }).bestCustomerNumber, '0023456789')
+for (const malformed of [1234567890, '1234', '12345678901', '12345-67890', ' 0123456789']) {
+  assert.equal(leadFromDocument('id', { bestCustomerNumber: malformed }).bestCustomerNumber, undefined)
+}
 assert.equal(lead.managerEmployeeNo, '0023')
 assert.equal(lead.status, '구매완료')
 assert.equal(lead.lumpSumAmount, 200000)

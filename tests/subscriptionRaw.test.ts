@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { parseSubscriptionRaw } from '../src/lib/subscriptionRaw.ts'
 
-const headers = ['구매 고객명', '전화번호', '주문일자', '수량', '멤버십혜택 기준금액', '출하가', '주문상태', '계약상태', '취소일자', '해지접수일', '해지완료일', 'BEST 주문번호', 'BEST주문 라인번호', 'LGE 주문번호', 'LGE주문 라인번호', '판매경로1', '판매경로2', '경로판촉증빙 승인여부', '인수자명', '기본주소']
+const headers = ['구매 고객명', '전화번호', '주문일자', '수량', '멤버십혜택 기준금액', '출하가', '주문상태', '계약상태', '취소일자', '해지접수일', '해지완료일', 'BEST 주문번호', 'BEST주문 라인번호', 'LGE 주문번호', 'LGE주문 라인번호', '판매경로1', '판매경로2', '경로판촉증빙 승인여부', '인수자명', '기본주소', 'BEST 고객번호']
 const escape = (value: string) => /["\t\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
 const row = (order: string, line: string, changes: Partial<Record<string, string>> = {}) => headers.map(name => escape(({
   '구매 고객명': '이준호', 전화번호: '010-0000-2601', 주문일자: '2026-09-10', 수량: '1',
@@ -11,6 +11,11 @@ const row = (order: string, line: string, changes: Partial<Record<string, string
 } as Record<string, string>)[name] || '')).join('\t')
 const tsv = (...rows: string[]) => `${headers.map(escape).join('\t')}\r\n${rows.join('\r\n')}\r\n`
 const options = { confirmedStatuses: ['주문확정', '마감됨'], reservedStatuses: ['출하대기'], excludedStatuses: ['취소됨'] }
+
+const numbered = tsv(row('numbered-order', '1', { 'BEST 고객번호': '0023456789' }))
+assert.equal(parseSubscriptionRaw(numbered, options).items[0].bestCustomerNumber, undefined)
+assert.equal(parseSubscriptionRaw(numbered, { ...options, includeBestCustomerNumber: true }).items[0].bestCustomerNumber, '0023456789')
+assert.equal(parseSubscriptionRaw(tsv(row('bad-number', '1', { 'BEST 고객번호': '1234' })), { ...options, includeBestCustomerNumber: true }).items[0].bestCustomerNumber, undefined)
 
 const duplicate = row('sample-order', '1')
 const parsed = parseSubscriptionRaw(tsv(

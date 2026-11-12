@@ -106,6 +106,7 @@ export interface Lead {
   registeredAt: string
   customerName: string
   phoneLast4: string
+  bestCustomerNumber?: string
   gender: '남' | '여' | '미입력'
   visitScheduledDate?: string
   deliveryScheduledDate?: string

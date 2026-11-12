@@ -2,6 +2,7 @@ import type { AppointmentType, CaseSharingHistory, Lead, LeadStatus, MemoEntry, 
 import { canonicalPartnerName } from './partners'
 import { invitationCampaignFor } from './invitationCampaign'
 import { readSalesRouteCorrectionLedger } from './salesRouteCorrections'
+import { bestCustomerNumberFromRaw } from './bestCustomerNumber'
 
 const text = (value: unknown): string => typeof value === 'string' ? value : ''
 const optionalText = (value: unknown): string | undefined => text(value) || undefined
@@ -56,9 +57,11 @@ export function leadFromDocument(id: string, row: Record<string, unknown>): Lead
   const legacyAmount = amount(row.purchaseAmount)
   const partnerName = canonicalPartnerName(text(row.partnerName))
   const invitationCampaign = invitationCampaignFor(row.invitationCampaign, partnerName)
+  const bestCustomerNumber = bestCustomerNumberFromRaw(row.bestCustomerNumber)
   return {
     id,
     registeredAt: text(row.registeredAt), customerName: text(row.customerName), phoneLast4: text(row.phoneLast4),
+    ...(bestCustomerNumber ? { bestCustomerNumber } : {}),
     gender: row.gender === '남' || row.gender === '여' ? row.gender : '미입력',
     visitScheduledDate: optionalText(row.visitScheduledDate), deliveryScheduledDate: optionalText(row.deliveryScheduledDate),
     appointmentType: ['상담예약(이업종)', '이업종제휴'].includes(text(row.appointmentType)) ? row.appointmentType as AppointmentType : '미선택',

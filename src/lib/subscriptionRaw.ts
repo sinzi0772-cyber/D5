@@ -1,6 +1,7 @@
 import { customerIdentityKey, isOneWonSaleAmount, isSalesCommissionChannelEligible, maskCustomerName, readTsv } from './salesRaw'
 import type { SalesRawIssue } from './salesRaw'
 import { saleDateFromColumns } from './purchaseDates'
+import { bestCustomerNumberFromRaw } from './bestCustomerNumber'
 
 export type SubscriptionRawDisposition = 'confirmed' | 'reserved' | 'excluded' | 'review'
 export interface SubscriptionRawOptions {
@@ -10,6 +11,8 @@ export interface SubscriptionRawOptions {
   excludedStatuses?: readonly string[]
   /** Alternative allow-list; shipment waiting is represented as a pending amount. */
   includedStatuses?: readonly string[]
+  /** Only trusted staff import jobs need the original BEST customer number. */
+  includeBestCustomerNumber?: boolean
 }
 export interface SubscriptionRawItem {
   rowNumber: number
@@ -19,6 +22,7 @@ export interface SubscriptionRawItem {
   identityKey: string
   customerName: string
   phoneLast4: string
+  bestCustomerNumber?: string
   orderDate: string
   /** Explicit source 판매일/판매일자; never substituted with 주문일자. */
   saleDate?: string
@@ -192,9 +196,11 @@ export function parseSubscriptionRaw(text: string, options: SubscriptionRawOptio
     const evidenceApprovalStatus = field('경로판촉증빙승인여부')
     const isEvidenceRejected = /반려|거절|불승인/.test(evidenceApprovalStatus)
     const saleDate = saleDateFromColumns(field)
+    const bestCustomerNumber = options.includeBestCustomerNumber ? bestCustomerNumberFromRaw(field('BEST고객번호')) : undefined
     const item: SubscriptionRawItem = {
       rowNumber, itemReference, orderReference, lineReference, identityKey,
       customerName: maskCustomerName(field('구매고객명')), phoneLast4: field('전화번호').replace(/\D/g, '').slice(-4),
+      ...(bestCustomerNumber ? { bestCustomerNumber } : {}),
       orderDate, ...(saleDate ? { saleDate } : {}), orderStatusLabel, contractStatusLabel, logisticsStatusLabel, disposition, statusDisposition,
       membershipBenefitBasisAmount, basisAmountMissing, basisAmountInvalid, quantity, channel1: field('판매경로1'), channel2: field('판매경로2'),
       // Proof rejection is retained for reference, not used to exclude commission.
