@@ -1,3 +1,5 @@
+export const NOVEMBER_D5_APPOINTMENTS_THROUGH = '2026-11-08'
+
 // Dates describe recorded work in Asia/Seoul; they do not promise deployment times.
 export const UPDATE_HISTORY: readonly { date: string; summary: string }[] = [
   { date: '2026-11-05', summary: '업체 정산 안내를 간소화하고 고객 일정에 BEST 구매일 표시를 추가했습니다.' },

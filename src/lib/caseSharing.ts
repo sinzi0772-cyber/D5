@@ -49,6 +49,8 @@ type SharingInput = {
   canManageAll: boolean
 }
 
+export const MAX_CASE_MEMBERS = 8
+
 const financeKinds = ['lumpSum', 'subscription'] as const
 const sharedKeys = ['manager', 'managerEmployeeNo', 'purchaseType', 'purchaseAmount', 'lumpSumAmount', 'subscriptionAmount', 'lumpSumSourceId', 'subscriptionSourceId'] as const
 const protectedDraftKeys = new Set<string>([...sharedKeys, 'salesRawPeriods', 'subscriptionRawPeriods', 'caseSharingHistory', 'caseGroupId', 'caseBasisLeadId', 'caseMergeMemberIds', 'updatedAt'])
@@ -92,7 +94,7 @@ function fail(code: string, message: string): never {
 }
 
 function validateMembers(members: readonly Lead[], selectedId: string): void {
-  if (!members.length || members.length > 8) fail('CASE_SHARING_MEMBER_LIMIT', '연결 고객은 1명부터 최대 8명까지 함께 저장할 수 있습니다.')
+  if (!members.length || members.length > MAX_CASE_MEMBERS) fail('CASE_SHARING_MEMBER_LIMIT', `연결 고객은 1명부터 최대 ${MAX_CASE_MEMBERS}명까지 함께 저장할 수 있습니다.`)
   const ids = new Set<string>()
   for (const member of members) {
     if (!validId(member.id) || ids.has(member.id) || typeof member.partnerName !== 'string') fail('CASE_SHARING_INVALID_MEMBER', '연결 고객 구성을 다시 확인해주세요.')
@@ -106,7 +108,7 @@ function validateMembers(members: readonly Lead[], selectedId: string): void {
       if (owner !== undefined && !validId(owner)) fail('CASE_SHARING_INVALID_SOURCE', '공유 금액의 기준 고객 정보가 올바르지 않습니다.')
     }
     if (member.caseBasisLeadId !== undefined && !validId(member.caseBasisLeadId)) fail('CASE_SHARING_INVALID_BASIS', '묶음 고객의 기준 정보를 다시 확인해주세요.')
-    if (member.caseMergeMemberIds !== undefined && (!Array.isArray(member.caseMergeMemberIds) || member.caseMergeMemberIds.length < 2 || member.caseMergeMemberIds.length > 8
+    if (member.caseMergeMemberIds !== undefined && (!Array.isArray(member.caseMergeMemberIds) || member.caseMergeMemberIds.length < 2 || member.caseMergeMemberIds.length > MAX_CASE_MEMBERS
       || member.caseMergeMemberIds.some(id => !validId(id)) || new Set(member.caseMergeMemberIds).size !== member.caseMergeMemberIds.length
       || JSON.stringify(member.caseMergeMemberIds) !== JSON.stringify([...member.caseMergeMemberIds].sort()))) fail('CASE_SHARING_INVALID_MERGE', '구매금액 합산 동의 고객 구성을 다시 확인해주세요.')
     if (member.purchaseAmount !== undefined && member.purchaseAmount !== null && !validAmount(member.purchaseAmount)) fail('CASE_SHARING_INVALID_AMOUNT', '구매 금액은 0 이상의 올바른 숫자로 입력해주세요.')

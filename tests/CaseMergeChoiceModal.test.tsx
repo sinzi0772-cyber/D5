@@ -8,7 +8,7 @@ const member = (id: string, customerName: string, phoneLast4: string, amount?: n
   gender: '미입력', partnerName: '(주) 아이니웨딩네트웍스', status: '구매완료', visitState: '방문',
   purchaseType: '일시불', lumpSumAmount: amount, caseGroupId: 'synthetic-popup',
 })
-const members = [member('A', '가나다', '01000004101', 100000), member('B', '나다라', '01000004202', 200000)]
+const members = [member('A', '가나다', '01000004101', 100000), { ...member('B', '나다라', '01000004202', 200000), registeredAt: '2026-11-08', updatedAt: '2026-11-09' }]
 const before = JSON.stringify(members)
 let calls = 0
 const markup = renderToStaticMarkup(<CaseMergeChoiceModal members={members} initialBasisId="A" onClose={() => { calls += 1 }} onConfirm={() => { calls += 1 }} />)
@@ -19,6 +19,9 @@ assert.equal((markup.match(/type="radio"/g) || []).length, 2)
 assert.equal((markup.match(/type="checkbox"/g) || []).length, 1)
 assert.equal(markup.includes('checked=""'), false, 'No selected basis or implicit money-merge consent, even when initialBasisId is provided')
 assert.ok(markup.includes('aria-label="가** / 4101"') && markup.includes('aria-label="나** / 4202"'))
+assert.ok(markup.includes('접수일 <time dateTime="2026-10-01">2026.10.01</time>') && markup.includes('접수일 <time dateTime="2026-11-08">2026.11.08</time>'))
+const candidateDescription = markup.match(/aria-label="나\*\* \/ 4202" aria-describedby="([^"]+)"/)?.[1]
+assert.ok(candidateDescription && markup.includes(`<small id="${candidateDescription}">접수일 <time dateTime="2026-11-08">`))
 assert.equal(markup.includes('가나다'), false)
 assert.equal(markup.includes('01000004101'), false)
 assert.ok(markup.includes('100,000원') && markup.includes('200,000원'))
@@ -35,12 +38,16 @@ assert.equal(JSON.stringify(members), before)
 const many = renderToStaticMarkup(<CaseMergeChoiceModal members={[...members, member('C', '다라마', '4303', 50000)]} disabled onClose={() => undefined} onConfirm={() => undefined} />)
 assert.equal((many.match(/type="radio"/g) || []).length, 3)
 assert.ok(many.includes('<fieldset class="case-merge-candidates" disabled=""'))
+assert.ok(many.includes('기록 3개를 고객 1명으로 묶습니다.') && many.includes('전체 3개 기록'))
 const amounts = renderToStaticMarkup(<CaseMergeChoiceModal members={[member('zero', '가나다', '4101', 0), member('missing', '나다라', '4202')]} onClose={() => undefined} onConfirm={() => undefined} />)
 assert.ok(amounts.includes('<b>0원</b>') && amounts.includes('<b>금액 미입력</b>'), 'Zero and missing remain distinct')
 const mergedMembers = members.map(item => ({ ...item, caseBasisLeadId: 'A', caseMergeMemberIds: ['A', 'B'] }))
 const current = renderToStaticMarkup(<CaseMergeChoiceModal members={mergedMembers} initialMergeMemberIds={['A', 'B']} onClose={() => undefined} onConfirm={() => undefined} />)
 assert.ok(current.includes('현재 금액 합산 중') && current.includes('300,000원'))
 assert.equal(current.includes('checked=""'), false, 'A stored merge does not grant fresh merge consent')
+const expanded = renderToStaticMarkup(<CaseMergeChoiceModal members={[...mergedMembers, member('C', '다라마', '4303', 50000)]} initialMergeMemberIds={['A', 'B']} onClose={() => undefined} onConfirm={() => undefined} />)
+assert.ok(expanded.includes('현재 금액 합산 중 · 300,000원') && expanded.includes('전체 3개 기록'))
+assert.ok(!expanded.includes('350,000원') && !expanded.includes('checked=""'), 'Adding a record requires fresh consent before changing the sum')
 const empty = renderToStaticMarkup(<CaseMergeChoiceModal members={[]} onClose={() => undefined} onConfirm={() => undefined} />)
 assert.ok(empty.includes('묶을 고객을 먼저 선택해주세요'))
 assert.match(empty, /class="case-merge-primary" disabled=""/)

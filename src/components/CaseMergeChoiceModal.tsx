@@ -36,8 +36,13 @@ export function CaseMergeChoiceModal({ members, initialMergeMemberIds, disabled 
   const [primaryId, setPrimaryId] = useState('')
   const [mergePurchaseAmounts, setMergePurchaseAmounts] = useState(false)
 
-  const beforeSelection = caseBasisFor(members)
-  const beforeLead = financialCaseLeadFor(beforeSelection, members)
+  const currentMergeMembers = initialMergeMemberIds?.length
+    ? members.filter(member => initialMergeMemberIds.includes(member.id))
+    : []
+  const currentMergeSelection = caseBasisFor(currentMergeMembers)
+  const currentMergedLead = currentMergeSelection.mergeMemberIds
+    ? financialCaseLeadFor(currentMergeSelection, currentMergeMembers)
+    : undefined
   const candidates = members.map(member => {
     const selection = caseBasisFor(members, member.id, null)
     return { member, selection, projection: financialCaseLeadFor(selection, members) }
@@ -112,14 +117,19 @@ export function CaseMergeChoiceModal({ members, initialMergeMemberIds, disabled 
           <button ref={closeButtonRef} type="button" className="case-merge-close" onClick={onClose} aria-label="닫기"><X size={18} /></button>
         </header>
         <div className="case-merge-content">
-          <p id={descriptionId} className="case-merge-description">담당자·상태·배송일 기준을 선택하세요.</p>
-          {initialMergeMemberIds && initialMergeMemberIds.length > 1 ? <p className="case-merge-current">현재 금액 합산 중 · {amountLabel(beforeLead)}</p> : null}
+          <p id={descriptionId} className="case-merge-description">{members.length > 2 ? `기록 ${members.length}개를 고객 1명으로 묶습니다. ` : ''}담당자·상태·배송일 기준을 선택하세요.</p>
+          {currentMergedLead ? <p className="case-merge-current">현재 금액 합산 중 · {amountLabel(currentMergedLead)}</p> : null}
           <fieldset className="case-merge-candidates" disabled={disabled}>
             <legend>기준 고객</legend>
-            {candidates.map(({ member, selection, projection }) => (
+            {candidates.map(({ member, selection, projection }, index) => (
               <label key={member.id} className={`case-merge-candidate${primaryId === member.id ? ' selected' : ''}`}>
-                <input type="radio" name={radioName} aria-label={customerDisplayLabel(member)} checked={primaryId === member.id} disabled={!projection || selection.status === 'unresolved'} onChange={() => { setPrimaryId(member.id); setMergePurchaseAmounts(false) }} />
-                <span><strong>{customerDisplayLabel(member)}</strong><small>{member.manager || '담당자 미지정'} · {member.status}</small></span>
+                <input type="radio" name={radioName} aria-label={customerDisplayLabel(member)} aria-describedby={`${radioName}-${index}`} checked={primaryId === member.id} disabled={!projection || selection.status === 'unresolved'} onChange={() => { setPrimaryId(member.id); setMergePurchaseAmounts(false) }} />
+                <span>
+                  <strong>{customerDisplayLabel(member)}</strong>
+                  <small id={`${radioName}-${index}`}>
+                    접수일 {member.registeredAt ? <time dateTime={member.registeredAt}>{member.registeredAt.replaceAll('-', '.')}</time> : '—'} · {member.manager || '담당자 미지정'} · {member.status}
+                  </small>
+                </span>
                 <b>{amountLabel(projection)}</b>
                 {selection.status === 'unresolved' ? <em>{selection.reason}</em> : null}
               </label>
@@ -128,7 +138,7 @@ export function CaseMergeChoiceModal({ members, initialMergeMemberIds, disabled 
           {!members.length ? <p className="case-merge-warning" role="status">묶을 고객을 먼저 선택해주세요.</p> : null}
           <label className="case-merge-extra">
             <input type="checkbox" aria-label="구매금액도 합산" aria-describedby={mergeHelpId} checked={mergePurchaseAmounts} disabled={disabled || !canMerge} onChange={event => setMergePurchaseAmounts(event.target.checked)} />
-            <span><strong>구매금액도 합산 <small>선택</small></strong><small id={mergeHelpId}>미선택 시 기준 고객 금액 유지</small></span>
+            <span><strong>구매금액도 합산 <small>{members.length > 2 ? `전체 ${members.length}개 기록` : '선택'}</small></strong><small id={mergeHelpId}>미선택 시 기준 고객 금액 유지</small></span>
           </label>
           {primary && mergeSelection?.status === 'unresolved' ? <p className="case-merge-warning" role="status">금액 합산 불가: {mergeSelection.reason}</p> : null}
           <div className="case-merge-result" aria-live="polite" aria-atomic="true"><span>적용 금액</span><strong>{primary ? amountLabel(afterLead) : '고객을 선택해주세요'}</strong></div>

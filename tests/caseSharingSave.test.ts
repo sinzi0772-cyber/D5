@@ -5,6 +5,7 @@ import { leadFromDocument } from '../src/lib/leadDocument.ts'
 import { financialCaseLeadsFor } from '../src/lib/caseBasis.ts'
 import {
   CaseSaveError,
+  caseLinkLeadFor,
   saveCaseCustomerWithStore,
   unlinkCaseCustomerWithStore,
   type CaseSharingStore,
@@ -360,6 +361,34 @@ async function main(): Promise<void> {
   assert.equal(expandingStore.guards.get(groupId)!.mergeMemberIds, null)
   assert.deepEqual([...expandingStore.leads.values()].map(data => data.lumpSumAmount), [100, 200, 400])
   assert.deepEqual(((expandingStore.leads.get(mergeA.id)!.caseSharingHistory as Document[]).at(-1)!.previous as Document).caseMergeMemberIds, [mergeA.id, mergeB.id])
+  const groupedOriginal = expanded[1]
+  const groupedBaseline = caseSharingDraftFor(groupedOriginal, expanded).draft
+  const groupedAddInput = (mergePurchaseAmounts: boolean) => saveInput(groupedOriginal, groupedBaseline, [...expanded, expandedJoining], {
+    formBaseline: groupedBaseline, linkTargetId: expandedJoining.id, basis: { caseLeadId: mergeA.id, mergePurchaseAmounts },
+  })
+  const expandedGuard = guardFor(expanded, { basisLeadId: mergeA.id, mergeMemberIds: [mergeA.id, mergeB.id] })
+  assert.equal(groupedBaseline.lumpSumAmount, 300, 'The open form displays the existing group total')
+  assert.equal(caseLinkLeadFor(groupedOriginal, groupedBaseline, groupedBaseline).lumpSumAmount, 200, 'The add-customer picker displays original ownership')
+  for (const mergePurchaseAmounts of [false, true]) {
+    const fromGroup = new MemoryStore([...expanded, expandedJoining], [[groupId, expandedGuard]])
+    await saveCaseCustomerWithStore(fromGroup, groupedAddInput(mergePurchaseAmounts))
+    const stored = [...fromGroup.leads].map(([id, data]) => leadFromDocument(id, data))
+    const memberIds = [mergeA.id, mergeB.id, expandedJoining.id].sort()
+    assert.deepEqual(fromGroup.guards.get(groupId)?.memberIds, memberIds)
+    assert.deepEqual(fromGroup.guards.get(groupId)?.mergeMemberIds, mergePurchaseAmounts ? memberIds : null)
+    assert.equal(fromGroup.guards.get(groupId)?.revision, expandedGuard.revision + 1)
+    assert.equal(fromGroup.guards.size, 1, 'Adding from the group updates its existing guard')
+    assert.ok(stored.every(member => member.caseGroupId === groupId && member.caseBasisLeadId === mergeA.id))
+    assert.deepEqual(stored.map(member => member.lumpSumAmount), [100, 200, 400])
+    assert.deepEqual(financialCaseLeadsFor(stored).map(member => member.lumpSumAmount), [mergePurchaseAmounts ? 700 : 100])
+  }
+  const staleAddition = new MemoryStore([...expanded, expandedJoining], [[groupId, expandedGuard]])
+  staleAddition.beforeTransaction = () => {
+    Object.assign(staleAddition.leads.get(expandedJoining.id)!, { caseGroupId: 'case-concurrent' })
+  }
+  await assert.rejects(() => saveCaseCustomerWithStore(staleAddition, groupedAddInput(false)), error => error instanceof CaseSaveError && error.code === 'CASE_SAVE_STALE_CUSTOMER')
+  assert.equal(staleAddition.committedWrites, 0, 'A concurrent link is never overwritten')
+
   const unlinkMerged = new MemoryStore(mergedSaved, [[groupId, guardFor(mergedSaved, { basisLeadId: mergeA.id, mergeMemberIds: [mergeA.id, mergeB.id] })]])
   await unlinkCaseCustomerWithStore(unlinkMerged, unlinkInput(mergedB, mergedSaved))
   for (const data of unlinkMerged.leads.values()) assert.equal(data.caseMergeMemberIds, null)

@@ -14,6 +14,7 @@ interface CaseGroupSummaryProps {
   choiceOpen: boolean
   disabled: boolean
   onChoose?: () => void
+  onAddMember?: () => void
   onSelectMember?: (member: Lead) => void
   onUnlink?: () => void
   unlinkBusy: boolean
@@ -21,7 +22,7 @@ interface CaseGroupSummaryProps {
 }
 
 /** Display only: choice and save behavior remain owned by the editor. */
-export function CaseGroupSummary({ members, activeLeadId, basisLabel, basisLeadId, amountMode, pendingReason, staged, choiceOpen, disabled, onChoose, onSelectMember, onUnlink, unlinkBusy, children }: CaseGroupSummaryProps) {
+export function CaseGroupSummary({ members, activeLeadId, basisLabel, basisLeadId, amountMode, pendingReason, staged, choiceOpen, disabled, onChoose, onAddMember, onSelectMember, onUnlink, unlinkBusy, children }: CaseGroupSummaryProps) {
   const [expanded, setExpanded] = useState(true)
   const contentId = useId()
   const originals = useRef<HTMLDetailsElement>(null)
@@ -32,13 +33,22 @@ export function CaseGroupSummary({ members, activeLeadId, basisLabel, basisLeadI
     <header><h3>묶음 고객</h3><div className="case-group-heading-actions"><span>1명으로 집계</span><button type="button" className="case-group-toggle" aria-label={expanded ? '묶음 고객 접기' : '묶음 고객 펼치기'} aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(!expanded)}>{expanded ? '접기' : '펼치기'}{expanded ? <ChevronUp size={14} aria-hidden="true"/> : <ChevronDown size={14} aria-hidden="true"/>}</button></div></header>
     <div id={contentId} className="case-group-content" hidden={!expanded}>
     <div className="case-group-members" aria-label="묶인 고객">
-      {members.map(member => onSelectMember
-        ? <button type="button" key={member.id} className={member.id === activeLeadId ? 'active' : ''} aria-pressed={member.id === activeLeadId} disabled={disabled || unlinkBusy} onClick={() => onSelectMember(member)}><span>{customerDisplayLabel(member)}</span><small title={`원본 상태: ${member.status}`}>{memberStatus(member)}</small></button>
-        : <span className="case-group-member" key={member.id}><strong>{customerDisplayLabel(member)}</strong><small title={`원본 상태: ${member.status}`}>{memberStatus(member)}</small></span>)}
+      {members.map(member => {
+        const details = <>
+          <small>접수일 {member.registeredAt ? <time dateTime={member.registeredAt}>{member.registeredAt.replaceAll('-', '.')}</time> : '—'}</small>
+          <small title={`원본 상태: ${member.status}`}>{memberStatus(member)}</small>
+        </>
+        return onSelectMember
+          ? <button type="button" key={member.id} className={member.id === activeLeadId ? 'active' : ''} aria-pressed={member.id === activeLeadId} disabled={disabled || unlinkBusy} onClick={() => onSelectMember(member)}><span>{customerDisplayLabel(member)}</span>{details}</button>
+          : <span className="case-group-member" key={member.id}><strong>{customerDisplayLabel(member)}</strong>{details}</span>
+      })}
     </div>
     <div className="case-group-treatment">
       <dl aria-live="polite"><div><dt>기준 고객</dt><dd>{pending ? '선택 필요' : basisLabel || '미정'}</dd></div><div><dt>구매금액</dt><dd>{pending ? '선택 후 반영' : amountMode === 'merged' ? '구매금액 합산' : '기준 고객 금액 유지'}</dd></div></dl>
-      <button type="button" className="case-group-change" aria-label="묶음 처리 선택" aria-haspopup="dialog" aria-expanded={choiceOpen} disabled={!onChoose || disabled || unlinkBusy} onClick={onChoose}>{pending ? '선택하기' : '선택 변경'}</button>
+      <div className="case-group-treatment-actions">
+        <button type="button" className="case-group-change" aria-label="묶음 처리 선택" aria-haspopup="dialog" aria-expanded={choiceOpen} disabled={!onChoose || disabled || unlinkBusy} onClick={onChoose}>{pending ? '선택하기' : '선택 변경'}</button>
+        {onAddMember ? <button type="button" className="case-group-add" disabled={disabled || unlinkBusy} onClick={onAddMember}>고객 추가</button> : null}
+      </div>
     </div>
     {pending ? <p className="case-group-warning" role="status">{pendingReason || '기준 고객을 선택해주세요.'}</p> : null}
     {!onChoose ? <p className="case-group-help">선택 변경은 관리자에게 요청해주세요.</p> : staged ? <p className="case-group-help">변경사항 저장 시 반영됩니다.</p> : null}

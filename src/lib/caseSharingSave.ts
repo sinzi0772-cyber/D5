@@ -3,7 +3,9 @@ import type { Lead } from '../types'
 import { leadFromDocument } from './leadDocument'
 import { deliveryDateValidationMessage } from './commissionSettlement'
 import { canonicalPartnerName } from './partners'
-import { CaseSharingError, caseSharingRevisionFor, resolveCaseSharing, wholeCaseBasisId, type CaseGroupGuard, type CaseSharingConflict, type SharingBasis } from './caseSharing'
+import { CaseSharingError, MAX_CASE_MEMBERS, caseSharingRevisionFor, resolveCaseSharing, wholeCaseBasisId, type CaseGroupGuard, type CaseSharingConflict, type SharingBasis } from './caseSharing'
+
+export { MAX_CASE_MEMBERS } from './caseSharing'
 
 export interface SaveCaseCustomerInput {
   original: Lead
@@ -78,19 +80,19 @@ const hasBasis = (basis?: SharingBasis) => {
 
 function validateRoster(members: readonly Lead[]): void {
   const ids = idsFor(members)
-  if (!ids.length || ids.length > 8 || ids.some(id => !validId(id)) || new Set(ids).size !== ids.length) fail('CASE_SAVE_INVALID_MEMBERS', '연결 고객은 최대 8명까지 저장할 수 있습니다. 고객 구성을 다시 확인해주세요.')
+  if (!ids.length || ids.length > MAX_CASE_MEMBERS || ids.some(id => !validId(id)) || new Set(ids).size !== ids.length) fail('CASE_SAVE_INVALID_MEMBERS', `연결 고객은 최대 ${MAX_CASE_MEMBERS}명까지 저장할 수 있습니다. 고객 구성을 다시 확인해주세요.`)
 }
 
 function validateGuard(guard: CaseGroupGuard | null): void {
   if (!guard) return
-  if (!Array.isArray(guard.memberIds) || guard.memberIds.length > 8 || guard.memberIds.some(id => !validId(id))
+  if (!Array.isArray(guard.memberIds) || guard.memberIds.length > MAX_CASE_MEMBERS || guard.memberIds.some(id => !validId(id))
     || new Set(guard.memberIds).size !== guard.memberIds.length || !Number.isSafeInteger(guard.revision) || guard.revision < 0
     || guard.managerEmployeeNo !== null && !validId(guard.managerEmployeeNo)
     || guard.basisLeadId !== undefined && guard.basisLeadId !== null && (!validId(guard.basisLeadId) || !guard.memberIds.includes(guard.basisLeadId))
     || guard.mergeMemberIds !== undefined && guard.mergeMemberIds !== null && (!guard.basisLeadId || !validMergeIds(guard.mergeMemberIds) || !sameValue(guard.mergeMemberIds, [...guard.memberIds].sort()))) fail('CASE_SAVE_INVALID_GUARD', '연결 고객의 공유 정보를 확인할 수 없습니다. 관리자에게 문의해주세요.')
 }
 
-const validMergeIds = (ids: unknown): ids is string[] => Array.isArray(ids) && ids.length >= 2 && ids.length <= 8
+const validMergeIds = (ids: unknown): ids is string[] => Array.isArray(ids) && ids.length >= 2 && ids.length <= MAX_CASE_MEMBERS
   && ids.every(validId) && new Set(ids).size === ids.length && sameValue(ids, [...ids].sort())
 
 function persistedMergeFor(members: readonly Lead[], guard?: CaseGroupGuard | null): string[] | null {
@@ -156,6 +158,11 @@ function ownPatch(original: Lead, draft: Lead, canManageAll: boolean, formBaseli
       purchaseAmount: lumpSum !== undefined || subscription !== undefined ? (lumpSum || 0) + (subscription || 0) : undefined })
   }
   return patch
+}
+
+/** Preview only edits entered on the selected original, excluding readonly group-prefill values. */
+export function caseLinkLeadFor(original: Lead, draft: Lead, baseline: Lead): Lead {
+  return { ...original, ...ownPatch(original, draft, true, baseline) }
 }
 
 function createPayload(lead: Lead, actorId: string, now: string): Data {
@@ -260,12 +267,12 @@ export async function saveCaseCustomerWithStore(store: CaseSharingStore, input: 
   }
 
   if (input.linkTargetId === input.original.id) fail('CASE_SAVE_INVALID_LINK', '다른 고객을 연결 대상으로 선택해주세요.')
-  if (input.linkTargetId && input.original.caseGroupId) fail('CASE_SAVE_ALREADY_LINKED', '이미 연결된 고객은 먼저 연결을 해제한 뒤 다시 연결해주세요.')
   const targetRaw = input.linkTargetId ? await store.getLead(input.linkTargetId) : null
   input.assertSession()
   if (input.linkTargetId && !targetRaw) fail('CASE_SAVE_LINK_TARGET_MISSING', '연결할 고객이 삭제되었습니다. 다시 선택해주세요.')
   const target = targetRaw && input.linkTargetId ? leadFromDocument(input.linkTargetId, targetRaw) : undefined
-  const caseId = target ? target.caseGroupId || `case-${target.id}` : input.original.caseGroupId
+  if (target?.caseGroupId && input.original.caseGroupId) fail('CASE_SAVE_ALREADY_LINKED', '다른 묶음에 속한 고객은 해당 연결을 해제한 뒤 추가해주세요.')
+  const caseId = input.original.caseGroupId || (target ? target.caseGroupId || `case-${target.id}` : undefined)
   if (!validId(caseId)) fail('CASE_SAVE_INVALID_GROUP', '연결할 접수건 정보를 다시 확인해주세요.')
   const initialGuard = await store.getGuard(caseId)
   input.assertSession()
@@ -284,9 +291,9 @@ export async function saveCaseCustomerWithStore(store: CaseSharingStore, input: 
     groupMembers = input.openingMembers.filter(member => groupIds.includes(member.id))
     if (!sameIds(idsFor(groupMembers), groupIds) || groupMembers.some(member => member.caseGroupId !== caseId || member.managerEmployeeNo !== input.actorEmployeeNo)) fail('CASE_SAVE_GROUP_PERMISSION', '연결 고객 전체가 본인에게 배정된 접수건만 함께 저장할 수 있습니다.')
   }
-  if (target && !groupMembers.some(member => member.id === target.id)) groupMembers.push(target)
   persistedBasisFor(groupMembers, initialGuard)
-  const openingGroup = input.openingMembers.filter(member => member.id !== input.original.id || member.caseGroupId === caseId).filter(member => member.caseGroupId === caseId || member.id === target?.id)
+  if (target && !target.caseGroupId) groupMembers.push(target)
+  const openingGroup = input.openingMembers.filter(member => member.caseGroupId === caseId || member.id === target?.id)
   if (!sameIds(idsFor(openingGroup), idsFor(groupMembers))) fail('CASE_SAVE_STALE_GROUP', '화면을 연 뒤 연결 고객 구성이 변경되었습니다. 상세 화면을 다시 열어 확인해주세요.')
   const baselineById = new Map(input.openingMembers.map(member => [member.id, member]))
   baselineById.set(input.original.id, input.original)
@@ -315,7 +322,7 @@ export async function saveCaseCustomerWithStore(store: CaseSharingStore, input: 
       if (!input.canManageAll && current.managerEmployeeNo !== input.actorEmployeeNo) fail('CASE_SAVE_GROUP_PERMISSION', '다른 담당자의 연결 고객은 함께 저장할 수 없습니다.')
       return current
     })
-    const existingGroup = currentMembers.filter(member => member.id !== input.original.id || member.caseGroupId === caseId)
+    const existingGroup = currentMembers.filter(member => member.caseGroupId === caseId)
     const existingBasisId = persistedBasisFor(existingGroup, freshGuard)
     if (input.linkTargetId) {
       // Apply real selected-record edits first. Basis-prefill values identical
