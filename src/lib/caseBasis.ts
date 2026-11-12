@@ -202,14 +202,14 @@ function mergedProjection(basis: Lead, members: readonly Lead[], ids: readonly s
       if (raw.current) {
         for (const key of ['confirmed', 'reserved', 'tentative', 'completed', 'pending', 'eligibleConfirmed', 'eligibleReserved', 'eligibleTentative'] as const) salesRaw[key] += raw[key]
         // Refunds remain signed until the combined method basis is clamped.
-        bases.lumpSum += raw.eligibleConfirmed + raw.eligibleReserved + raw.eligibleTentative
+        bases.lumpSum += raw.confirmed + raw.reserved + raw.tentative
       } else bases.lumpSum += rebate.lumpSumBasis
     } else {
       const raw = subscriptionRawAmountsFor(calculation)
       subscriptionRaw.current &&= raw.current
       if (raw.current) {
         for (const key of ['confirmed', 'pending', 'eligibleConfirmed', 'eligiblePending'] as const) subscriptionRaw[key] += raw[key]
-        if (isSubscriptionRebatePartner(calculation.partnerName)) bases.subscription += raw.eligibleConfirmed + raw.eligiblePending
+        if (isSubscriptionRebatePartner(calculation.partnerName)) bases.subscription += raw.confirmed + raw.pending
       } else bases.subscription += rebate.subscriptionBasis
     }
   }

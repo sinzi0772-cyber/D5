@@ -16,7 +16,9 @@ import { UpdateHistoryModal } from './components/UpdateHistoryModal'
 import { NOVEMBER_D5_APPOINTMENTS_THROUGH } from './data/updateHistory'
 import { CaseMergeChoiceModal, type CaseMergeChoice } from './components/CaseMergeChoiceModal'
 import { CaseGroupSummary } from './components/CaseGroupSummary'
-import { SalesChannelDetails } from './components/SalesChannelDetails'
+import { SalesChannelDetails, type SalesChannelRouteEdit } from './components/SalesChannelDetails'
+import { saveSalesRouteCorrection } from './lib/salesRouteCorrectionSave'
+import { canEditSalesRouteFor } from './lib/salesRouteCorrections'
 import { SalesChannelReviewModal } from './components/SalesChannelReviewModal'
 import { getSalesChannelReviewItems } from './lib/salesChannelReview'
 import { SUBSCRIPTION_REVIEW_PARTNERS } from './lib/subscriptionPartners'
@@ -255,6 +257,7 @@ export default function App() {
   const [previewPartner, setPreviewPartner] = useState('')
   const [active, setActive] = useState<Lead | null>(null)
   const [openMemoOnDrawer, setOpenMemoOnDrawer] = useState(false)
+  const [openSalesRouteLeadId, setOpenSalesRouteLeadId] = useState('')
   const [creating, setCreating] = useState(false)
   const [toast, setToast] = useState('')
   const [currentUser, setCurrentUser] = useState<AppUser | null>(isDemoMode ? { id: 'demo', loginId: 'demo', name: 'D5 관리자', role: '데모 관리자', mustChangePassword: false } : null)
@@ -612,6 +615,23 @@ export default function App() {
   }
   const selectedManager = managerFilter !== '전체 담당자' && managerFilter !== '미배정' ? managerFilter : null
   const sortBy = (key: SortKey) => setSort(current => ({ key, direction: current.key === key ? (current.direction === 'asc' ? 'desc' : 'asc') : key === 'purchase' ? 'desc' : 'asc' }))
+  const saveLeadSalesRoute = async (leadId: string, edit: SalesChannelRouteEdit) => {
+    const actor = currentUser
+    if (!actor || !db || !dataReady || !serverConfirmed || dataError || creating || active?.id !== leadId) {
+      throw new Error('최신 고객 정보를 불러온 뒤 다시 저장해주세요.')
+    }
+    const ownSession = sessionKey
+    const correction = await saveSalesRouteCorrection(db, {
+      ...edit, leadId, actorId: actor.id, actorEmployeeNo: actor.role === 'manager' ? actor.loginId : undefined,
+      canManageAll, assertSession: () => {
+        if (latestSessionKey.current !== ownSession || auth?.currentUser?.uid !== actor.id) throw new Error('로그인 상태가 변경되었습니다.')
+      },
+    })
+    if (latestSessionKey.current !== ownSession) return
+    setLeads(previous => previous.map(lead => lead.id === leadId && !lead.salesRouteCorrections?.some(entry => entry.id === correction.id)
+      ? { ...lead, salesRouteCorrections: [...(lead.salesRouteCorrections ?? []), correction] } : lead))
+    notify('판매경로를 저장했습니다.')
+  }
   const saveLead = async (lead: Lead, linkTargetId?: string, options?: CaseEditorSaveOptions): Promise<boolean> => {
     const deliveryError = deliveryDateValidationMessage(lead)
     if (deliveryError) { notify(deliveryError); return false }
@@ -793,10 +813,14 @@ export default function App() {
       </section>
     </main>
 
-    {!isPartnerPreview && active && <LeadDrawer key={active.id} lead={active} linkedLeads={active.caseGroupId ? leads.filter(lead => lead.caseGroupId === active.caseGroupId) : []} allLeads={leads} onSelectLinked={member=>{setActive(member);setOpenMemoOnDrawer(false)}} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer} onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false) }} onSave={saveLead} onUnlink={unlinkCase} remoteChanged={!creating && Boolean(leads.find(item => item.id === active.id && (item.updatedAt !== active.updatedAt || item.caseGroupId !== active.caseGroupId || rawRevisionFor(item) !== rawRevisionFor(active) || assignmentRevisionFor(item) !== assignmentRevisionFor(active) || memoHistoryRevisionFor(item) !== memoHistoryRevisionFor(active))))}/>}
+    {!isPartnerPreview && active && <LeadDrawer key={active.id} lead={active} linkedLeads={active.caseGroupId ? leads.filter(lead => lead.caseGroupId === active.caseGroupId) : []} allLeads={leads} onSelectLinked={member=>{setActive(member);setOpenMemoOnDrawer(false)}} partners={partners} creating={creating} canManageAll={canManageAll} openMemoInitially={openMemoOnDrawer}
+      openSalesRouteInitially={openSalesRouteLeadId === active.id}
+      onSaveSalesRoute={!creating && serverConfirmed && canEditSalesRouteFor(active, { canManageAll, employeeNo: currentUser.role === 'manager' ? currentUser.loginId : undefined })
+        ? edit => saveLeadSalesRoute(active.id, edit) : undefined}
+      onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false); setOpenSalesRouteLeadId('') }} onSave={saveLead} onUnlink={unlinkCase} remoteChanged={!creating && Boolean(leads.find(item => item.id === active.id && (item.updatedAt !== active.updatedAt || item.caseGroupId !== active.caseGroupId || rawRevisionFor(item) !== rawRevisionFor(active) || assignmentRevisionFor(item) !== assignmentRevisionFor(active) || memoHistoryRevisionFor(item) !== memoHistoryRevisionFor(active))))}/>}
     {settlementGuideOpen ? <SettlementGuideModal audience={isPartnerPreview ? 'partner' : 'staff'} onClose={closeSettlementGuide}/> : null}
     {updateHistoryOpen ? <UpdateHistoryModal onClose={closeUpdateHistory}/> : null}
-    {salesReviewOpen && !updateHistoryOpen && salesReviewShownSession === sessionKey && salesReviewReady && salesReviewItems.length > 0 ? <SalesChannelReviewModal items={salesReviewItems} onClose={closeSalesReview} onSelectLead={leadId => { const lead = leads.find(item => item.id === leadId); if (!lead) return; setSalesReviewOpen(false); setActive(lead); setCreating(false); setOpenMemoOnDrawer(false) }}/> : null}
+    {salesReviewOpen && !updateHistoryOpen && salesReviewShownSession === sessionKey && salesReviewReady && salesReviewItems.length > 0 ? <SalesChannelReviewModal items={salesReviewItems} onClose={closeSalesReview} onSelectLead={leadId => { const lead = leads.find(item => item.id === leadId); if (!lead) return; setSalesReviewOpen(false); setActive(lead); setOpenSalesRouteLeadId(lead.id); setCreating(false); setOpenMemoOnDrawer(false) }}/> : null}
     {!isPartnerPreview && toast ? <div className="toast"><Check size={17}/>{toast}</div> : null}
   </div>
 }
@@ -829,7 +853,7 @@ function PurchaseSummary({members,completeMembers}:{members:Lead[];completeMembe
   const channelMismatch = channels.some(row => row.status === 'mismatch')
   const channelUnknown = channels.some(row => row.status === 'unverified')
   const missingAppointmentType = visibleBasis.appointmentType !== '이업종제휴' && visibleBasis.appointmentType !== '상담예약(이업종)' && manualAmount
-  return <div className="purchase-summary"><span>{formatWon(total)}</span>{reserved > 0 && <em>예약·출하대기 {formatWon(reserved)} 포함</em>}<small>예상 제휴 수수료 {formatWon(expectedCommission)}</small>{channelMismatch && <em className="sales-channel-indicator mismatch">판매경로 불일치</em>}{channelUnknown && !verificationRequired && <em>판매경로 확인 필요</em>}{verificationRequired && <em>판매경로 확인 필요 · 미확인 금액 수수료 제외</em>}{settlement.months.filter(row => row.expectedCommission > 0).map(row => <em className="purchase-settlement-known" key={row.month}>{row.month.replace('-', '.')} 중순 정산 예상 {formatWon(row.expectedCommission)}</em>)}{settlement.unscheduledCustomerCount > 0 ? <em>배송일 미입력 · 정산월 미정 {formatWon(settlement.unscheduledExpectedCommission)}</em> : null}{settlement.unfinishedExpectedCommission > 0 ? <em>기준 고객 구매완료 전 {formatWon(settlement.unfinishedExpectedCommission)}</em> : null}{completeMembers.length > 1 && <em>묶음 1명 · {selection.mergeMemberIds ? "구매금액 합산 · " : ""}{customerDisplayLabel(visibleBasis)} 기준 1회 반영</em>}{manualAmount && <em>수기 입력 반영</em>}{missingAppointmentType && <em>제휴 접수 유형 확인 필요</em>}</div>
+  return <div className="purchase-summary"><span>{formatWon(total)}</span>{reserved > 0 && <em>예약·출하대기 {formatWon(reserved)} 포함</em>}<small>예상 제휴 수수료 {formatWon(expectedCommission)}</small>{channelMismatch && <em className="sales-channel-indicator mismatch">판매경로 불일치</em>}{channelUnknown && !verificationRequired && <em>판매경로 확인 필요</em>}{verificationRequired && <em>판매 원본 확인 필요</em>}{settlement.months.filter(row => row.expectedCommission > 0).map(row => <em className="purchase-settlement-known" key={row.month}>{row.month.replace('-', '.')} 중순 정산 예상 {formatWon(row.expectedCommission)}</em>)}{settlement.unscheduledCustomerCount > 0 ? <em>배송일 미입력 · 정산월 미정 {formatWon(settlement.unscheduledExpectedCommission)}</em> : null}{settlement.unfinishedExpectedCommission > 0 ? <em>기준 고객 구매완료 전 {formatWon(settlement.unfinishedExpectedCommission)}</em> : null}{completeMembers.length > 1 && <em>묶음 1명 · {selection.mergeMemberIds ? "구매금액 합산 · " : ""}{customerDisplayLabel(visibleBasis)} 기준 1회 반영</em>}{manualAmount && <em>수기 입력 반영</em>}{missingAppointmentType && <em>제휴 접수 유형 확인 필요</em>}</div>
 }
 
 function DuplicateIntakeHelp({lead,leads}:{lead:Lead,leads:Lead[]}) {
@@ -875,7 +899,7 @@ function CustomerNameField({ lead, creating, onChange }: { lead: Lead; creating:
 }
 
 
-function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,onClose,onSave,onUnlink,remoteChanged}:{lead:Lead,linkedLeads:Lead[],allLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,onClose:()=>void,onSave:(l:Lead,linkTargetId?:string,options?:CaseEditorSaveOptions)=>Promise<boolean>,onUnlink:(lead:Lead,openingMembers?:Lead[])=>Promise<boolean>,remoteChanged:boolean}) {
+function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,openSalesRouteInitially,onSaveSalesRoute,onClose,onSave,onUnlink,remoteChanged}:{lead:Lead,linkedLeads:Lead[],allLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,openSalesRouteInitially:boolean,onSaveSalesRoute?:(edit:SalesChannelRouteEdit)=>Promise<void>,onClose:()=>void,onSave:(l:Lead,linkTargetId?:string,options?:CaseEditorSaveOptions)=>Promise<boolean>,onUnlink:(lead:Lead,openingMembers?:Lead[])=>Promise<boolean>,remoteChanged:boolean}) {
   // The parent keys the editor by customer id. These are immutable opening
   // baselines, not live props: a sibling update must not silently reset a draft.
   const [initial] = useState(() => {
@@ -1000,6 +1024,10 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
   const caseFinancialEdited = (['manager', 'managerEmployeeNo', 'purchaseType', 'purchaseAmount', 'lumpSumAmount', 'subscriptionAmount'] as const).some(key => JSON.stringify(form[key]) !== JSON.stringify(formBaseline.current[key]))
   const needsCaseChoice = canManageAll && !basis.caseLeadId && (linkingMode || sharedMode && wholeCaseSelection?.status === 'unresolved' && caseFinancialEdited)
   const dualIntake = hasDualIntake(lead, allLeads)
+  const salesRouteMembers = (hasCaseChoice ? openingMembers : [creating ? form : lead]).map(member => {
+    const current = allLeads.find(item => item.id === member.id)
+    return current ? { ...member, salesRouteCorrections: current.salesRouteCorrections } : member
+  })
   return <><button className="drawer-scrim" onClick={onClose}/><aside className="drawer">
     <div className="drawer-head"><div><span>{creating ? 'NEW REFERRAL' : 'CUSTOMER DETAIL'}</span><h2>{creating ? '신규 고객 등록' : `${customerDisplayLabel(lead)} 고객`}</h2>
       {!creating && lead.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
@@ -1034,8 +1062,9 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
       </fieldset>}
       <fieldset><legend>제휴 정보</legend><label>BILL To Name · 제휴업체명<input required disabled={!creating} list="partner-options" autoComplete="off" placeholder="판매 로우의 제휴업체 검색 또는 신규 입력" value={form.partnerName} onChange={e=>update('partnerName',e.target.value)} onBlur={e=>{const match=partners.find(partner=>partnerKey(partner)===partnerKey(e.target.value));if(match)update('partnerName',match)}}/><datalist id="partner-options">{partnerSuggestions.map(partner=><option key={partner} value={partner}/>)}</datalist><small>기존 업체 검색 또는 신규 입력</small></label><label>플래너명<input disabled={!creating} placeholder="선택 입력" value={form.plannerName||''} onChange={e=>update('plannerName',e.target.value)}/></label></fieldset>
       <fieldset><legend>일정 정보</legend><div className="form-grid"><label>매장방문 예정일<input type="date" value={form.visitScheduledDate||''} onChange={e=>update('visitScheduledDate',e.target.value)}/></label><DeliveryScheduleField lead={form} onChange={date=>update('deliveryScheduledDate',date)}/></div>{!creating ? <PurchaseDates lead={form}/> : null}</fieldset>
-      <fieldset><legend>구매 정보</legend><label>구매 방식<select value={form.purchaseType||'미선택'} onChange={e=>{const purchaseType=e.target.value as PurchaseType;setForm(current=>({...current,purchaseType,lumpSumAmount:purchaseType.includes('일시불')?lumpSumAmountFor(current):undefined,subscriptionAmount:purchaseType.includes('구독')?subscriptionAmountFor(current):undefined,purchaseAmount:undefined}))}}><option value="미선택">미선택</option><option value="일시불">일시불</option><option value="구독">구독</option><option value="일시불+구독">일시불+구독</option></select></label><div className="form-grid purchase-amount-grid">{form.purchaseType?.includes('일시불') && <MoneyInput key={`${form.id}-lumpSum`} label="일시불 금액" kind="lumpSum" lead={form} onChange={value=>setForm(current=>({...current,lumpSumAmount:value,purchaseAmount:undefined}))}/>} {form.purchaseType?.includes('구독') && <MoneyInput key={`${form.id}-subscription`} label="구독 금액" kind="subscription" lead={form} onChange={value=>setForm(current=>({...current,subscriptionAmount:value,purchaseAmount:undefined}))}/>}</div>{form.purchaseType&&form.purchaseType!=='미선택'&&<div className={`rebate-preview ${subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?'ineligible':''}`}><span>예상 제휴 수수료</span><strong>{previewBasisPending ? '기준 고객 선택 필요' : formatWon(previewCommission)}</strong><small>확인된 판매경로의 주문만 반영합니다.{previewVerificationRequired ? ' 미확인 금액은 수수료에서 제외됩니다.' : ''}{subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?' 구독은 대상 업체만 반영됩니다.':''}</small></div>}</fieldset>
-      <SalesChannelDetails members={hasCaseChoice ? openingMembers : [form]}/>
+      <fieldset><legend>구매 정보</legend><label>구매 방식<select value={form.purchaseType||'미선택'} onChange={e=>{const purchaseType=e.target.value as PurchaseType;setForm(current=>({...current,purchaseType,lumpSumAmount:purchaseType.includes('일시불')?lumpSumAmountFor(current):undefined,subscriptionAmount:purchaseType.includes('구독')?subscriptionAmountFor(current):undefined,purchaseAmount:undefined}))}}><option value="미선택">미선택</option><option value="일시불">일시불</option><option value="구독">구독</option><option value="일시불+구독">일시불+구독</option></select></label><div className="form-grid purchase-amount-grid">{form.purchaseType?.includes('일시불') && <MoneyInput key={`${form.id}-lumpSum`} label="일시불 금액" kind="lumpSum" lead={form} onChange={value=>setForm(current=>({...current,lumpSumAmount:value,purchaseAmount:undefined}))}/>} {form.purchaseType?.includes('구독') && <MoneyInput key={`${form.id}-subscription`} label="구독 금액" kind="subscription" lead={form} onChange={value=>setForm(current=>({...current,subscriptionAmount:value,purchaseAmount:undefined}))}/>}</div>{form.purchaseType&&form.purchaseType!=='미선택'&&<div className={`rebate-preview ${subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?'ineligible':''}`}><span>예상 제휴 수수료</span><strong>{previewBasisPending ? '기준 고객 선택 필요' : formatWon(previewCommission)}</strong><small>제휴 연결이 확인된 판매 원본을 반영합니다.{previewVerificationRequired ? ' 판매 원본 금액을 확인해주세요.' : ''}{subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?' 구독은 대상 업체만 반영됩니다.':''}</small></div>}</fieldset>
+      <SalesChannelDetails members={salesRouteMembers} editableLeadId={!remoteChanged && !saving && onSaveSalesRoute ? lead.id : undefined}
+        onSaveRoute={onSaveSalesRoute} initiallyOpen={openSalesRouteInitially}/>
       <fieldset><legend>진행 관리</legend><div className="form-grid"><label>담당 매니저<select disabled={!canManageAll} value={manualManager ? '__manual__' : form.manager||''} onChange={e=>{if(e.target.value==='__manual__'){setManualManager(true);update('manager','')}else{setManualManager(false);update('manager',e.target.value)}}}><option value="__manual__">직접입력</option><option value="">미배정</option>{managers.filter(m=>m.role==='매니저').map(m=><option key={m.employeeNo} value={m.name}>{m.name}</option>)}</select>{manualManager && canManageAll && <input className="manual-manager" autoFocus placeholder="담당자 이름 직접입력" value={form.manager||''} onChange={e=>update('manager',e.target.value)}/>}</label><label>현재 상태<select value={form.status} onChange={e=>update('status',e.target.value)}>{STATUSES.map(s=><option key={s}>{s}</option>)}</select></label><label>방문 여부<select value={form.visitState} onChange={e=>update('visitState',e.target.value as VisitState)}><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label></div><button type="button" className="memo-open" onClick={()=>setMemoOpen(true)}><span><Clock3 size={18}/><b>관리메모</b></span><small>{cancellationMemoCount ? '관리 '+managementMemoCount+'건 · 주문 취소 '+cancellationMemoCount+'건' : managementMemoCount ? managementMemoCount+'건의 관리 이력' : '접촉 내용과 다음 계획을 기록하세요'}</small><i>보기 →</i></button></fieldset>
       <div className="drawer-actions"><button type="button" className="btn secondary" onClick={onClose}>취소</button><button className="btn primary" type="submit" disabled={editorChanged || saving || unlinkBusy}><Check size={17}/>{saving ? '저장 중...' : creating ? '고객 등록' : '변경사항 저장'}</button></div>
     </form>

@@ -94,9 +94,9 @@ export function SettlementGuideModal({ onClose, audience = 'staff' }: { onClose:
           <h3>정산 기준</h3>
           <ul>
             {audience === 'staff' ? <li>
-              <strong>일시불·구독 모두 판매경로 일치 주문만 정산</strong>
-              <span>판매경로 1: {SALES_COMMISSION_CHANNEL1}</span>
-              <span>판매경로 2: {SALES_COMMISSION_CHANNEL2.join(' 또는 ')}</span>
+              <strong>제휴 연결이 확인된 일시불·구독 구매를 정산</strong>
+              <span>점검 기준 판매경로 1: {SALES_COMMISSION_CHANNEL1}</span>
+              <span>점검 기준 판매경로 2: {SALES_COMMISSION_CHANNEL2.join(' 또는 ')}</span>
             </li> : null}
             <li>
               <strong>접수한 매장에서 구매 시 정산</strong>

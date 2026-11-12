@@ -143,7 +143,7 @@ export function purchaseAmountSourceFor(lead: FinancialLead, kind: 'lumpSum' | '
   return { kind: current ? 'raw' : hasEnteredAmount ? 'manual' : 'empty', amount, rawAmount }
 }
 
-/** Keep manual sales visible, but never assume their order routes are eligible. */
+/** Match entered amounts with the linked BEST sales evidence before estimating commission. */
 export function commissionVerificationRequiredFor(lead: FinancialLead): boolean {
   return isFinancialOwnerFor(lead, 'lumpSum') && lumpSumAmountFor(lead) > 0 && !salesRawAmountsFor(lead).current
     || isFinancialOwnerFor(lead, 'subscription') && isSubscriptionRebatePartner(lead.partnerName) && subscriptionAmountFor(lead) > 0 && !subscriptionRawAmountsFor(lead).current
@@ -154,8 +154,7 @@ function lumpSumCommissionBasisFor(lead: FinancialLead): number {
   if (projection) return projection.lumpSumBasis
   if (!isFinancialOwnerFor(lead, 'lumpSum')) return 0
   const raw = salesRawAmountsFor(lead)
-  if (raw.current) return Math.max(0, raw.eligibleConfirmed + raw.eligibleReserved + raw.eligibleTentative)
-  // A manual amount or a RAW mismatch does not prove an eligible order route.
+  if (raw.current) return Math.max(0, raw.confirmed + raw.reserved + raw.tentative)
   return 0
 }
 
@@ -165,7 +164,7 @@ function subscriptionCommissionBasisFor(lead: FinancialLead): number {
   if (!isFinancialOwnerFor(lead, 'subscription')) return 0
   if (!isSubscriptionRebatePartner(lead.partnerName)) return 0
   const raw = subscriptionRawAmountsFor(lead)
-  if (raw.current) return Math.max(0, raw.eligibleConfirmed + raw.eligiblePending)
+  if (raw.current) return Math.max(0, raw.confirmed + raw.pending)
   return 0
 }
 

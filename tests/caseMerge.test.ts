@@ -55,7 +55,7 @@ assert.equal(expectedRebateFor(projected(split)), 5000, 'Different independent m
 const rawMixed = [makeLead('A', { salesRawPeriods: { '2026-09': sales() } }), makeLead('B')]
 const rawBefore = JSON.stringify(rawMixed)
 const rawSum = projected(rawMixed)
-assert.equal(expectedRebateFor(rawSum), 800, 'Only the verified 40,000 RAW basis earns fees; the manual 200,000 remains in sales only')
+assert.equal(expectedRebateFor(rawSum), 2000, 'The current BEST purchase earns fees; the manual 200,000 remains in sales only')
 assert.equal(commissionVerificationRequiredFor(rawSum), true)
 assert.equal(financialPendingAmountFor(rawSum), 40000)
 assert.equal(confirmedSalesFor(rawSum), 260000)
@@ -66,18 +66,18 @@ assert.equal(purchaseAmountSourceFor(rawSum, 'lumpSum').amount, 300000)
 assert.equal(JSON.stringify(rawMixed), rawBefore)
 
 const allRaw = [makeLead('A', { salesRawPeriods: { '2026-09': sales() } }), makeLead('B', {
-  lumpSumAmount: 200000, salesRawPeriods: { '2026-09': sales({ confirmedAmount: 120000, reservedAmount: 80000, eligibleConfirmedAmount: 0, eligibleReservedAmount: 0 }) },
+  lumpSumAmount: 200000, salesRawPeriods: { '2026-09': sales({ confirmedAmount: 120000, reservedAmount: 80000, eligibleConfirmedAmount: 0, eligibleReservedAmount: 0, channels: [{ channel1: '고객인증서비스(웨딩)', channel2: '웨딩매장행사', orderCount: 2, amount: 200000 }] }) },
 })]
 const allRawSum = projected(allRaw)
 assert.equal(salesRawAmountsFor(allRawSum).current, true)
-assert.equal(expectedRebateFor(allRawSum), 800, 'Verified ineligible RAW never promotes to eligible manual total')
+assert.equal(expectedRebateFor(allRawSum), 6000, 'Both confirmed BEST amounts contribute after explicit merge, regardless of route')
 assert.equal(financialPendingAmountFor(allRawSum), 120000)
 assert.equal(confirmedSalesFor(allRawSum), 180000)
 assert.deepEqual(purchaseAmountSourceFor(allRawSum, 'lumpSum'), { kind: 'raw', amount: 300000, rawAmount: 300000 })
 const rawSub = [makeLead('A', { purchaseType: '구독', lumpSumAmount: undefined, subscriptionAmount: 200000, subscriptionRawPeriods: { '2026-09': subscription() } }),
   makeLead('B', { purchaseType: '구독', lumpSumAmount: undefined, subscriptionAmount: 100000 })]
 const rawSubSum = projected(rawSub)
-assert.equal(expectedRebateFor(rawSubSum), 1050, 'Only the 70,000 eligible RAW subscription basis earns fees, without admitting the manual amount')
+assert.equal(expectedRebateFor(rawSubSum), 3000, 'The current 200,000 BEST subscription basis earns fees; the other manual amount needs verification')
 assert.equal(subscriptionRawAmountsFor(rawSubSum).pending, 100000)
 assert.equal(financialPendingAmountFor(rawSubSum), 100000)
 
@@ -89,7 +89,7 @@ assert.equal(refunds[0].salesRawPeriods!['2026-09'].returnAmount, 100)
 
 const aliases = [makeLead('A', { salesRawPeriods: { '2026-09': sales() } }), makeLead('B', { lumpSumAmount: 100000, lumpSumSourceId: 'A', salesRawPeriods: undefined })]
 assert.equal(financialTotalPurchaseAmountFor(projected(aliases)), 100000, 'Already shared source aliases do not double the invoice')
-assert.equal(expectedRebateFor(projected(aliases)), 800, 'Alias does not turn partially eligible source RAW into full manual commission')
+assert.equal(expectedRebateFor(projected(aliases)), 2000, 'Shared aliases count the current source purchase only once')
 const editedShared = stored([makeLead('A', { lumpSumAmount: 350000, lumpSumSourceId: 'A' }), makeLead('B', { lumpSumAmount: 350000, lumpSumSourceId: 'A' })])
 assert.equal(financialTotalPurchaseAmountFor(financialCaseLeadsFor(editedShared)[0]), 350000, 'A subsequent shared total edit remains one 350,000 purchase, never 700,000')
 assert.equal(expectedRebateFor(financialCaseLeadsFor(editedShared)[0]), 0, 'Sharing an edited manual amount does not verify its sales routes')
@@ -147,11 +147,11 @@ const savedRawMerge = stored(rawMixed)
 const settlement = buildCommissionSettlementMetrics(savedRawMerge)
 assert.equal(settlement.completedCustomerCount, 1)
 assert.equal(settlement.months[0].month, '2026-12', 'The primary delivery date controls the one merged settlement month')
-assert.equal(settlement.months[0].expectedCommission, 800)
+assert.equal(settlement.months[0].expectedCommission, 2000)
 const partnerView = buildPartnerPreview(savedRawMerge, '아이웨딩', '2026-09')
 assert.equal(partnerView.customerCount, 1)
 assert.equal(partnerView.customers.length, 1)
-assert.equal(partnerView.completedExpectedCommission, 800)
+assert.equal(partnerView.completedExpectedCommission, 2000)
 const safePartnerJson = JSON.stringify(partnerView)
 for (const forbidden of ['caseMergeMemberIds', 'caseBasisLeadId', 'salesRawPeriods', 'sourceHash', 'QA', 'lumpSumAmount']) assert.equal(safePartnerJson.includes(forbidden), false)
 assert.equal(JSON.stringify(originals), before)

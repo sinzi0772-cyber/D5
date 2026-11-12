@@ -53,7 +53,7 @@ export const MAX_CASE_MEMBERS = 8
 
 const financeKinds = ['lumpSum', 'subscription'] as const
 const sharedKeys = ['manager', 'managerEmployeeNo', 'purchaseType', 'purchaseAmount', 'lumpSumAmount', 'subscriptionAmount', 'lumpSumSourceId', 'subscriptionSourceId'] as const
-const protectedDraftKeys = new Set<string>([...sharedKeys, 'salesRawPeriods', 'subscriptionRawPeriods', 'caseSharingHistory', 'caseGroupId', 'caseBasisLeadId', 'caseMergeMemberIds', 'updatedAt'])
+const protectedDraftKeys = new Set<string>([...sharedKeys, 'salesRawPeriods', 'subscriptionRawPeriods', 'salesRouteCorrections', 'caseSharingHistory', 'caseGroupId', 'caseBasisLeadId', 'caseMergeMemberIds', 'updatedAt'])
 const amountKey = (kind: FinanceKind) => kind === 'lumpSum' ? 'lumpSumAmount' : 'subscriptionAmount'
 const sourceKey = (kind: FinanceKind) => kind === 'lumpSum' ? 'lumpSumSourceId' : 'subscriptionSourceId'
 const validAmount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
@@ -84,9 +84,11 @@ function stableValue(value: unknown): unknown {
   return value
 }
 
-/** Compare all snapshot fields, including personal edits, independent of Firestore map order. */
+/** Compare customer and guard snapshots. Route corrections save independently of customer edits. */
 export function caseSharingRevisionFor(snapshot: Lead | CaseGroupGuard | null): string {
-  return JSON.stringify(stableValue(snapshot))
+  if (!snapshot || !('id' in snapshot)) return JSON.stringify(stableValue(snapshot))
+  const { salesRouteCorrections, ...customer } = snapshot
+  return JSON.stringify(stableValue(customer))
 }
 
 function fail(code: string, message: string): never {

@@ -56,7 +56,7 @@ Object.defineProperties(Array.prototype, {
 })
 Object.defineProperties(String.prototype, {
   size: { configurable: true, value: function (this: string) { return this.length } },
-  matches: { configurable: true, value: function (this: string, pattern: string) { return new RegExp(`^(?:${pattern})$`).test(String(this)) } },
+  matches: { configurable: true, value: function (this: string, pattern: string) { return new RegExp(`^(?:${pattern})$`, pattern.includes('\\p{') ? 'u' : '').test(String(this)) } },
   rulesReplace: { configurable: true, value: function (this: string, pattern: string, replacement: string) { return String(this).replace(new RegExp(pattern, 'g'), replacement) } },
 })
 
@@ -68,10 +68,14 @@ function wrapped(value: unknown): unknown {
     get: (target, property) => {
       if (property === 'get') return (key: string, fallback: unknown) => wrapped(Object.prototype.hasOwnProperty.call(target, key) ? target[key] : fallback)
       if (property === 'keys') return () => Object.keys(target)
-      if (property === 'diff') return (other: unknown) => ({ affectedKeys: () => {
+      if (property === 'diff') return (other: unknown) => {
         const before = raw(other) as Data
-        return [...new Set([...Object.keys(target), ...Object.keys(before)])].filter(key => !equal(target[key], before[key]))
-      } })
+        const added = Object.keys(target).filter(key => !Object.hasOwn(before, key))
+        const removed = Object.keys(before).filter(key => !Object.hasOwn(target, key))
+        const changed = Object.keys(target).filter(key => Object.hasOwn(before, key) && !equal(target[key], before[key]))
+        return { addedKeys: () => added, removedKeys: () => removed, changedKeys: () => changed,
+          affectedKeys: () => [...added, ...removed, ...changed] }
+      }
       if (typeof property !== 'string' || !Object.prototype.hasOwnProperty.call(target, property)) throw new Error(`Missing rule field: ${String(property)}`)
       return wrapped(target[property])
     },
@@ -111,7 +115,7 @@ function blockEnd(source: string, opening: number): number {
 }
 
 function translated(source: string): string {
-  const expression = '[A-Za-z_]\\w*(?:\\(\\))?(?:\\.[A-Za-z_]\\w*(?:\\(\\))?)*'
+  const expression = '[A-Za-z_]\\w*(?:\\([^()]*\\))?(?:\\.[A-Za-z_]\\w*(?:\\([^()]*\\))?)*'
   return source
     .replace(/\b(getAfter|existsAfter|get|exists)\(\/databases\/\$\(database\)\/documents\/([A-Za-z]+)\/\$\(([^)]+)\)\)/g, (_all, method: string, collection: string, id: string) => `${method}(path('${collection}', ${id}))`)
     .replace(new RegExp(`(${expression})\\s+is\\s+(string|number|int|list|map)\\b`, 'g'), (_all, value: string, type: string) => `isType(${value}, '${type}')`)
@@ -153,7 +157,7 @@ function evaluate(database: Database, after: Database, documentPath: string, ope
   const context: Data = {
     database: 'synthetic', path: (name: string, key: string) => `${name}/${key}`, isType,
     includes: (values: unknown[], value: unknown) => values.some(item => equal(item, value)),
-    request: wrapped({ auth, resource: { data: after.get(documentPath) || {} } }),
+    request: wrapped({ auth, time: now, resource: { data: after.get(documentPath) || {} } }),
     resource: wrapped({ data: database.get(documentPath) || {} }),
     get: (key: string) => read(database, 'before', key),
     getAfter: (key: string) => read(after, 'after', key),
@@ -233,6 +237,29 @@ const priceWrites = (uid: string): Write[] => [
 
 assertBatch('admin linked atomic share', base, priceWrites('admin'), admin, true)
 assertBatch('same employee guarded finance', base, priceWrites('manager'), manager, true)
+const routeEditId = 'A'.repeat(20)
+const routeEdit = { kind: 'lumpSum', period: null, channel1: '', channel2: '', sourceRevision: '0'.repeat(16),
+  correctedChannel1: '고객인증서비스(웨딩)', correctedChannel2: '웨딩매장행사', changedAt: now, changedBy: 'manager', revision: 1 }
+const routeLedger = { revision: 1, latestId: routeEditId, entries: { [routeEditId]: routeEdit } }
+const routeWrite = { path: 'referrals/owner', data: { ...owner, salesRouteCorrections: routeLedger } }
+assertBatch('assigned manager appends route correction without editing group', base, [routeWrite], manager, true)
+assertBatch('manager cannot append route correction to another assignee',
+  seed(['referrals/owner', { ...owner, managerEmployeeNo: '222' }]),
+  [{ ...routeWrite, data: { ...routeWrite.data, managerEmployeeNo: '222' } }], manager, false)
+assertBatch('partner cannot append a route correction', base, [routeWrite], partner, false)
+assertBatch('shared alias cannot append a route correction', base,
+  [{ path: 'referrals/alias', data: { ...alias, salesRouteCorrections: routeLedger } }], manager, false)
+assertBatch('route correction cannot change amounts', base,
+  [{ ...routeWrite, data: { ...routeWrite.data, lumpSumAmount: 150 } }], manager, false)
+const routeAfter = postState(base, [routeWrite])
+assertBatch('route correction ledger entries are immutable', routeAfter, [{ ...routeWrite, data: {
+  ...routeWrite.data, salesRouteCorrections: {
+    revision: 2, latestId: 'B'.repeat(20), entries: {
+      [routeEditId]: { ...routeEdit, correctedChannel2: '부사장이하' },
+      ['B'.repeat(20)]: { ...routeEdit, revision: 2 },
+    },
+  },
+} }], manager, false)
 const legacyA = { ...owner, caseBasisLeadId: null }
 const legacyB = { ...alias, lumpSumAmount: 200, purchaseAmount: 200, lumpSumSourceId: 'alias', caseBasisLeadId: null }
 const legacy = seed(['referrals/owner', legacyA], ['referrals/alias', legacyB], [`caseGroups/${caseId}`, guard(['owner', 'alias'], { basisLeadId: null })])

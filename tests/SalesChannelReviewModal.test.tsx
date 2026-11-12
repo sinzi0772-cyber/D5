@@ -24,6 +24,7 @@ assert.ok(markup.includes('role="dialog"') && markup.includes('판매경로 점�
 const mismatchGroup = markup.match(/<section[^>]+aria-label="경로 불일치">([\s\S]+?)<\/section>/)?.[1] || ''
 const unverifiedGroup = markup.match(/<section[^>]+aria-label="경로 확인 필요">([\s\S]+?)<\/section>/)?.[1] || ''
 assert.ok(mismatchGroup.includes('<h3>경로 불일치 1건</h3>') && mismatchGroup.includes('가** / 3101'))
+assert.ok(mismatchGroup.includes('<dt>판매경로 1</dt>') && mismatchGroup.includes('<dt>판매경로 2</dt>'))
 assert.ok(mismatchGroup.includes('class="different">웨딩매장행사') && mismatchGroup.includes('구독 · 2026.10'))
 assert.ok(unverifiedGroup.includes('<h3>경로 확인 필요 2건</h3>') && unverifiedGroup.includes('나** / 3102') && unverifiedGroup.includes('다** / 3103'))
 assert.ok(unverifiedGroup.includes('접수일 <time dateTime="2026-09-24">2026.09.24</time>'))

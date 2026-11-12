@@ -1,6 +1,7 @@
 import type { AppointmentType, CaseSharingHistory, Lead, LeadStatus, MemoEntry, PurchaseType, SalesRawPeriod, SubscriptionRawPeriod, VisitState } from '../types'
 import { canonicalPartnerName } from './partners'
 import { invitationCampaignFor } from './invitationCampaign'
+import { readSalesRouteCorrectionLedger } from './salesRouteCorrections'
 
 const text = (value: unknown): string => typeof value === 'string' ? value : ''
 const optionalText = (value: unknown): string | undefined => text(value) || undefined
@@ -74,6 +75,7 @@ export function leadFromDocument(id: string, row: Record<string, unknown>): Lead
     caseSharingHistory: sharingHistory(row.caseSharingHistory),
     salesRawPeriods: record(row.salesRawPeriods) ? row.salesRawPeriods as Record<string, SalesRawPeriod> : undefined,
     subscriptionRawPeriods: record(row.subscriptionRawPeriods) ? row.subscriptionRawPeriods as Record<string, SubscriptionRawPeriod> : undefined,
+    ...(row.salesRouteCorrections === undefined ? {} : { salesRouteCorrections: readSalesRouteCorrectionLedger(row.salesRouteCorrections)?.corrections }),
     note: optionalText(row.note), memoHistory: Array.isArray(row.memoHistory) ? row.memoHistory as MemoEntry[] : [],
     updatedAt: text(row.updatedAt),
   }

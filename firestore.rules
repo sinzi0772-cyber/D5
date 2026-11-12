@@ -390,12 +390,58 @@ service cloud.firestore {
         && request.resource.data.months is list;
       allow delete: if false;
     }
+    function validSalesRouteText(value) {
+      return value is string && value.size() <= 200 && value.trim() == value && value.matches('^[^\\p{C}]*$');
+    }
+
+    function ownsSalesRoute(data, referralId, kind, period) {
+      let source = data.get(sourceField(kind), null);
+      let raw = data.get(kind == 'lumpSum' ? 'salesRawPeriods' : 'subscriptionRawPeriods', {});
+      let amount = caseAmount(data, kind);
+      return (source == null || source == referralId)
+        && (period == null ? (amount is number && amount > 0 && amount != 1)
+          : (raw is map && raw.get(period, null) is map));
+    }
+
+    function validSalesRouteCorrection(entry, revision, referralId, before) {
+      return entry is map && entry.keys().hasOnly([
+          'kind', 'period', 'channel1', 'channel2', 'sourceRevision', 'correctedChannel1', 'correctedChannel2',
+          'changedAt', 'changedBy', 'revision'
+        ])
+        && entry.kind in ['lumpSum', 'subscription']
+        && (entry.period == null || (entry.period is string && entry.period.matches('^[0-9]{4}-(0[1-9]|1[0-2])$')))
+        && ownsSalesRoute(before, referralId, entry.kind, entry.period)
+        && validSalesRouteText(entry.channel1) && validSalesRouteText(entry.channel2)
+        && entry.sourceRevision is string && entry.sourceRevision.matches('^[0-9a-f]{16}$')
+        && validSalesRouteText(entry.correctedChannel1) && entry.correctedChannel1.size() > 0
+        && validSalesRouteText(entry.correctedChannel2) && entry.correctedChannel2.size() > 0
+        && entry.changedBy == request.auth.uid && entry.changedAt == request.time
+        && entry.revision == revision;
+    }
+
+    function salesRouteCorrectionAppendAllowed(before, after, referralId) {
+      let previous = before.get('salesRouteCorrections', {});
+      let next = after.salesRouteCorrections;
+      let entryId = next.latestId;
+      let changes = next.entries.diff(previous.get('entries', {}));
+      return (canManageAll() || (isStaff() && myProfile().role == 'manager'
+          && before.get('managerEmployeeNo', null) == myEmployeeNo()))
+        && after.diff(before).affectedKeys().hasOnly(['salesRouteCorrections'])
+        && next.keys().hasOnly(['entries', 'latestId', 'revision'])
+        && entryId is string && entryId.matches('^[A-Za-z0-9]{20}$')
+        && next.revision is int && next.revision == previous.get('revision', 0) + 1
+        && changes.addedKeys().hasOnly([entryId]) && changes.addedKeys().size() == 1
+        && changes.changedKeys().size() == 0 && changes.removedKeys().size() == 0
+        && validSalesRouteCorrection(next.entries[entryId], next.revision, referralId, before);
+    }
+
     match /referrals/{referralId} {
       allow read: if canManageAll()
         || (isStaff() && myProfile().role == 'manager' && resource.data.managerEmployeeNo == myEmployeeNo());
 
       allow create: if canManageAll()
         && request.resource.data.createdBy == request.auth.uid
+        && !request.resource.data.keys().hasAny(['salesRouteCorrections'])
         && linkedCreateAllowed(request.resource.data, referralId)
         && changedSourceValid(request.resource.data, referralId, 'lumpSum')
         && changedSourceValid(request.resource.data, referralId, 'subscription');
@@ -461,7 +507,10 @@ service cloud.firestore {
         && sourceChangeAllowed(resource.data, request.resource.data, referralId, 'subscription')
         && detachedAliasAmountPreserved(resource.data, request.resource.data, referralId, 'lumpSum')
         && detachedAliasAmountPreserved(resource.data, request.resource.data, referralId, 'subscription')
-        && sharingHistoryPreserved(resource.data, request.resource.data);
+        && sharingHistoryPreserved(resource.data, request.resource.data)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['salesRouteCorrections']);
+
+      allow update: if salesRouteCorrectionAppendAllowed(resource.data, request.resource.data, referralId);
 
       allow delete: if canManageAll()
         && (!grouped(resource.data) || guardedRemoval(resource.data.caseGroupId, referralId));

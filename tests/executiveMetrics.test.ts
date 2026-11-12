@@ -164,7 +164,7 @@ assert.equal(rawMetrics.managers.reduce((total, row) => total + executiveTotalSa
 const changedManualTotal = buildExecutiveMetrics([rawRows[3]], '2026-09', '2026-10-04').current
 assert.equal(changedManualTotal.reservedSales, 0, 'A changed manual amount does not retain old RAW pending money')
 assert.equal(executiveTotalSalesFor(changedManualTotal), 4_000_000, 'Current manual amount replaces stale RAW confirmed and pending bases')
-assert.equal(rawMetrics.current.expectedCommission, 70_000, 'Only current eligible RAW bases contribute; manual subscription and mismatched lump-sum amounts do not')
+assert.equal(rawMetrics.current.expectedCommission, 180_000, 'Current BEST purchases contribute regardless of routes; changed manual amounts still need verification')
 assert.equal(rawMetrics.current.completed, 2, 'RAW financial evidence does not change manual outcome counts')
 assert.equal(rawMetrics.current.active, 1)
 assert.equal(rawMetrics.current.canceled, 1)
@@ -210,11 +210,11 @@ assert.equal(subscriptionMetrics.current.reservedSales, 1000000)
 assert.equal(executiveTotalSalesFor(subscriptionMetrics.current), 3000000, 'Subscription total includes confirmed membership basis plus shipment-waiting membership basis')
 assert.equal(executiveTotalSalesFor(subscriptionMetrics.partners[0]), 3000000)
 assert.equal(executiveTotalSalesFor(subscriptionMetrics.managers[0]), 3000000)
-assert.equal(subscriptionMetrics.current.expectedCommission, 37500)
+assert.equal(subscriptionMetrics.current.expectedCommission, 45000)
 assert.equal(subscriptionMetrics.current.active, 1)
 assert.equal(subscriptionMetrics.current.completed, 0, 'Subscription RAW does not change manually managed purchase completion')
-assert.equal(subscriptionMetrics.managers[0].expectedCommission, 37500)
-assert.equal(subscriptionMetrics.partners[0].expectedCommission, 37500)
+assert.equal(subscriptionMetrics.managers[0].expectedCommission, 45000)
+assert.equal(subscriptionMetrics.partners[0].expectedCommission, 45000)
 assert.equal(JSON.stringify(subscriptionRows), subscriptionBefore)
 
 const completionRows = [lead('business-completed', {

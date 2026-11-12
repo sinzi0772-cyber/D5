@@ -40,6 +40,23 @@ export interface SalesChannelSummary {
   amount: number | null
 }
 
+export interface SalesRouteTarget {
+  kind: 'lumpSum' | 'subscription'
+  period: string | null
+  channel1: string
+  channel2: string
+  sourceRevision: string
+}
+
+/** Staff-confirmed route details stored independently of the BEST order. */
+export interface SalesRouteCorrection extends SalesRouteTarget {
+  id: string
+  correctedChannel1: string
+  correctedChannel2: string
+  changedAt: string
+  changedBy: string
+}
+
 /** Customer-level RAW totals. Source phone numbers and order identifiers are not stored. */
 export interface SalesRawPeriod {
   period: string
@@ -118,6 +135,7 @@ export interface Lead {
   caseSharingHistory?: CaseSharingHistory[]
   salesRawPeriods?: Record<string, SalesRawPeriod>
   subscriptionRawPeriods?: Record<string, SubscriptionRawPeriod>
+  salesRouteCorrections?: SalesRouteCorrection[]
   note?: string
   memoHistory?: MemoEntry[]
   updatedAt: string

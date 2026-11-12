@@ -56,7 +56,7 @@ assert.equal(caseBasisFor([a]).status, 'unresolved', 'A grouped partial view can
 assert.equal(caseBasisFor([{ ...a, caseGroupId: undefined }]).basis?.id, 'A')
 assert.equal(caseBasisFor(originals).basis?.id, 'A', 'A single financial side is the whole-customer basis')
 assert.equal(financialTotal(originals), 300000)
-assert.equal(feeTotal(originals), 3000, 'RAW eligibility and each method rounding are retained')
+assert.equal(feeTotal(originals), 5000, 'Current BEST evidence and each method rounding are retained')
 assert.equal(caseBasisGroupsFor(originals).length, 1, 'Two originals form one logical customer')
 assert.equal(caseBasisGroupsFor(originals)[0].registeredAt, '2026-09-01')
 
@@ -64,19 +64,17 @@ const duplicates = [rawLead('B', { registeredAt: '2026-10-01' }), a]
 assert.equal(caseBasisFor(duplicates).basis?.id, 'A', 'Equivalent economic data uses a stable basis, not the newest row')
 assert.equal(caseBasisFor([...duplicates].reverse()).basis?.id, 'A')
 assert.equal(financialTotal(duplicates), 300000, 'Two equal independent RAW rows are not added')
-assert.equal(feeTotal(duplicates), 3000)
+assert.equal(feeTotal(duplicates), 5000)
 assert.equal(caseBasisFor([makeLead('A'), makeLead('B')]).status, 'resolved', 'Equal independent manual values are also counted once')
-const fullyEligibleRaw = rawLead('A', {
+const matchedRouteRaw = rawLead('A', {
   salesRawPeriods: { '2026-09': { ...a.salesRawPeriods!['2026-09'], eligibleConfirmedAmount: 100000 } },
   subscriptionRawPeriods: { '2026-09': { ...a.subscriptionRawPeriods!['2026-09'], eligibleConfirmedBasisAmount: 200000 } },
 })
-assert.equal(caseBasisFor([fullyEligibleRaw, makeLead('B')]).status, 'unresolved', 'Equal sales with verified versus unverified commission evidence need an explicit basis')
+assert.equal(caseBasisFor([matchedRouteRaw, makeLead('B')]).status, 'unresolved', 'Equal sales with verified versus unverified commission evidence need an explicit basis')
 
 for (const difference of [
   { lumpSumAmount: 100001 }, { subscriptionAmount: 200001 }, { status: '관리중' as const },
   { deliveryScheduledDate: '2026-11-01' }, { managerEmployeeNo: 'QA43' }, { partnerName: '(주)다이렉트컴즈' },
-  { salesRawPeriods: { '2026-09': { ...a.salesRawPeriods!['2026-09'], eligibleConfirmedAmount: 0 } } },
-  { subscriptionRawPeriods: { '2026-09': { ...a.subscriptionRawPeriods!['2026-09'], eligibleConfirmedBasisAmount: 0 } } },
 ]) {
   const group = [a, rawLead('B', difference)]
   const selection = caseBasisFor(group)
@@ -85,12 +83,21 @@ for (const difference of [
   assert.equal(financialCaseLeadsFor(group).length, 0, 'Pending is excluded, not represented as a zero-priced customer')
 }
 
+for (const routeEvidence of [
+  { salesRawPeriods: { '2026-09': { ...a.salesRawPeriods!['2026-09'], eligibleConfirmedAmount: 0 } } },
+  { subscriptionRawPeriods: { '2026-09': { ...a.subscriptionRawPeriods!['2026-09'], eligibleConfirmedBasisAmount: 0 } } },
+]) {
+  const group = [a, rawLead('B', routeEvidence)]
+  assert.equal(caseBasisFor(group).basis?.id, 'A', 'Route-only differences do not change the equivalent financial basis')
+  assert.equal(feeTotal(group), 5000, 'Equivalent BEST amounts still earn commission once')
+}
+
 const conflicting = [a, makeLead('B', { lumpSumAmount: 999999 })]
 assert.equal(caseBasisFor(conflicting).status, 'unresolved')
 const chosen = conflicting.map(member => ({ ...member, caseBasisLeadId: 'A' }))
 assert.equal(caseBasisFor(chosen).basis?.id, 'A')
 assert.equal(financialTotal(chosen), 300000)
-assert.equal(feeTotal(chosen), 3000)
+assert.equal(feeTotal(chosen), 5000)
 assert.equal(chosen[1].lumpSumAmount, 999999, 'The ignored manual original is never overwritten')
 assert.equal(caseBasisFor([chosen[0], conflicting[1]]).status, 'unresolved', 'Partial metadata must not silently adopt one pointer')
 assert.equal(caseBasisFor(chosen.map(member => ({ ...member, caseBasisLeadId: member.id }))).status, 'unresolved')
@@ -126,7 +133,7 @@ assert.equal(aliasProjection.subscriptionSourceId, 'B')
 assert.equal(aliasProjection.salesRawPeriods?.['2026-09'].eligibleConfirmedAmount, 60000, 'Alias projection retains the valid source eligibility, not unrelated alias RAW')
 assert.equal(aliasProjection.subscriptionRawPeriods?.['2026-09'].eligibleConfirmedBasisAmount, 120000)
 assert.equal(financialTotal(legacy), 300000)
-assert.equal(feeTotal(legacy), 3000)
+assert.equal(feeTotal(legacy), 5000)
 assert.equal(alias.salesRawPeriods?.['2026-09'].eligibleConfirmedAmount, 100000, 'Projection never mutates alias RAW')
 
 for (const badAlias of [
@@ -171,7 +178,7 @@ assert.equal(JSON.stringify(mixedRoots), mixedBefore, 'Readonly exclusion of bor
 const legacyPersonalDifferences = [a, { ...alias, status: '취소' as const, deliveryScheduledDate: '2027-01-01', managerEmployeeNo: 'OTHER' }]
 assert.equal(caseBasisFor(legacyPersonalDifferences).basis?.id, 'A', 'A known single original root wins over alias-only personal differences')
 assert.equal(financialTotal(legacyPersonalDifferences), 300000)
-assert.equal(feeTotal(legacyPersonalDifferences), 3000)
+assert.equal(feeTotal(legacyPersonalDifferences), 5000)
 const explicitAlias = legacyPersonalDifferences.map(member => ({ ...member, caseBasisLeadId: 'B' }))
 assert.equal(financialCaseLeadsFor(explicitAlias)[0].status, '취소', 'An explicit safe alias basis still retains its chosen personal status')
 assert.equal(financialCaseLeadsFor(explicitAlias)[0].deliveryScheduledDate, '2027-01-01')

@@ -2,6 +2,7 @@ import type { Lead } from '../types'
 import { customerDisplayLabel } from './customerDisplay'
 import { canonicalPartnerName } from './partners'
 import { getStoredSalesChannels, type StoredSalesChannel } from './salesChannels'
+import { latestSalesRouteCorrectionFor, salesRouteTargetFor } from './salesRouteCorrections'
 import { purchaseAmountSourceFor } from './salesFinance'
 import { isOneWonSaleAmount } from './salesRaw'
 
@@ -27,6 +28,7 @@ export interface SalesChannelReviewItem {
   channel1: string
   channel2: string
   managerLabel: string
+  staffRoute?: { channel1: string; channel2: string }
 }
 
 const administrators = new Set(['admin', 'store_manager', 'assistant_manager'])
@@ -62,6 +64,17 @@ function hasRouteEvidence(route: StoredSalesChannel): boolean {
 function commonPath(routes: readonly StoredSalesChannel[], key: 'channel1' | 'channel2'): string {
   const path = routes[0]?.[key] ?? ''
   return routes.every(route => route[key] === path) ? path : ''
+}
+
+function staffRouteFor(lead: Lead, routes: readonly StoredSalesChannel[]): SalesChannelReviewItem['staffRoute'] {
+  const corrections = routes.map(route => {
+    const target = salesRouteTargetFor(lead, route)
+    return target ? latestSalesRouteCorrectionFor(lead, target) : undefined
+  })
+  const first = corrections[0]
+  if (!first || corrections.some(correction => correction?.correctedChannel1 !== first.correctedChannel1
+    || correction.correctedChannel2 !== first.correctedChannel2)) return undefined
+  return { channel1: first.correctedChannel1, channel2: first.correctedChannel2 }
 }
 
 /** Read-only review of actual stored order routes. A financial basis selection
@@ -104,7 +117,7 @@ export function getSalesChannelReviewItems(
         let candidate = candidates.get(identity)
         if (!candidate) {
           candidate = { item: { ...common, kind, status: 'mismatch', period: route.period,
-            channel1: route.channel1, channel2: route.channel2 }, facts: [] }
+            channel1: route.channel1, channel2: route.channel2, staffRoute: staffRouteFor(lead, [route]) }, facts: [] }
           candidates.set(identity, candidate)
         }
         candidate.facts.push(factsFor(route))
@@ -122,7 +135,7 @@ export function getSalesChannelReviewItems(
         item: { ...common, kind, status: 'unverified', period: knownPeriods.length === 1 ? knownPeriods[0] : null,
           ...(knownPeriods.length > 1 ? { periods: knownPeriods } : {}),
           unverifiedReason: missingRoutes.length ? 'missing-route' : 'amount-discrepancy',
-          channel1: commonPath(missingRoutes, 'channel1'), channel2: commonPath(missingRoutes, 'channel2') },
+          channel1: commonPath(missingRoutes, 'channel1'), channel2: commonPath(missingRoutes, 'channel2'), staffRoute: staffRouteFor(lead, missingRoutes) },
         facts: [entered, ...missingRoutes.map(route => [route.period, route.channel1, route.channel2, ...factsFor(route)])],
       })
     }
