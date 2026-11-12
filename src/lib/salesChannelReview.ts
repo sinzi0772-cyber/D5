@@ -3,7 +3,6 @@ import { customerDisplayLabel } from './customerDisplay'
 import { canonicalPartnerName } from './partners'
 import { getStoredSalesChannels, type StoredSalesChannel } from './salesChannels'
 import { latestSalesRouteCorrectionFor, salesRouteTargetFor } from './salesRouteCorrections'
-import { purchaseAmountSourceFor } from './salesFinance'
 import { isOneWonSaleAmount } from './salesRaw'
 
 export interface SalesChannelReviewViewer {
@@ -24,7 +23,7 @@ export interface SalesChannelReviewItem {
   status: 'mismatch' | 'unverified'
   period: string | null
   periods?: readonly string[]
-  unverifiedReason?: 'missing-route' | 'amount-discrepancy'
+  unverifiedReason?: 'missing-route' | 'confirmed-route-unclear'
   channel1: string
   channel2: string
   managerLabel: string
@@ -61,6 +60,23 @@ function hasRouteEvidence(route: StoredSalesChannel): boolean {
   return route.orderCount > 0 || (route.itemCount ?? 0) > 0 || (route.amount !== null && route.amount !== 0)
 }
 
+function confirmedCohortFor(lead: Lead, kind: SalesChannelReviewItem['kind'], period: string) {
+  const cash = kind === 'lumpSum' ? lead.salesRawPeriods?.[period] : undefined
+  const subscription = kind === 'subscription' ? lead.subscriptionRawPeriods?.[period] : undefined
+  const amount = cash?.confirmedAmount ?? subscription?.confirmedBasisAmount
+  const count = cash?.confirmedOrderCount ?? subscription?.confirmedItemCount
+  if (amount === undefined || !Number.isFinite(amount) || amount <= 1
+    || count === undefined || !Number.isSafeInteger(count) || count <= 0) return undefined
+  const mixed = cash
+    ? cash.reservedOrderCount > 0 || (cash.tentativeOrderCount ?? 0) > 0 || cash.orderCount > count
+      || cash.reservedAmount !== 0 || (cash.tentativeAmount ?? 0) !== 0
+    : subscription!.pendingItemCount > 0 || subscription!.itemCount > count || subscription!.pendingBasisAmount !== 0
+  const allConfirmedEligible = cash
+    ? cash.returnAmount === 0 && cash.eligibleConfirmedAmount === amount
+    : subscription!.missingBasisItemCount === 0 && subscription!.eligibleConfirmedBasisAmount === amount
+  return { mixed, allConfirmedEligible }
+}
+
 function commonPath(routes: readonly StoredSalesChannel[], key: 'channel1' | 'channel2'): string {
   const path = routes[0]?.[key] ?? ''
   return routes.every(route => route[key] === path) ? path : ''
@@ -91,7 +107,9 @@ export function getSalesChannelReviewItems(
   for (const lead of leads) if (!byId.has(lead.id)) byId.set(lead.id, lead)
   const candidates = new Map<string, { item: Omit<SalesChannelReviewItem, 'key'>; facts: unknown[] }>()
   for (const lead of byId.values()) {
-    if (!viewerCanReview(lead, viewer)
+    const partner = partnerKey(lead.partnerName)
+    if (lead.status !== '구매완료' || !partner || partner === '제휴사' || partner === '제휴업체확인필요'
+      || !viewerCanReview(lead, viewer)
       || lead.appointmentType !== '이업종제휴' && lead.appointmentType !== '상담예약(이업종)') continue
     const routes = getStoredSalesChannels(lead)
     const common = {
@@ -111,7 +129,31 @@ export function getSalesChannelReviewItems(
       // These facts stay inside the fingerprint; the popup receives no sales amount or order reference.
       const factsFor = (route: StoredSalesChannel) => [route.period ? text(periods?.[route.period]?.sourceHash) : '',
         route.amount, route.orderCount, route.itemCount ?? null, route.amountCurrent]
-      const mismatches = ownRoutes.filter(route => route.status === 'mismatch')
+      const routesByPeriod = new Map<string, StoredSalesChannel[]>()
+      for (const route of ownRoutes) {
+        if (!route.period || !hasRouteEvidence(route)) continue
+        const stored = routesByPeriod.get(route.period) ?? []
+        stored.push(route)
+        routesByPeriod.set(route.period, stored)
+      }
+      const mismatches: StoredSalesChannel[] = []
+      const missingRoutes: StoredSalesChannel[] = []
+      let confirmedRouteUnclear = false
+      for (const [period, periodRoutes] of routesByPeriod) {
+        const cohort = confirmedCohortFor(lead, kind, period)
+        if (!cohort) continue
+        const problems = periodRoutes.filter(route => route.status !== 'eligible')
+        if (!problems.length) continue
+        const pathCount = new Set(periodRoutes.map(route => JSON.stringify([route.channel1, route.channel2]))).size
+        if (cohort.mixed && pathCount > 1) {
+          // Legacy monthly summaries can mix confirmed and pending routes.
+          if (cohort.allConfirmedEligible && periodRoutes.every(route => route.status !== 'unverified' && route.amount !== null && route.amount >= 0)) continue
+          confirmedRouteUnclear = true
+          missingRoutes.push(...problems)
+          continue
+        }
+        for (const route of problems) (route.status === 'mismatch' ? mismatches : missingRoutes).push(route)
+      }
       for (const route of mismatches) {
         const identity = JSON.stringify([lead.id, kind, route.period, route.channel1, route.channel2])
         let candidate = candidates.get(identity)
@@ -123,20 +165,17 @@ export function getSalesChannelReviewItems(
         candidate.facts.push(factsFor(route))
       }
 
-      const missingRoutes = ownRoutes.filter(route => route.status === 'unverified' && hasRouteEvidence(route))
-      const entered = purchaseAmountSourceFor(lead, kind)
-      const amountDiscrepancy = entered.kind === 'manual' && entered.amount > 0 && !isOneWonSaleAmount(entered.amount)
-        && entered.rawAmount !== null && entered.rawAmount !== entered.amount
-        && (!mismatches.length || entered.amount > entered.rawAmount)
-      if (!missingRoutes.length && !amountDiscrepancy) continue
+      if (!missingRoutes.length) continue
 
       const knownPeriods = [...new Set(missingRoutes.flatMap(route => route.period ? [route.period] : []))].sort().reverse()
       candidates.set(JSON.stringify([lead.id, kind, 'unverified']), {
         item: { ...common, kind, status: 'unverified', period: knownPeriods.length === 1 ? knownPeriods[0] : null,
           ...(knownPeriods.length > 1 ? { periods: knownPeriods } : {}),
-          unverifiedReason: missingRoutes.length ? 'missing-route' : 'amount-discrepancy',
-          channel1: commonPath(missingRoutes, 'channel1'), channel2: commonPath(missingRoutes, 'channel2'), staffRoute: staffRouteFor(lead, missingRoutes) },
-        facts: [entered, ...missingRoutes.map(route => [route.period, route.channel1, route.channel2, ...factsFor(route)])],
+          unverifiedReason: confirmedRouteUnclear ? 'confirmed-route-unclear' : 'missing-route',
+          channel1: confirmedRouteUnclear ? '' : commonPath(missingRoutes, 'channel1'),
+          channel2: confirmedRouteUnclear ? '' : commonPath(missingRoutes, 'channel2'),
+          staffRoute: confirmedRouteUnclear ? undefined : staffRouteFor(lead, missingRoutes) },
+        facts: missingRoutes.map(route => [route.period, route.channel1, route.channel2, ...factsFor(route)]),
       })
     }
   }

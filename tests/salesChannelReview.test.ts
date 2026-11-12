@@ -57,31 +57,57 @@ assert.equal(getSalesChannelReviewItems([replaceRoutes(original, [route(100, { c
 assert.equal(getSalesChannelReviewItems([replaceRoutes(original, [route(), route()])], admin, approved).length, 2, 'Duplicate stored paths do not create duplicate popup rows')
 const legacyMetadata = { ...original, salesRawPeriods: { '2026-10': { ...original.salesRawPeriods!['2026-10'], channels: undefined } }, subscriptionRawPeriods: undefined }
 const legacyItems = getSalesChannelReviewItems([legacyMetadata], admin, approved)
-assert.equal(legacyItems.length, 2)
+assert.equal(legacyItems.length, 1, 'Only the purchase kind with confirmed RAW is included')
 assert(legacyItems.every(item => item.status === 'unverified' && item.unverifiedReason === 'missing-route' && !item.channel1 && !item.channel2))
-assert.deepEqual(legacyItems.map(item => item.period), ['2026-10', null])
+assert.equal(legacyItems[0].period, '2026-10')
+
+for (const status of ['관리중', '취소', '상담 마감'] as const) {
+  assert.equal(getSalesChannelReviewItems([{ ...original, status }], admin, approved).length, 0)
+}
+for (const partnerName of ['', '(주)', '제휴사', '제휴업체 확인 필요']) {
+  assert.equal(getSalesChannelReviewItems([{ ...original, partnerName }], admin, approved).length, 0)
+}
 
 const manualOnly = { salesRawPeriods: undefined, subscriptionRawPeriods: undefined }
 const canceled = lead('canceled', { ...manualOnly, registeredAt: '2026-09-27', status: '취소' })
 const completed = lead('completed', { ...manualOnly, registeredAt: '2026-09-24', status: '구매완료' })
-const manualItems = getSalesChannelReviewItems([canceled, completed], manager, approved)
-assert.equal(manualItems.length, 4, 'Both manually recorded purchase kinds require review regardless of customer status')
-assert(manualItems.every(item => item.status === 'unverified' && item.period === null))
-assert.deepEqual([...new Set(manualItems.map(item => item.intakeDate))].sort(), ['2026-09-24', '2026-09-27'])
-assert.equal(getSalesChannelReviewItems([canceled, completed], { ...manager, employeeNo: 'M2' }, approved).length, 0)
-assert.equal(getSalesChannelReviewItems([completed], admin, []).length, 1, 'Subscription scope also applies to manual amounts')
-assert.equal(getSalesChannelReviewItems([{ ...completed, lumpSumAmount: 1, subscriptionAmount: 1 }], admin, approved).length, 0, 'One-won manual amounts are excluded')
+assert.equal(getSalesChannelReviewItems([canceled, completed], manager, approved).length, 0, 'Manual amounts alone do not prove a successful order')
+assert.equal(getSalesChannelReviewItems([{ ...original, lumpSumAmount: 150000 }], admin, approved).length, 2, 'Manual amount changes do not create route alerts')
 
-const revisedAmount = getSalesChannelReviewItems([{ ...original, lumpSumAmount: 150000 }], admin, approved)
-assert.equal(revisedAmount.length, 3, 'A separate unknown balance is reviewable alongside the known mismatch')
-assert(revisedAmount.some(item => item.kind === 'lumpSum' && item.status === 'unverified' && item.unverifiedReason === 'amount-discrepancy' && !item.period))
-assert.equal(getSalesChannelReviewItems([{ ...original, lumpSumAmount: 50000 }], admin, approved).length, 2, 'A known mismatch already covers a reduced manual amount')
+const cash = original.salesRawPeriods!['2026-10']
+const sub = original.subscriptionRawPeriods!['2026-10']
+const reservedOnly = { ...original,
+  salesRawPeriods: { '2026-10': { ...cash, confirmedOrderCount: 0, reservedOrderCount: 1, confirmedAmount: 0, reservedAmount: 100000 } },
+  subscriptionRawPeriods: { '2026-10': { ...sub, confirmedItemCount: 0, pendingItemCount: 1, confirmedBasisAmount: 0, pendingBasisAmount: 100000 } },
+}
+assert.equal(getSalesChannelReviewItems([reservedOnly], admin, approved).length, 0, 'Reserved purchases do not qualify even if the case is marked complete')
+const oneWonOnly = { ...original,
+  salesRawPeriods: { '2026-10': { ...cash, confirmedAmount: 1 } },
+  subscriptionRawPeriods: { '2026-10': { ...sub, confirmedBasisAmount: 1 } },
+}
+assert.equal(getSalesChannelReviewItems([oneWonOnly], admin, approved).length, 0, 'One-won confirmed amounts do not qualify')
+
+const mixedCash = { ...cash, orderCount: 2, reservedOrderCount: 1, reservedAmount: 50000,
+  channels: [route(150000, { orderCount: 2 })] }
+const mixed = { ...original, salesRawPeriods: { '2026-10': mixedCash, '2026-09': { ...reservedOnly.salesRawPeriods['2026-10'], period: '2026-09' } } }
+const mixedItems = getSalesChannelReviewItems([mixed], admin, approved)
+assert.equal(mixedItems.length, 2)
+assert(mixedItems.every(item => item.status === 'mismatch' && item.period === '2026-10'), 'A single path applies to confirmed and pending rows in a mixed month')
+
+const mixedRoutes = [route(), route(50000, { channel2: '웨딩업체연결(수수료지급)' })]
+const mixedMultiPath = { ...original, salesRawPeriods: { '2026-10': { ...mixedCash, channels: mixedRoutes } } }
+const uncertain = getSalesChannelReviewItems([mixedMultiPath], admin, approved).find(item => item.kind === 'lumpSum')
+assert.equal(uncertain?.unverifiedReason, 'confirmed-route-unclear')
+assert(!uncertain?.channel1 && !uncertain?.channel2 && uncertain?.period === '2026-10', 'Do not label an unproven path as a confirmed mismatch')
+const pendingMismatch = { ...mixedMultiPath, salesRawPeriods: { '2026-10': { ...mixedCash,
+  eligibleConfirmedAmount: 100000, channels: [route(50000), route(100000, { channel2: '웨딩업체연결(수수료지급)' })] } } }
+assert.equal(getSalesChannelReviewItems([pendingMismatch], admin, approved).filter(item => item.kind === 'lumpSum').length, 0, 'A known pending-only mismatch is excluded')
 
 const unknownLumpSum = legacyMetadata.salesRawPeriods['2026-10']
 const multipleMonths = { ...legacyMetadata, salesRawPeriods: { '2026-10': unknownLumpSum,
   '2026-11': { ...unknownLumpSum, period: '2026-11' } } }
 const multipleItems = getSalesChannelReviewItems([multipleMonths], admin, approved)
-assert.equal(multipleItems.length, 2, 'Unverified routes in multiple months share one review row per purchase kind')
+assert.equal(multipleItems.length, 1, 'Unverified routes in multiple months share one review row per purchase kind')
 assert.deepEqual(multipleItems.find(item => item.kind === 'lumpSum')?.periods, ['2026-11', '2026-10'])
 
 const owner = lead('owner', { caseGroupId: 'pair', caseBasisLeadId: 'alias' })

@@ -12,14 +12,14 @@ const mismatch: SalesChannelReviewItem = {
 const unknown: SalesChannelReviewItem = {
   ...mismatch, key: 'unknown', leadId: 'b', status: 'unverified',
   customerLabel: '나** / 3102', kind: 'lumpSum', intakeDate: '2026-09-24',
-  period: null, channel1: '', channel2: '', unverifiedReason: 'missing-route',
+  period: '2026-10', channel1: '', channel2: '',
 }
-const discrepancy: SalesChannelReviewItem = {
-  ...unknown, key: 'discrepancy', leadId: 'c', customerLabel: '다** / 3103',
-  intakeDate: '2026-09-27', periods: ['2026-09', '2026-10'], unverifiedReason: 'amount-discrepancy',
+const multipleMonths: SalesChannelReviewItem = {
+  ...unknown, key: 'multiple-months', leadId: 'c', customerLabel: '다** / 3103',
+  intakeDate: '2026-09-27', period: null, periods: ['2026-09', '2026-10'],
 }
 
-const markup = renderToStaticMarkup(<SalesChannelReviewModal items={[unknown, mismatch, discrepancy]} onClose={() => undefined} onSelectLead={() => undefined}/>)
+const markup = renderToStaticMarkup(<SalesChannelReviewModal items={[unknown, mismatch, multipleMonths]} onClose={() => undefined} onSelectLead={() => undefined}/>)
 assert.ok(markup.includes('role="dialog"') && markup.includes('판매경로 점검 · 3개'))
 const mismatchGroup = markup.match(/<section[^>]+aria-label="경로 불일치">([\s\S]+?)<\/section>/)?.[1] || ''
 const unverifiedGroup = markup.match(/<section[^>]+aria-label="경로 확인 필요">([\s\S]+?)<\/section>/)?.[1] || ''
@@ -28,7 +28,8 @@ assert.ok(mismatchGroup.includes('<dt>판매경로 1</dt>') && mismatchGroup.inc
 assert.ok(mismatchGroup.includes('class="different">웨딩매장행사') && mismatchGroup.includes('구독 · 2026.10'))
 assert.ok(unverifiedGroup.includes('<h3>경로 확인 필요 2건</h3>') && unverifiedGroup.includes('나** / 3102') && unverifiedGroup.includes('다** / 3103'))
 assert.ok(unverifiedGroup.includes('접수일 <time dateTime="2026-09-24">2026.09.24</time>'))
-assert.ok(unverifiedGroup.includes('주문 원본에서 판매경로를 확인해주세요.') && unverifiedGroup.includes('입력 금액과 주문 원본을 대조해주세요.'))
+assert.ok(unverifiedGroup.includes('확정 주문의 판매경로를 원본에서 확인해주세요.'))
+assert.ok(markup.includes('제휴업체가 연결한 구매완료 고객의 확정 주문을 점검합니다.'))
 assert.ok(unverifiedGroup.includes('일시불 · 2026.09, 2026.10') && unverifiedGroup.includes('미확인'))
 assert.ok(!unverifiedGroup.includes('class="different"') && !unverifiedGroup.includes('가** / 3101'))
 assert.equal((markup.match(/고객 상세 확인/g) || []).length, 3)

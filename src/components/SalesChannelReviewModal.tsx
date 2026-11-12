@@ -45,7 +45,7 @@ export function SalesChannelReviewModal({ items, onClose, onSelectLead }: {
     <section className="sales-review-modal" role="dialog" aria-modal="true" aria-labelledby="sales-review-title" aria-describedby="sales-review-description" ref={dialog} tabIndex={-1}>
       <header><div><span><AlertCircle size={16} aria-hidden="true"/>판매경로 점검 · {items.length}개</span><h2 id="sales-review-title">웨딩업체 연결 주문의 판매경로를 확인해주세요</h2></div><button type="button" ref={closeButton} aria-label="닫기" onClick={onClose}><X size={20}/></button></header>
       <div className="sales-review-body">
-        <p id="sales-review-description">판매경로는 매장 전산에서 확인해주세요. 제휴 연결이 확인된 주문의 예상 수수료는 판매 RAW 기준으로 계산합니다.</p>
+        <p id="sales-review-description">제휴업체가 연결한 구매완료 고객의 확정 주문을 점검합니다. 예상 수수료는 판매 RAW 기준으로 계산합니다.</p>
         <details className="sales-review-expected"><summary>판매경로 점검 기준 보기</summary><dl><div><dt>판매경로 1</dt><dd>{SALES_COMMISSION_CHANNEL1}</dd></div><div><dt>판매경로 2</dt><dd>{SALES_COMMISSION_CHANNEL2.join(' 또는 ')}</dd></div></dl></details>
         {groups.map(({ status, label, rows }) => rows.length > 0 && <section className="sales-review-group" key={status} aria-label={label}>
           <h3>{label} {rows.length}건</h3>
@@ -56,7 +56,7 @@ export function SalesChannelReviewModal({ items, onClose, onSelectLead }: {
             return <li className={unverified ? 'sales-review-unverified' : undefined} key={item.key}>
               <div className="sales-review-item-heading"><div><strong>{item.customerLabel}</strong><span>{item.partnerName}</span></div><span>{item.kind === 'lumpSum' ? '일시불' : '구독'}{saleMonths ? ' · '+saleMonths : ''}</span></div>
               <p className="sales-review-manager">담당 {item.managerLabel || '미배정'}{item.intakeDate ? <> · 접수일 <time dateTime={item.intakeDate}>{item.intakeDate.replaceAll('-', '.')}</time></> : null}</p>
-              {unverified && <p className="sales-review-reason">{item.unverifiedReason === 'amount-discrepancy' ? '입력 금액과 주문 원본을 대조해주세요.' : '주문 원본에서 판매경로를 확인해주세요.'}</p>}
+              {unverified && <p className="sales-review-reason">확정 주문의 판매경로를 원본에서 확인해주세요.</p>}
               <dl><div><dt>판매경로 1</dt><dd className={!unverified && item.channel1 !== SALES_COMMISSION_CHANNEL1 ? 'different' : undefined}>{item.channel1 || '미확인'}</dd></div><div><dt>판매경로 2</dt><dd className={!unverified && !SALES_COMMISSION_CHANNEL2.some(channel => channel === item.channel2) ? 'different' : undefined}>{item.channel2 || '미확인'}</dd></div>{item.staffRoute && <><div><dt>수기 경로 1</dt><dd>{item.staffRoute.channel1}</dd></div><div><dt>수기 경로 2</dt><dd>{item.staffRoute.channel2}</dd></div></>}</dl>
               <button type="button" className="sales-review-customer" onClick={() => onSelectLead(item.leadId)}>고객 상세 확인<ArrowUpRight size={14} aria-hidden="true"/></button>
             </li>
