@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { normalizePurchaseDate, purchaseDatesFor, saleDateFromColumns, saleDatesFromRows } from '../src/lib/purchaseDates'
+import { cashPurchaseDateEvidenceFor, normalizePurchaseDate, purchaseDatesFor, saleDateFromColumns, saleDatesFromRows, subscriptionPurchaseDateEvidenceFor } from '../src/lib/purchaseDates'
 import { parseSalesRaw } from '../src/lib/salesRaw'
 import { parseSubscriptionRaw } from '../src/lib/subscriptionRaw'
 import type { Lead } from '../src/types'
@@ -36,14 +36,35 @@ for (const header of ['판매일', '판매일자']) {
   assert.deepEqual(withSaleDate.summary, noSubscriptionDate.summary)
 }
 
+const cashOrder = noSaleDate.orders[0]
+assert.deepEqual(cashPurchaseDateEvidenceFor([
+  cashOrder,
+  { ...cashOrder, saleDate: '2026-10-04' },
+  { ...cashOrder, confirmedDate: '', orderDate: '2026-10-02' },
+  { ...cashOrder, confirmedDate: '', orderDate: '2026-10-01' },
+  { ...cashOrder, orderStatus: '예약', confirmedDate: '2026-10-06' },
+  { ...cashOrder, isReturnOrRefund: true, confirmedDate: '2026-10-07' },
+  { ...cashOrder, saleAmount: 1, confirmedDate: '2026-10-08' },
+]), [
+  { date: '2026-10-01', source: '주문일자' },
+  { date: '2026-10-02', source: '판매확정일' },
+  { date: '2026-10-04', source: '판매일' },
+])
+const subscriptionItem = noSubscriptionDate.items[0]
+assert.deepEqual(subscriptionPurchaseDateEvidenceFor([
+  subscriptionItem,
+  { ...subscriptionItem, disposition: 'excluded', orderDate: '2026-10-02' },
+  { ...subscriptionItem, disposition: 'reserved', orderDate: '2026-10-03' },
+  { ...subscriptionItem, membershipBenefitBasisAmount: 1, orderDate: '2026-10-04' },
+]), [{ date: '2026-10-01', source: '주문일자' }])
 const lead = {
-  salesRawPeriods: { first: { saleDates: ['2026-10-04', '2026-10-03', '2026-10-04', 'invalid'], importedAt: '2026-11-01' } },
+  salesRawPeriods: { first: { saleDates: ['2026-10-04', '2026-10-03', '2026-10-04', 'invalid'], importedAt: '2026-11-01', purchaseDateEvidence: [{ date: '2026-10-04', source: '판매확정일' }, { date: '2026-10-07', source: '주문일자' }, { date: '2026-02-30', source: '주문일자' }, { date: '2026-10-09', source: '배송일' }] } },
   subscriptionRawPeriods: { first: { saleDates: ['2026-10-05'] }, missing: { orderDate: '2026-10-02', importedAt: '2026-11-01' } },
 } as unknown as Lead
 assert.deepEqual(purchaseDatesFor(lead), [
-  { kind: 'lumpSum', label: '일시불', dates: ['2026-10-03', '2026-10-04'] },
-  { kind: 'subscription', label: '구독', dates: ['2026-10-05'] },
+  { kind: 'lumpSum', label: '일시불', evidence: [{ date: '2026-10-03', source: '판매일' }, { date: '2026-10-04', source: '판매일' }, { date: '2026-10-07', source: '주문일자' }] },
+  { kind: 'subscription', label: '구독', evidence: [{ date: '2026-10-05', source: '판매일' }] },
 ])
-assert.deepEqual(purchaseDatesFor({}).map(row => row.dates), [[], []])
-assert.deepEqual(purchaseDatesFor({ salesRawPeriods: [] } as unknown as Lead).map(row => row.dates), [[], []])
-console.log('Purchase dates: explicit sale columns, aliases, invalid/conflicting values, no inferred fallback, sorted distinct dates, and unchanged financial totals passed.')
+assert.deepEqual(purchaseDatesFor({}).map(row => row.evidence), [[], []])
+assert.deepEqual(purchaseDatesFor({ salesRawPeriods: [] } as unknown as Lead).map(row => row.evidence), [[], []])
+console.log('Purchase dates: explicit sale columns, aliases, invalid/conflicting values, labeled confirmed and order dates, sorted distinct dates, and unchanged financial totals passed.')

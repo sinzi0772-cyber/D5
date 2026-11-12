@@ -57,6 +57,11 @@ export interface SalesRouteCorrection extends SalesRouteTarget {
   changedBy: string
 }
 
+export interface PurchaseDateEvidence {
+  date: string
+  source: '판매일' | '판매확정일' | '주문일자'
+}
+
 /** Customer-level RAW totals. Source phone numbers and order identifiers are not stored. */
 export interface SalesRawPeriod {
   period: string
@@ -64,6 +69,7 @@ export interface SalesRawPeriod {
   importedAt: string
   /** Valid explicit 판매일/판매일자 values from admitted source orders. */
   saleDates?: readonly string[]
+  purchaseDateEvidence?: readonly PurchaseDateEvidence[]
   orderCount: number
   confirmedOrderCount: number
   reservedOrderCount: number
@@ -89,6 +95,7 @@ export interface SubscriptionRawPeriod {
   importedAt: string
   /** Valid explicit 판매일/판매일자 values from admitted source product lines. */
   saleDates?: readonly string[]
+  purchaseDateEvidence?: readonly PurchaseDateEvidence[]
   itemCount: number
   confirmedItemCount: number
   pendingItemCount: number
