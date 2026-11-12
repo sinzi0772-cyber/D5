@@ -3,6 +3,7 @@ import type { PartnerPreviewModel, PartnerSalesChannel } from '../lib/partnerPre
 import { isApprovedSubscriptionReviewPartner } from '../lib/salesChannelReview'
 import { SUBSCRIPTION_REVIEW_PARTNERS } from '../lib/subscriptionPartners'
 import { getPartnerSettlementCard } from '../lib/partnerSettlementCard'
+import { NOVEMBER_INVITATION_LABEL } from '../lib/invitationCampaign'
 import {
   DEFAULT_CUSTOMER_SORT, DEFAULT_SETTLEMENT_SORT, nextPartnerCustomerSort, nextPartnerSettlementSort,
   sortPartnerCustomers, sortPartnerSettlements,
@@ -131,7 +132,10 @@ export function PartnerPreview({ model, presentation = 'preview', intakeMonthCon
         <div className="partner-preview-section-heading"><SectionHeading>연결 고객</SectionHeading><small aria-live="polite">{customerSortCaptions[customerSort.key][customerSort.direction]}</small></div>
         {customers.length > 0 ? <div className="partner-preview-table-scroll"><table aria-label="연결 고객 목록">
           <thead><tr>{customerColumns.map(column => <SortColumn key={column.key} label={column.label} direction={customerSort.key === column.key ? customerSort.direction : null} nextDirection={nextPartnerCustomerSort(customerSort, column.key).direction} onSort={() => setCustomerSort(current => nextPartnerCustomerSort(current, column.key))}/>)}</tr></thead>
-          <tbody>{customers.map(customer => <tr key={customer.key}><td className="partner-preview-customer-label">{customer.label}</td><td>{dateLabel(customer.registeredAt)}</td><td><span className={`partner-preview-status${customer.status === '구매완료' ? ' completed' : ''}`}>{customer.status}</span></td><td>{dateLabel(customer.deliveryScheduledDate)}</td><td>{customer.basisRequired ? '기준 고객 확인 필요' : customer.expectedSettlementMonth ? `${monthLabel(customer.expectedSettlementMonth)} 중순` : customer.status === '구매완료' ? '배송일 확인 필요' : '—'}</td><td className="partner-preview-customer-fee">{customer.basisRequired ? '확인 필요' : customer.expectedCommission === null ? '—' : won(customer.expectedCommission)}<CustomerSalesChannels partnerName={model.partnerName} channels={customer.salesChannels}/></td></tr>)}</tbody>
+          <tbody>{customers.map(customer => <tr key={customer.key}><td className="partner-preview-customer-label">
+            {customer.label}
+            {customer.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
+          </td><td>{dateLabel(customer.registeredAt)}</td><td><span className={`partner-preview-status${customer.status === '구매완료' ? ' completed' : ''}`}>{customer.status}</span></td><td>{dateLabel(customer.deliveryScheduledDate)}</td><td>{customer.basisRequired ? '기준 고객 확인 필요' : customer.expectedSettlementMonth ? `${monthLabel(customer.expectedSettlementMonth)} 중순` : customer.status === '구매완료' ? '배송일 확인 필요' : '—'}</td><td className="partner-preview-customer-fee">{customer.basisRequired ? '확인 필요' : customer.expectedCommission === null ? '—' : won(customer.expectedCommission)}<CustomerSalesChannels partnerName={model.partnerName} channels={customer.salesChannels}/></td></tr>)}</tbody>
         </table></div> : <p className="partner-preview-empty">선택한 접수월에 연결된 고객이 없습니다.</p>}
       </section>
     </> : <p className="partner-preview-empty">업체를 선택해 주세요.</p>}

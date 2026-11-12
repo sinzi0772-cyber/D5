@@ -46,13 +46,25 @@ const publication = buildPartnerPublication(rows, IWEDDING_PARTNER_ID, published
 const ini = PARTNER_ACCOUNTS.iniwedding
 const iniPublication = buildPartnerPublication([
   ...rows,
-  lead('ini-1', { partnerName: '(주)아이니웨딩네트웍스' }),
+  lead('ini-1', { partnerName: '(주)아이니웨딩네트웍스', invitationCampaign: '2026-11-iniwedding' }),
   lead('ini-2', { partnerName: '(주) 아이니웨딩네트웍스' }),
   lead('similarly-named', { partnerName: '(주) 아이니웨딩' }),
 ], ini.partnerId, publishedAt)
 assert.equal(iniPublication.partnerName, ini.partnerName)
 assert.equal(iniPublication.months.reduce((total, month) => total + month.customerCount, 0), 2)
 assert.deepEqual(parsePartnerPublication(iniPublication, ini.partnerId), iniPublication)
+assert.equal(iniPublication.months[0].customers.filter(customer => customer.invitationCampaign === '2026-11-iniwedding').length, 1)
+const foreignInvitation = structuredClone(publication)
+foreignInvitation.months[0].customers[0].invitationCampaign = '2026-11-iniwedding'
+assert.equal(parsePartnerPublication(foreignInvitation, IWEDDING_PARTNER_ID), null, 'An invitation marker is limited to the approved partner')
+const invalidInvitation = structuredClone(iniPublication)
+Object.assign(invalidInvitation.months[0].customers[0], { invitationCampaign: 'unverified' })
+assert.equal(parsePartnerPublication(invalidInvitation, ini.partnerId), null, 'Reject arbitrary campaign values')
+const linkedInvitation = buildPartnerPublication([
+  lead('ini-invited', { partnerName: ini.partnerName, invitationCampaign: '2026-11-iniwedding', caseGroupId: 'ini-group', caseBasisLeadId: 'ini-basis' }),
+  lead('ini-basis', { partnerName: ini.partnerName, caseGroupId: 'ini-group', caseBasisLeadId: 'ini-basis' }),
+], ini.partnerId, publishedAt)
+assert.equal(linkedInvitation.months[0].customers[0].invitationCampaign, undefined, 'A different displayed customer cannot inherit an invitation')
 assert.equal(parsePartnerPublication(iniPublication, IWEDDING_PARTNER_ID), null)
 assert.equal(parsePartnerPublication(publication, ini.partnerId), null)
 assert.equal(parsePartnerPublication({ ...iniPublication, months: publication.months }, ini.partnerId), null, 'Foreign monthly data cannot pass under the new account')

@@ -1,5 +1,6 @@
 import type { AppointmentType, CaseSharingHistory, Lead, LeadStatus, MemoEntry, PurchaseType, SalesRawPeriod, SubscriptionRawPeriod, VisitState } from '../types'
 import { canonicalPartnerName } from './partners'
+import { invitationCampaignFor } from './invitationCampaign'
 
 const text = (value: unknown): string => typeof value === 'string' ? value : ''
 const optionalText = (value: unknown): string | undefined => text(value) || undefined
@@ -52,13 +53,16 @@ export function normalizedLeadStatus(value: unknown): LeadStatus {
 export function leadFromDocument(id: string, row: Record<string, unknown>): Lead {
   const purchaseType: PurchaseType = ['일시불', '구독', '일시불+구독'].includes(text(row.purchaseType)) ? row.purchaseType as PurchaseType : '미선택'
   const legacyAmount = amount(row.purchaseAmount)
+  const partnerName = canonicalPartnerName(text(row.partnerName))
+  const invitationCampaign = invitationCampaignFor(row.invitationCampaign, partnerName)
   return {
     id,
     registeredAt: text(row.registeredAt), customerName: text(row.customerName), phoneLast4: text(row.phoneLast4),
     gender: row.gender === '남' || row.gender === '여' ? row.gender : '미입력',
     visitScheduledDate: optionalText(row.visitScheduledDate), deliveryScheduledDate: optionalText(row.deliveryScheduledDate),
     appointmentType: ['상담예약(이업종)', '이업종제휴'].includes(text(row.appointmentType)) ? row.appointmentType as AppointmentType : '미선택',
-    appointmentSourceId: optionalText(row.appointmentSourceId), partnerName: canonicalPartnerName(text(row.partnerName)),
+    appointmentSourceId: optionalText(row.appointmentSourceId), partnerName,
+    ...(invitationCampaign ? { invitationCampaign } : {}),
     billToCode: optionalText(row.billToCode), lgeSubchannel: optionalText(row.lgeSubchannel),
     manager: optionalText(row.manager), managerEmployeeNo: optionalText(row.managerEmployeeNo),
     plannerName: optionalText(row.plannerName), caseGroupId: optionalText(row.caseGroupId), caseBasisLeadId: caseBasisId(row.caseBasisLeadId), caseMergeMemberIds: caseMergeIds(row.caseMergeMemberIds), status: normalizedLeadStatus(row.status),

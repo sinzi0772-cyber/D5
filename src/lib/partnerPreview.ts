@@ -1,4 +1,4 @@
-import type { Lead, LeadStatus } from '../types'
+import type { InvitationCampaign, Lead, LeadStatus } from '../types'
 import { expectedSettlementMonthFor, isValidDeliveryDate } from './commissionSettlement'
 import { customerDisplayLabel } from './customerDisplay'
 import { canonicalPartnerName } from './partners'
@@ -7,6 +7,7 @@ import { caseBasisGroupsFor, financialCaseLeadFor } from './caseBasis'
 import { isApprovedSubscriptionReviewPartner } from './salesChannelReview'
 import { SUBSCRIPTION_REVIEW_PARTNERS } from './subscriptionPartners'
 import { getStoredSalesChannels } from './salesChannels'
+import { invitationCampaignFor } from './invitationCampaign'
 
 /** Only actual route labels are exposed; order identities and amounts stay private. */
 export interface PartnerSalesChannel {
@@ -28,6 +29,7 @@ export interface PartnerPreviewCustomer {
   deliveryScheduledDate: string | null
   expectedCommission: number | null
   expectedSettlementMonth: string | null
+  invitationCampaign?: InvitationCampaign
   /** Optional for existing published schema-1 documents. New publications always include these. */
   basisRequired?: boolean
   basisReason?: '기준 고객 확인 필요' | null
@@ -121,10 +123,12 @@ export function buildPartnerPreview(leads: readonly Lead[], partnerName: string,
     const fee = !required && financial && financial.status === '구매완료' ? expectedRebateFor(financial) : null
     const date = required ? null : isValidDeliveryDate((financial || identity).deliveryScheduledDate) ? (financial || identity).deliveryScheduledDate! : null
     const expectedMonth = fee !== null ? expectedSettlementMonthFor({ deliveryScheduledDate: date || undefined }) : null
+    const invitationCampaign = invitationCampaignFor(identity.invitationCampaign, partner)
     result.customers.push({ key: `customer-${index + 1}`, label: customerDisplayLabel(identity), registeredAt: ownDate, status,
       deliveryScheduledDate: date, expectedCommission: fee, expectedSettlementMonth: expectedMonth,
       basisRequired: required, basisReason: required ? '기준 고객 확인 필요' : null,
-      ...(salesChannels?.length ? { salesChannels } : {}) })
+      ...(salesChannels?.length ? { salesChannels } : {}),
+      ...(invitationCampaign ? { invitationCampaign } : {}) })
     if (required) result.basisRequiredCount!++
     // Required/redacted rows retain their own visible status, but no selected
     // tenant basis exists to classify this logical customer. In particular, a

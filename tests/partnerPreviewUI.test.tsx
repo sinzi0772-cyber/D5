@@ -101,4 +101,11 @@ for (const label of ['판매경로 · 경로 불일치', '매장방문', '일반
 assert.match(routeMarkup, /<details class="partner-preview-sales-channels has-mismatch">/)
 assert(!routeMarkup.includes('<details open'), 'Sales route details stay compact until opened')
 assert(!routeMarkup.includes('20,864,000'), 'Showing actual routes must not expose total sales amounts')
+const invited = buildPartnerPreview([
+  { ...rows[0], partnerName: '(주)아이니웨딩네트웍스', invitationCampaign: '2026-11-iniwedding' },
+  { ...rows[1], partnerName: '(주)아이니웨딩네트웍스' },
+], '(주) 아이니웨딩네트웍스', '2026-09')
+const invitedMarkup = renderToStaticMarkup(<PartnerPreview model={invited} presentation="portal"/>)
+assert.equal((invitedMarkup.match(/11월 초대전 연결/g) || []).length, 1, 'Only the reviewed invitation customer receives a badge')
+assert.match(invitedMarkup, /김\*\* \/ 0252.*11월 초대전 연결/)
 console.log('partnerPreview UI tests passed: safe compact route details, masked customers, sorting and immutable models')

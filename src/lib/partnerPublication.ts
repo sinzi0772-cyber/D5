@@ -4,6 +4,7 @@ import { expectedSettlementMonthFor, isValidDeliveryDate } from './commissionSet
 import { buildPartnerPreview, getPartnerPreviewMonths, type PartnerPreviewCustomer, type PartnerPreviewModel, type PartnerPreviewSettlement, type PartnerSalesChannel } from './partnerPreview'
 import { isSalesCommissionChannelEligible } from './salesRaw'
 import { PARTNER_ACCOUNTS, partnerIdentityFor } from './partnerIdentity'
+import { invitationCampaignFor } from './invitationCampaign'
 
 export const IWEDDING_PARTNER_ID = PARTNER_ACCOUNTS.iwedding.partnerId
 export const IWEDDING_PARTNER_NAME = PARTNER_ACCOUNTS.iwedding.partnerName
@@ -48,11 +49,17 @@ function validPublishedAt(value: unknown): value is string {
   return Number.isFinite(date.getTime()) && date.toISOString() === value
 }
 
-function parseCustomer(value: unknown, index: number): PartnerPreviewCustomer | null {
+function parseCustomer(value: unknown, index: number, partnerName: string): PartnerPreviewCustomer | null {
   const enhanced = !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'basisRequired')
   const hasChannels = !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'salesChannels')
-  const keys = enhanced ? [...customerKeys, 'basisRequired', 'basisReason'] : customerKeys
-  if (!exactDataRecord(value, hasChannels ? [...keys, 'salesChannels'] : keys)) return null
+  const hasInvitation = !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'invitationCampaign')
+  const keys = [...customerKeys]
+  if (enhanced) keys.push('basisRequired', 'basisReason')
+  if (hasChannels) keys.push('salesChannels')
+  if (hasInvitation) keys.push('invitationCampaign')
+  if (!exactDataRecord(value, keys)) return null
+  const invitationCampaign = hasInvitation ? invitationCampaignFor(value.invitationCampaign, partnerName) : undefined
+  if (hasInvitation && !invitationCampaign) return null
   if (value.key !== `customer-${index + 1}` || !safeDisplayLabel(value.label)) return null
   if (value.registeredAt !== null && !isValidDeliveryDate(value.registeredAt)) return null
   if (typeof value.status !== 'string' || !STATUSES.includes(value.status as LeadStatus)) return null
@@ -92,6 +99,7 @@ function parseCustomer(value: unknown, index: number): PartnerPreviewCustomer | 
     expectedSettlementMonth: expectedMonth,
     ...(enhanced ? { basisRequired: required, basisReason: required ? '기준 고객 확인 필요' as const : null } : {}),
     ...(salesChannels ? { salesChannels } : {}),
+    ...(invitationCampaign ? { invitationCampaign } : {}),
   }
 }
 
@@ -109,7 +117,7 @@ function parseMonthModel(value: unknown, partnerName: string): PartnerPreviewMod
   let selectedCompletedStatuses = 0, selectedActiveCustomers = 0
   let totalFee = 0, undatedFee = 0, undatedCustomers = 0, basisRequiredCount = 0
   for (const [index, item] of value.customers.entries()) {
-    const customer = parseCustomer(item, index)
+    const customer = parseCustomer(item, index, partnerName)
     if (!customer) return null
     if (enhanced !== (customer.basisRequired !== undefined)) return null
     customers.push(customer)
