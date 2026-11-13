@@ -382,6 +382,20 @@ async function main(): Promise<void> {
     assert.deepEqual(stored.map(member => member.lumpSumAmount), [100, 200, 400])
     assert.deepEqual(financialCaseLeadsFor(stored).map(member => member.lumpSumAmount), [mergePurchaseAmounts ? 700 : 100])
   }
+  const historicalCompleted = { ...groupedOriginal, status: '구매완료' as const, deliveryScheduledDate: undefined }
+  const historicalGroup = [expanded[0], historicalCompleted]
+  const historicalBaseline = caseSharingDraftFor(historicalCompleted, historicalGroup).draft
+  const historicalStore = new MemoryStore([...historicalGroup, expandedJoining], [[groupId, expandedGuard]])
+  await saveCaseCustomerWithStore(historicalStore, saveInput(historicalCompleted, historicalBaseline, [...historicalGroup, expandedJoining], {
+    formBaseline: historicalBaseline, linkTargetId: expandedJoining.id, basis: { caseLeadId: mergeA.id, mergePurchaseAmounts: false },
+  }))
+  assert.equal(historicalStore.leads.get(historicalCompleted.id)?.deliveryScheduledDate, undefined)
+  assert.equal(historicalStore.leads.get(expandedJoining.id)?.caseGroupId, groupId)
+  const awaitingDelivery = { ...expandedJoining, status: '관리중' as const, deliveryScheduledDate: undefined }
+  const incompleteStore = new MemoryStore([...expanded, awaitingDelivery], [[groupId, expandedGuard]])
+  await rejectsWithoutMutation(incompleteStore, () => saveCaseCustomerWithStore(incompleteStore, saveInput(awaitingDelivery,
+    { ...awaitingDelivery, status: '구매완료' }, [...expanded, awaitingDelivery], { linkTargetId: mergeA.id })), 'CASE_SAVE_INVALID_DELIVERY')
+
   const staleAddition = new MemoryStore([...expanded, expandedJoining], [[groupId, expandedGuard]])
   staleAddition.beforeTransaction = () => {
     Object.assign(staleAddition.leads.get(expandedJoining.id)!, { caseGroupId: 'case-concurrent' })

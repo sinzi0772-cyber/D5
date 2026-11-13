@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { buildCustomerCaseList, type CustomerCaseFilters } from '../src/lib/customerCaseList.ts'
+import { buildCustomerCaseList, customerCaseLabelsFor, type CustomerCaseFilters } from '../src/lib/customerCaseList.ts'
 import type { Lead, LeadStatus } from '../src/types.ts'
 
 const lead = (id: string, changes: Partial<Lead> = {}): Lead => ({
@@ -8,6 +8,21 @@ const lead = (id: string, changes: Partial<Lead> = {}): Lead => ({
 })
 const statuses: readonly LeadStatus[] = ['관리중', '구매완료', '상담 마감', '취소']
 const ids = (rows: readonly Lead[]) => rows.map(row => row.id)
+const originalRows = [
+  lead('latest', { customerName: '김*호', phoneLast4: '010-1111-7188' }),
+  lead('earlier', { customerName: '김*호', phoneLast4: '7188', invitationCampaign: '2026-11-iniwedding' }),
+  lead('different', { customerName: '김*우', phoneLast4: '7188' }),
+  lead('missing-a', { customerName: '김*호', phoneLast4: '' }),
+  lead('missing-b', { customerName: '김*호', phoneLast4: '' }),
+]
+assert.deepEqual(customerCaseLabelsFor(originalRows), [
+  { id: 'latest', label: '김** / 7188', invitationCampaign: true },
+  { id: 'different', label: '김** / 7188', invitationCampaign: false },
+  { id: 'missing-a', label: '김** / 미입력', invitationCampaign: false },
+  { id: 'missing-b', label: '김** / 미입력', invitationCampaign: false },
+])
+assert.deepEqual(ids(originalRows), ['latest', 'earlier', 'different', 'missing-a', 'missing-b'])
+
 const assertCase = (rows: readonly Lead[], filters: CustomerCaseFilters, selectedId: string | undefined, message: string) => {
   const result = buildCustomerCaseList(rows, rows, filters)
   assert.deepEqual(ids(result.rows), selectedId ? [selectedId] : [], message)

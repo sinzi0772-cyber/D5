@@ -44,10 +44,10 @@ import { CaseSaveError, MAX_CASE_MEMBERS, caseLinkLeadFor, saveCaseCustomer, unl
 import { formatAmountInput, parseAmountInput } from './lib/amountInput'
 import { allMemoEntriesFor, isBestCancellationMemo, managementMemoEntriesFor, memoEntriesForDisplay, memoHistoryRevisionFor } from './lib/memoHistory'
 import { customerDisplayLabel, customerDisplayName, phoneLast4Display } from './lib/customerDisplay'
-import { buildCommissionSettlementMetrics, deliveryDateValidationMessage, expectedSettlementMonthFor } from './lib/commissionSettlement'
+import { buildCommissionSettlementMetrics, caseSaveDeliveryError, expectedSettlementMonthFor } from './lib/commissionSettlement'
 import { deliveryScheduleFor, rawDeliveryRequestDatesFor } from './lib/deliverySchedule'
 import { comparePurchaseAmounts, getVisiblePurchaseMembers, purchaseSortValue } from './lib/customerSorting'
-import { buildCustomerCaseList } from './lib/customerCaseList'
+import { buildCustomerCaseList, customerCaseLabelsFor } from './lib/customerCaseList'
 import { buildSeptemberSyncPlan, canStartSeptemberSync, septemberExistingPatch } from './lib/septemberSync'
 import { accountAccessError, checkedPartnerIdentity, SHARED_ACCOUNT_EMPLOYEE_NO, SHARED_ACCOUNT_MESSAGE } from './lib/accountAccess'
 import { alternateSameIdPasswordForLogin, firebasePasswordForLogin, loginEmailFor, loginIdInputMessage, normalizeLoginId } from './lib/loginIdentity'
@@ -688,9 +688,9 @@ export default function App() {
     notify('판매경로를 저장했습니다.')
   }
   const saveLead = async (lead: Lead, linkTargetId?: string, options?: CaseEditorSaveOptions): Promise<boolean> => {
-    const deliveryError = deliveryDateValidationMessage(lead)
-    if (deliveryError) { notify(deliveryError); return false }
     const original = active?.id === lead.id ? active : lead
+    const deliveryError = caseSaveDeliveryError(original, lead, Boolean(linkTargetId), creating)
+    if (deliveryError) { notify(deliveryError); return false }
     const openingMembers = options?.openingMembers || (original.caseGroupId ? leads.filter(item => item.caseGroupId === original.caseGroupId) : [original])
     const formBaseline = options?.formBaseline || original
     const canonicalPartner = creating ? partners.find(partner => partnerKey(partner) === partnerKey(lead.partnerName)) : undefined
@@ -866,9 +866,10 @@ export default function App() {
           <div className="table-wrap"><table><thead><tr><th><SortHeader label="고객" column="customerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="등록일" column="registeredAt" sort={sort} onSort={sortBy}/></th><th><SortHeader label="제휴업체" column="partnerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="담당 매니저" column="manager" sort={sort} onSort={sortBy}/></th><th><SortHeader label="방문 일정" column="visitDate" sort={sort} onSort={sortBy}/></th><th><SortHeader label="현재 상태" column="status" sort={sort} onSort={sortBy}/></th><th aria-sort={sort.key === 'purchase' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}><SortHeader label="구매 정보" column="purchase" sort={sort} onSort={sortBy}/></th><th><SortHeader label="관리 내용" column="management" sort={sort} onSort={sortBy}/></th><th/></tr></thead><tbody>{visibleRows.map(l => {
             // Financial totals use only members visible under the current access scope and filters.
             const members = getVisiblePurchaseMembers(l, filtered)
-            return <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{customerDisplayName(l.customerName).slice(0,1)}</span><div><strong className="customer-labels">{(l.caseGroupId ? members : [l]).map(member => <span key={member.id}>
-              {customerDisplayLabel(member)}
-              {member.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
+            const customerLabels = customerCaseLabelsFor(l.caseGroupId ? members : [l])
+            return <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{customerDisplayName(l.customerName).slice(0,1)}</span><div><strong className="customer-labels">{customerLabels.map(customer => <span key={customer.id}>
+              {customer.label}
+              {customer.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
             </span>)}</strong>{l.caseGroupId && <em className="case-badge">{leads.filter(member => member.caseGroupId === l.caseGroupId).length === 2 ? '신랑/신부' : '연결 고객 함께 관리'}</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{l.appointmentType&&l.appointmentType!=='미선택'&&<em className="appointment-type">{l.appointmentType}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${filteredModel.excludedRowIds.has(l.id) ? 'gray' : statusTone[l.status]}`} title={filteredModel.excludedRowIds.has(l.id) ? `원본 상태: ${l.status}` : undefined}><i/>{filteredModel.excludedRowIds.has(l.id) ? '집계 제외' : l.status}</span></td><td>{l.status === '취소' ? <span className="purchase-empty">—</span> : <PurchaseSummary members={members} completeMembers={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]}/>}</td><td><ManagementSummary lead={l} members={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]} onOpenCancellation={member=>{setActive(member);setCreating(false);setOpenMemoOnDrawer(true)}} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>
           })}</tbody></table>{visibleRows.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
           <div className="panel-foot"><span>{formatMonth(intakeMonth)} · 접수 {visibleRows.length}건 · 고객 {visibleRows.length}명</span><span><i className="privacy-dot"/>민감정보 최소 수집 적용</span></div>
@@ -999,7 +1000,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
       setSaveError(`한 묶음에는 최대 ${MAX_CASE_MEMBERS}건까지 연결할 수 있습니다.`)
       return
     }
-    setLinkTargetId(id); setOpeningMembers(members)
+    setLinkTargetId(id); setOpeningMembers(members); setCaseChoiceOpen(true)
   }
   const startLink = () => {
     setLinkExisting(true); setLinkSearch(''); setSaveError('')
@@ -1058,9 +1059,15 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
   const partnerSuggestions = useMemo(() => partners.map(partner => ({ partner, score: partnerMatchScore(partner, form.partnerName) })).filter(item => item.score > 0).sort((a,b) => b.score - a.score || a.partner.localeCompare(b.partner, 'ko')).slice(0, 12).map(item => item.partner), [partners, form.partnerName])
   const existingMemberIds = new Set(initial.members.map(member => member.id))
   const linkQuery = linkSearch.trim().toLowerCase()
+  const originalIdentities = new Set(initial.members.map(member => contactKey(member.customerName, member.phoneLast4)).filter(Boolean))
+  const linkPriority = (member: Lead) => {
+    if (member.id === linkTargetId) return 3
+    if (canonicalPartnerName(member.partnerName) !== canonicalPartnerName(lead.partnerName)) return 0
+    return originalIdentities.has(contactKey(member.customerName, member.phoneLast4)) ? 2 : 1
+  }
   const linkChoices = linkExisting ? allLeads.filter(item => !existingMemberIds.has(item.id) && (!sharedMode || !item.caseGroupId)
     && (item.id === linkTargetId || [customerDisplayLabel(item), item.partnerName].some(value => value?.toLowerCase().includes(linkQuery))))
-    .sort((left, right) => Number(right.id === linkTargetId) - Number(left.id === linkTargetId)).slice(0, 30) : []
+    .sort((left, right) => linkPriority(right) - linkPriority(left) || right.registeredAt.localeCompare(left.registeredAt)).slice(0, 30) : []
   const linkPicker = linkExisting && <div className="case-link-picker">
     <label>기존 고객 찾기<input placeholder="고객명·휴대폰 뒷자리·제휴업체 검색" value={linkSearch} onChange={event => setLinkSearch(event.target.value)} disabled={saving || editorChanged}/></label>
     <label>{sharedMode ? '추가할 고객' : '연결할 고객'}<select aria-label={sharedMode ? '추가할 고객' : '연결할 고객'} required value={linkTargetId} onChange={event => chooseLinkTarget(event.target.value)} disabled={saving || editorChanged}>
@@ -1125,7 +1132,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
         <small>묶음은 1건으로 집계합니다. 원본 기록은 유지됩니다.</small>{linkPicker}
       </fieldset>}
       <fieldset><legend>제휴 정보</legend><label>BILL To Name · 제휴업체명<input required disabled={!creating} list="partner-options" autoComplete="off" placeholder="판매 로우의 제휴업체 검색 또는 신규 입력" value={form.partnerName} onChange={e=>update('partnerName',e.target.value)} onBlur={e=>{const match=partners.find(partner=>partnerKey(partner)===partnerKey(e.target.value));if(match)update('partnerName',match)}}/><datalist id="partner-options">{partnerSuggestions.map(partner=><option key={partner} value={partner}/>)}</datalist><small>기존 업체 검색 또는 신규 입력</small></label><label>플래너명<input disabled={!creating} placeholder="선택 입력" value={form.plannerName||''} onChange={e=>update('plannerName',e.target.value)}/></label></fieldset>
-      <fieldset><legend>일정 정보</legend><div className="form-grid"><label>매장방문 예정일<input type="date" value={form.visitScheduledDate||''} onChange={e=>update('visitScheduledDate',e.target.value)}/></label><DeliveryScheduleField lead={form} onChange={date=>update('deliveryScheduledDate',date)}/></div>{!creating ? <PurchaseDates lead={form}/> : null}</fieldset>
+      <fieldset><legend>일정 정보</legend><div className="form-grid"><label>매장방문 예정일<input type="date" value={form.visitScheduledDate||''} onChange={e=>update('visitScheduledDate',e.target.value)}/></label><DeliveryScheduleField lead={form} allowMissing={linkingMode && !creating && lead.status === form.status && !lead.deliveryScheduledDate} onChange={date=>update('deliveryScheduledDate',date)}/></div>{!creating ? <PurchaseDates lead={form}/> : null}</fieldset>
       <fieldset><legend>구매 정보</legend><label>구매 방식<select value={form.purchaseType||'미선택'} onChange={e=>{const purchaseType=e.target.value as PurchaseType;setForm(current=>({...current,purchaseType,lumpSumAmount:purchaseType.includes('일시불')?lumpSumAmountFor(current):undefined,subscriptionAmount:purchaseType.includes('구독')?subscriptionAmountFor(current):undefined,purchaseAmount:undefined}))}}><option value="미선택">미선택</option><option value="일시불">일시불</option><option value="구독">구독</option><option value="일시불+구독">일시불+구독</option></select></label><div className="form-grid purchase-amount-grid">{form.purchaseType?.includes('일시불') && <MoneyInput key={`${form.id}-lumpSum`} label="일시불 금액" kind="lumpSum" lead={form} onChange={value=>setForm(current=>({...current,lumpSumAmount:value,purchaseAmount:undefined}))}/>} {form.purchaseType?.includes('구독') && <MoneyInput key={`${form.id}-subscription`} label="구독 금액" kind="subscription" lead={form} onChange={value=>setForm(current=>({...current,subscriptionAmount:value,purchaseAmount:undefined}))}/>}</div>{form.purchaseType&&form.purchaseType!=='미선택'&&<div className={`rebate-preview ${subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?'ineligible':''}`}><span>예상 수수료</span><strong>{previewBasisPending ? '기준 고객 선택 필요' : formatWon(previewCommission)}</strong><small>제휴 연결이 확인된 판매 원본을 반영합니다.{previewVerificationRequired ? ' 판매 원본 금액을 확인해주세요.' : ''}{subscriptionAmountFor(form)>0&&!isSubscriptionRebatePartner(form.partnerName)?' 구독은 대상 업체만 반영됩니다.':''}</small></div>}</fieldset>
       <SalesChannelDetails members={salesRouteMembers} editableLeadId={!remoteChanged && !saving && onSaveSalesRoute ? lead.id : undefined}
         onSaveRoute={onSaveSalesRoute} initiallyOpen={openSalesRouteInitially}/>

@@ -65,6 +65,13 @@ export function deliveryDateValidationMessage(lead: Pick<Lead, 'status'> & Parti
   return isValidDeliverySchedule(date) ? null : '배송 예정일을 YYYY-MM-DD 또는 YYYY-MM 형식으로 입력해주세요.'
 }
 
+export function caseSaveDeliveryError(original: Lead, draft: Lead, linking: boolean, creating: boolean): string | null {
+  // A membership-only change can keep a legacy record's existing delivery data.
+  if (linking && !creating && original.status === draft.status
+    && !original.deliveryScheduledDate && !draft.deliveryScheduledDate) return null
+  return deliveryDateValidationMessage(draft)
+}
+
 const caseCountFor = (leads: readonly Lead[]) => new Set(leads.map(lead => lead.caseGroupId ? 'case:' + lead.caseGroupId : 'lead:' + lead.id)).size
 const feeFor = (leads: readonly Lead[]) => leads.reduce((sum, lead) => sum + expectedRebateFor(lead), 0)
 const monthIndexFor = (month: string) => {

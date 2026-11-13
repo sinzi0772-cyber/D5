@@ -1,7 +1,7 @@
 import { collection, doc, getDocFromServer, getDocsFromServer, query, runTransaction, where, type Firestore } from 'firebase/firestore'
 import type { Lead } from '../types'
 import { leadFromDocument } from './leadDocument'
-import { deliveryDateValidationMessage } from './commissionSettlement'
+import { caseSaveDeliveryError } from './commissionSettlement'
 import { canonicalPartnerName } from './partners'
 import { CaseSharingError, MAX_CASE_MEMBERS, caseSharingRevisionFor, resolveCaseSharing, wholeCaseBasisId, type CaseGroupGuard, type CaseSharingConflict, type SharingBasis } from './caseSharing'
 
@@ -231,7 +231,7 @@ export function saveCaseCustomer(db: Firestore, input: SaveCaseCustomerInput): P
 export async function saveCaseCustomerWithStore(store: CaseSharingStore, input: SaveCaseCustomerInput): Promise<{ changedCount: number; shared: boolean }> {
   input.assertSession()
   if (!validId(input.original.id) || input.draft.id !== input.original.id || input.formBaseline.id !== input.original.id || !validId(input.actorId) || !input.canManageAll && !validId(input.actorEmployeeNo)) fail('CASE_SAVE_INVALID_INPUT', '저장할 고객 정보를 다시 확인해주세요.')
-  const deliveryError = deliveryDateValidationMessage(input.draft)
+  const deliveryError = caseSaveDeliveryError(input.original, input.draft, Boolean(input.linkTargetId), input.creating)
   if (deliveryError) fail('CASE_SAVE_INVALID_DELIVERY', deliveryError)
   for (const value of [input.draft.purchaseAmount, input.draft.lumpSumAmount, input.draft.subscriptionAmount]) {
     if (value !== undefined && value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) fail('CASE_SAVE_INVALID_AMOUNT', '구매 금액은 0 이상의 올바른 숫자로 입력해주세요.')

@@ -6,15 +6,16 @@ import { normalizeDeliveryDateInput } from '../lib/deliveryDateInput'
 import { deliveryScheduleFor, isValidDeliverySchedule, rawDeliveryRequestDatesFor } from '../lib/deliverySchedule'
 
 /** A locale-independent text field, with the browser calendar as an optional picker. */
-export function DeliveryScheduleField({ lead, onChange }: { lead: Lead; onChange: (date: string) => void }) {
+export function DeliveryScheduleField({ lead, onChange, allowMissing = false }: { lead: Lead; onChange: (date: string) => void; allowMissing?: boolean }) {
   const id = useId()
   const textRef = useRef<HTMLInputElement>(null)
   const calendarRef = useRef<HTMLInputElement>(null)
   const date = lead.deliveryScheduledDate || ''
   const valid = isValidDeliveryDate(date)
-  const deliveryError = deliveryDateValidationMessage(lead)
+  const deliveryError = allowMissing && !date ? null : deliveryDateValidationMessage(lead)
   const settlementMonth = expectedSettlementMonthFor(lead)
   const schedule = deliveryScheduleFor(lead)
+  const required = !allowMissing && lead.status === '구매완료' && !schedule
   const { lumpSum, subscription } = rawDeliveryRequestDatesFor(lead)
   const sourceMonths = new Set([...lumpSum, ...subscription].map(value => value.slice(0, 7)))
   const helpId = `${id}-help`
@@ -34,10 +35,10 @@ export function DeliveryScheduleField({ lead, onChange }: { lead: Lead; onChange
     : value.replaceAll('-', '.')
 
   return <div className="delivery-schedule-field">
-    <label htmlFor={id}>배송예정일 {lead.status === '구매완료' && !schedule && <small className="delivery-required">필수 입력</small>}</label>
+    <label htmlFor={id}>배송예정일 {required && <small className="delivery-required">필수 입력</small>}</label>
     <div className="delivery-date-control">
       <input ref={textRef} id={id} type="text" inputMode="numeric" autoComplete="off" spellCheck={false}
-        aria-label="배송예정일" aria-describedby={helpId} required={lead.status === '구매완료' && !schedule}
+        aria-label="배송예정일" aria-describedby={helpId} required={required}
         aria-invalid={Boolean(deliveryError && date)} placeholder="YYYY-MM 또는 YYYY-MM-DD" maxLength={10}
         pattern="[0-9]{4}-[0-9]{2}(-[0-9]{2})?" value={date}
         onChange={event => {

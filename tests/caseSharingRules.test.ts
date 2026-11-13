@@ -417,6 +417,23 @@ assertBatch('grouped delete with guard removal allowed', base, [
 ], admin, true)
 
 const eightIds = Array.from({ length: 8 }, (_, index) => `member-${index}`)
+for (const size of [5, 8]) {
+  const memberIds = eightIds.slice(0, size)
+  const joiningId = memberIds.at(-1)!
+  const starting = memberIds.map((id): [string, Data] => [`referrals/${id}`, referral(id, {
+    caseGroupId: id === joiningId ? null : caseId,
+    caseBasisLeadId: size === 5 || id === joiningId ? null : memberIds[0],
+  })])
+  const previousGuard = size === 5 ? [] : [[`caseGroups/${caseId}`, guard(memberIds.slice(0, -1), { basisLeadId: memberIds[0] })] as [string, Data]]
+  const initial = seed(...starting, ...previousGuard)
+  const writes = starting.filter(([path]) => size === 5 || path === `referrals/${joiningId}`).map(([path, data]) => ({
+    path, data: { ...data, caseGroupId: caseId, caseBasisLeadId: memberIds[0] },
+  }))
+  writes.push({ path: `caseGroups/${caseId}`, data: guard(memberIds, { revision: size === 5 ? 1 : 6, basisLeadId: memberIds[0] }) })
+  const results = assertBatch(size === 5 ? 'admin adds a fifth customer to a guardless legacy group' : 'admin adds an eighth customer to a guarded group', initial, writes, admin, true)
+  assert.ok(new Set(results.flatMap(result => result.accesses)).size <= 20)
+}
+
 const eightDocs: [string, Data][] = eightIds.map(id => [`referrals/${id}`, referral(id, { caseBasisLeadId: eightIds[0], lumpSumSourceId: eightIds[0] })])
 const eight = seed(...eightDocs, [`caseGroups/${caseId}`, guard(eightIds, { basisLeadId: eightIds[0] })])
 const budget = assertBatch('eight-member cached source reads fit guard budget', eight, [{ path: `caseGroups/${caseId}`, data: guard(eightIds, { revision: 6, basisLeadId: eightIds[0] }) }], admin, true)[0]

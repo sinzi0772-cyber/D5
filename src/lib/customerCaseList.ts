@@ -2,6 +2,23 @@ import type { Lead, LeadStatus, VisitState } from '../types'
 import { caseBasisGroupsFor } from './caseBasis'
 import { customerDisplayLabel, phoneLast4Display } from './customerDisplay'
 import { canonicalPartnerName } from './partners'
+import { customerIdentityKey } from './salesRaw'
+
+/** Collapse repeat labels in the table cell while retaining all original case rows. */
+export function customerCaseLabelsFor(members: readonly Lead[]) {
+  const labels = new Map<string, { id: string; label: string; invitationCampaign: boolean }>()
+  for (const member of members) {
+    const identity = customerIdentityKey(member.customerName, member.phoneLast4)
+    const key = identity ? `customer:${identity}` : `record:${member.id}`
+    const previous = labels.get(key)
+    if (previous) {
+      previous.invitationCampaign ||= Boolean(member.invitationCampaign)
+    } else {
+      labels.set(key, { id: member.id, label: customerDisplayLabel(member), invitationCampaign: Boolean(member.invitationCampaign) })
+    }
+  }
+  return [...labels.values()]
+}
 
 export interface CustomerCaseFilters {
   query?: string
