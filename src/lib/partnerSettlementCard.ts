@@ -7,8 +7,10 @@ export interface PartnerSettlementCard {
   options: Array<{ value: string; month: string | null }>
 }
 
-/** Select one saved settlement bucket; never substitute the all-month total. */
-export function getPartnerSettlementCard(model: Readonly<PartnerPreviewModel>, requestedSelection?: string): PartnerSettlementCard {
+type SettlementSummary = Pick<PartnerPreviewModel, 'settlements' | 'undatedCustomerCount' | 'undatedExpectedCommission'>
+
+/** Select one settlement bucket; never substitute the all-month total. */
+export function getPartnerSettlementCard(model: Readonly<SettlementSummary>, requestedSelection?: string): PartnerSettlementCard {
   // The trusted model already supplies ascending, unique settlement months.
   // Copy option records instead of sorting or changing the saved buckets.
   const options: PartnerSettlementCard['options'] = model.settlements.map(bucket => ({ value: bucket.month, month: bucket.month }))

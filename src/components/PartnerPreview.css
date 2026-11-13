@@ -86,7 +86,8 @@
 .partner-preview-customer-fee { color: #0b7b71; font-weight: 600; }
 .partner-preview-sales-channels { margin-top: 7px; max-width: 260px; color: #5f7876; font-size: 10px; font-weight: 400; white-space: normal; }
 .partner-preview-sales-channels summary { cursor: pointer; color: #287b69; font-weight: 600; }
-.partner-preview-sales-channels.has-mismatch summary { color: #ad6b2e; }
+.partner-preview-route-status { color: #287b69; font-weight: 600; }
+.partner-preview-sales-channels.has-mismatch summary, .partner-preview-route-status.has-mismatch { color: #ad6b2e; }
 .partner-preview-sales-channels summary:focus-visible { outline: 2px solid #208d80; outline-offset: 3px; }
 .partner-preview-sales-channels > div { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5eeea; overflow-wrap: anywhere; }
 .partner-preview-sales-channels strong { display: flex; justify-content: space-between; gap: 10px; font-size: 10px; color: #42645c; }

@@ -1,5 +1,5 @@
 import { useId, useMemo, useState, type ReactNode } from 'react'
-import type { PartnerPreviewModel, PartnerSalesChannel } from '../lib/partnerPreview'
+import { summarizePartnerSettlements, type PartnerPreviewModel, type PartnerSalesChannel } from '../lib/partnerPreview'
 import { isApprovedSubscriptionReviewPartner } from '../lib/salesChannelReview'
 import { SUBSCRIPTION_REVIEW_PARTNERS } from '../lib/subscriptionPartners'
 import { getPartnerSettlementCard } from '../lib/partnerSettlementCard'
@@ -44,13 +44,17 @@ function SortColumn({ label, direction, nextDirection, onSort }: {
   </th>
 }
 
-function CustomerSalesChannels({ channels: allChannels, partnerName }: { channels?: readonly PartnerSalesChannel[]; partnerName: string }) {
+function CustomerSalesChannels({ channels: allChannels, partnerName, summaryOnly }: {
+  channels?: readonly PartnerSalesChannel[]; partnerName: string; summaryOnly: boolean
+}) {
   const channels = allChannels?.filter(channel => channel.kind === 'lumpSum' || isApprovedSubscriptionReviewPartner(partnerName, SUBSCRIPTION_REVIEW_PARTNERS))
   if (!channels?.length) return null
   const mismatch = channels.some(channel => channel.status === 'mismatch')
   const unverified = channels.some(channel => channel.status === 'unverified')
   const label = mismatch ? '경로 불일치' : unverified ? '확인 필요' : '경로 일치'
-  return <details className={`partner-preview-sales-channels${mismatch ? ' has-mismatch' : ''}`}>
+  const className = `partner-preview-sales-channels${mismatch ? ' has-mismatch' : ''}`
+  if (summaryOnly) return <div className={className + ' partner-preview-route-status'}>판매경로 · {label}</div>
+  return <details className={className}>
     <summary>판매경로 · {label}</summary>
     {channels.map((channel, index) => <div key={index}>
       <strong>{channel.kind === 'lumpSum' ? '일시불' : '구독'}{channel.period ? ` · ${monthLabel(channel.period)}` : ''}<span>{channel.status === 'eligible' ? '경로 일치' : channel.status === 'mismatch' ? '경로 불일치' : '확인 필요'}</span></strong>
@@ -69,15 +73,15 @@ export function PartnerPreview({ model, presentation = 'preview', intakeMonthCon
   const [customerSort, setCustomerSort] = useState<PartnerSort<PartnerCustomerSortKey>>(DEFAULT_CUSTOMER_SORT)
   const [settlementSort, setSettlementSort] = useState<PartnerSort<PartnerSettlementSortKey>>(DEFAULT_SETTLEMENT_SORT)
   const [invitationOnly, setInvitationOnly] = useState(false)
-  const hasInvitations = model.customers.some(customer => customer.invitationCampaign)
+  const invitedCustomers = useMemo(() => model.customers.filter(customer => customer.invitationCampaign), [model.customers])
+  const hasInvitations = invitedCustomers.length > 0
   const filterInvitations = invitationOnly && hasInvitations
-  const customers = useMemo(() => sortPartnerCustomers(
-    filterInvitations ? model.customers.filter(customer => customer.invitationCampaign) : model.customers,
-    customerSort,
-  ), [model.customers, customerSort, filterInvitations])
-  const settlements = useMemo(() => sortPartnerSettlements(model.settlements, settlementSort), [model.settlements, settlementSort])
+  const visibleCustomers = filterInvitations ? invitedCustomers : model.customers
+  const customers = useMemo(() => sortPartnerCustomers(visibleCustomers, customerSort), [visibleCustomers, customerSort])
+  const settlementSummary = useMemo(() => filterInvitations ? summarizePartnerSettlements(invitedCustomers) : model, [filterInvitations, invitedCustomers, model])
+  const settlements = useMemo(() => sortPartnerSettlements(settlementSummary.settlements, settlementSort), [settlementSummary.settlements, settlementSort])
   const feeCardId = useId()
-  const feeCard = getPartnerSettlementCard(model, requestedSettlement)
+  const feeCard = getPartnerSettlementCard(settlementSummary, requestedSettlement)
   const groupMonthControls = presentation === 'portal' && Boolean(intakeMonthControl)
   const hasSettlementMonths = feeCard.options.length > 0
   const settlementMonthControl = (hasSettlementMonths || groupMonthControls) ? (
@@ -111,17 +115,17 @@ export function PartnerPreview({ model, presentation = 'preview', intakeMonthCon
         <div><span>판매 건수</span><strong>{count(model.completedCount)}<small>건</small></strong><p>관리중 {count(model.activeCount)}건</p></div>
         <div className="partner-preview-fee" id={feeCardId} aria-label="월별 예상 수수료">
           <div className="partner-preview-fee-heading">
-            <span>예상 수수료</span>
+            <span>{filterInvitations ? `${NOVEMBER_INVITATION_LABEL} 예상 수수료` : '예상 수수료'}</span>
             {groupMonthControls ? null : settlementMonthControl}
           </div>
-          <strong aria-live="polite">{model.basisRequiredCount && !hasSettlementMonths ? '기준 확인 필요' : won(feeCard.expectedCommission)}</strong>
+          <strong aria-live="polite">{settlementSummary.basisRequiredCount && !hasSettlementMonths ? '기준 확인 필요' : won(feeCard.expectedCommission)}</strong>
           <p>{feeCaption}</p>
         </div>
       </div>
-      {(model.basisRequiredCount || 0) > 0 ? <p className="partner-preview-undated" role="status">묶음 기준 미선택 {count(model.basisRequiredCount!)}명 · 예상 수수료 제외</p> : null}
+      {(settlementSummary.basisRequiredCount || 0) > 0 ? <p className="partner-preview-undated" role="status">묶음 기준 미선택 {count(settlementSummary.basisRequiredCount!)}명 · 예상 수수료 제외</p> : null}
 
       <section className="partner-preview-settlement" aria-label="업체 월별 예상 정산">
-        <div className="partner-preview-section-heading"><SectionHeading>월별 예상 정산</SectionHeading><p>배송예정월의 익익월 중순 · 실제 수령월에 따라 변동</p></div>
+        <div className="partner-preview-section-heading"><SectionHeading>월별 예상 정산{filterInvitations ? ` · ${NOVEMBER_INVITATION_LABEL}` : ''}</SectionHeading><p>배송예정월의 익익월 중순 · 실제 수령월에 따라 변동</p></div>
         {feeCard.options.length > 0 ? <div className="partner-preview-settlement-table"><table aria-label="월별 예상 정산표">
           <thead><tr>{settlementColumns.map(column => <SortColumn key={column.key} label={column.label} direction={settlementSort.key === column.key ? settlementSort.direction : null} nextDirection={nextPartnerSettlementSort(settlementSort, column.key).direction} onSort={() => setSettlementSort(current => nextPartnerSettlementSort(current, column.key))}/>)}</tr></thead>
           <tbody>
@@ -129,9 +133,9 @@ export function PartnerPreview({ model, presentation = 'preview', intakeMonthCon
               <th scope="row"><button type="button" className="partner-preview-month-select" aria-label={`${monthLabel(bucket.month)} 예상 수수료 보기`} aria-pressed={feeCard.selection === bucket.month} aria-controls={feeCardId} onClick={() => setRequestedSettlement(bucket.month)}>{monthLabel(bucket.month)} 중순</button></th>
               <td>{count(bucket.customerCount)}명</td><td><strong>{won(bucket.expectedCommission)}</strong></td>
             </tr>)}
-            {model.undatedCustomerCount > 0 ? <tr className={`partner-preview-undated-row${feeCard.selection === 'undated' ? ' is-selected' : ''}`}>
+            {settlementSummary.undatedCustomerCount > 0 ? <tr className={`partner-preview-undated-row${feeCard.selection === 'undated' ? ' is-selected' : ''}`}>
               <th scope="row"><button type="button" className="partner-preview-month-select partner-preview-undated" aria-label="정산월 미정 예상 수수료 보기" aria-pressed={feeCard.selection === 'undated'} aria-controls={feeCardId} onClick={() => setRequestedSettlement('undated')}>정산월 미정<small>배송예정일 미입력</small></button></th>
-              <td>{count(model.undatedCustomerCount)}명</td><td><strong>{won(model.undatedExpectedCommission)}</strong></td>
+              <td>{count(settlementSummary.undatedCustomerCount)}명</td><td><strong>{won(settlementSummary.undatedExpectedCommission)}</strong></td>
             </tr> : null}
           </tbody>
         </table></div> : <p className="partner-preview-empty">예상 정산 수수료가 없습니다.</p>}
@@ -153,7 +157,7 @@ export function PartnerPreview({ model, presentation = 'preview', intakeMonthCon
           <tbody>{customers.map(customer => <tr key={customer.key}><td className="partner-preview-customer-label">
             {customer.label}
             {customer.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
-          </td><td>{dateLabel(customer.registeredAt)}</td><td><span className={`partner-preview-status${customer.status === '구매완료' ? ' completed' : ''}`}>{customer.status}</span></td><td>{dateLabel(customer.deliveryScheduledDate)}</td><td>{customer.basisRequired ? '기준 고객 확인 필요' : customer.expectedSettlementMonth ? `${monthLabel(customer.expectedSettlementMonth)} 중순` : customer.status === '구매완료' ? '배송일 확인 필요' : '—'}</td><td className="partner-preview-customer-fee">{customer.basisRequired ? '확인 필요' : customer.expectedCommission === null ? '—' : won(customer.expectedCommission)}<CustomerSalesChannels partnerName={model.partnerName} channels={customer.salesChannels}/></td></tr>)}</tbody>
+          </td><td>{dateLabel(customer.registeredAt)}</td><td><span className={`partner-preview-status${customer.status === '구매완료' ? ' completed' : ''}`}>{customer.status}</span></td><td>{dateLabel(customer.deliveryScheduledDate)}</td><td>{customer.basisRequired ? '기준 고객 확인 필요' : customer.expectedSettlementMonth ? `${monthLabel(customer.expectedSettlementMonth)} 중순` : customer.status === '구매완료' ? '배송일 확인 필요' : '—'}</td><td className="partner-preview-customer-fee">{customer.basisRequired ? '확인 필요' : customer.expectedCommission === null ? '—' : won(customer.expectedCommission)}<CustomerSalesChannels partnerName={model.partnerName} channels={customer.salesChannels} summaryOnly={presentation === 'portal'}/></td></tr>)}</tbody>
         </table></div> : <p className="partner-preview-empty">선택한 접수월에 연결된 고객이 없습니다.</p>}
       </section>
     </> : <p className="partner-preview-empty">업체를 선택해 주세요.</p>}

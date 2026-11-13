@@ -52,7 +52,6 @@ export interface PartnerPreviewModel {
   customers: PartnerPreviewCustomer[]
 }
 const validMonth = (month: string) => /^(?!0000)\d{4}-(0[1-9]|1[0-2])$/.test(month)
-const monthIndex = (month: string) => { const [year, number] = month.split('-').map(Number); return year * 12 + number - 1 }
 const safeDate = (value?: string) => { const date = typeof value === 'string' ? value.slice(0, 10) : ''; return isValidDeliveryDate(date) ? date : null }
 const ownStatusFor = (members: readonly Lead[]): LeadStatus => members.some(lead => lead.status === '구매완료') ? '구매완료' : members.some(lead => lead.status === '관리중') ? '관리중' : members.some(lead => lead.status === '상담 마감') ? '상담 마감' : '취소'
 
@@ -81,6 +80,34 @@ function ownSalesChannels(basis: Lead, members: readonly Lead[], mergeIds: reado
     }
   }
   return [...routes.values()]
+}
+
+/** Sum the projected customer fees, including scheduled zero-won estimates. */
+export function summarizePartnerSettlements(customers: readonly PartnerPreviewCustomer[]) {
+  const byMonth = new Map<string, PartnerPreviewSettlement>()
+  let completedExpectedCommission = 0
+  let undatedExpectedCommission = 0
+  let undatedCustomerCount = 0
+  let basisRequiredCount = 0
+  for (const { expectedCommission, expectedSettlementMonth, basisRequired } of customers) {
+    if (basisRequired) basisRequiredCount++
+    if (expectedCommission === null) continue
+    completedExpectedCommission += expectedCommission
+    if (!expectedSettlementMonth) {
+      undatedExpectedCommission += expectedCommission
+      undatedCustomerCount++
+      continue
+    }
+    const bucket = byMonth.get(expectedSettlementMonth)
+    if (bucket) {
+      bucket.expectedCommission += expectedCommission
+      bucket.customerCount++
+    } else {
+      byMonth.set(expectedSettlementMonth, { month: expectedSettlementMonth, expectedCommission, customerCount: 1 })
+    }
+  }
+  const settlements = [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month))
+  return { settlements, completedExpectedCommission, undatedExpectedCommission, undatedCustomerCount, basisRequiredCount }
 }
 
 /** No other company's registration date can create a tenant month option. */
@@ -117,7 +144,6 @@ export function buildPartnerPreview(leads: readonly Lead[], partnerName: string,
     const salesChannels = !required && ownBasis ? ownSalesChannels(ownBasis, group.members, group.selection.mergeMemberIds, partner) : undefined
     return [{ identity, financial, required, salesChannels, status: ownBasis?.status || ownStatusFor(own), ownDate: ownDates[0] }]
   }).sort((a, b) => b.ownDate.localeCompare(a.ownDate) || a.identity.id.localeCompare(b.identity.id))
-  const settlements = new Map<string, PartnerPreviewSettlement>()
   for (const [index, item] of selected.entries()) {
     const { identity, financial, required, salesChannels, status, ownDate } = item
     const completed = status === '구매완료'
@@ -130,20 +156,12 @@ export function buildPartnerPreview(leads: readonly Lead[], partnerName: string,
       basisRequired: required, basisReason: required ? '기준 고객 확인 필요' : null,
       ...(salesChannels?.length ? { salesChannels } : {}),
       ...(invitationCampaign ? { invitationCampaign } : {}) })
-    if (required) result.basisRequiredCount!++
     // Required/redacted rows retain their own visible status, but no selected
     // tenant basis exists to classify this logical customer. In particular, a
     // secondary member must not create another company's status-category count.
     if (!required && completed) result.completedCount++
     else if (!required && status === '관리중') result.activeCount++
-    if (fee === null) continue
-    result.completedExpectedCommission += fee
-    if (!expectedMonth) { result.undatedExpectedCommission += fee; result.undatedCustomerCount++; continue }
-    const bucket = settlements.get(expectedMonth)
-    if (bucket) { bucket.expectedCommission += fee; bucket.customerCount++ }
-    else settlements.set(expectedMonth, { month: expectedMonth, expectedCommission: fee, customerCount: 1 })
   }
   result.receiptCount = result.customerCount = selected.length
-  result.settlements = [...settlements.values()].sort((a, b) => monthIndex(a.month) - monthIndex(b.month))
-  return result
+  return { ...result, ...summarizePartnerSettlements(result.customers) }
 }
