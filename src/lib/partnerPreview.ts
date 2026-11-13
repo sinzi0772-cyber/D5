@@ -27,6 +27,7 @@ export interface PartnerPreviewCustomer {
   label: string
   registeredAt: string | null
   status: LeadStatus
+  visitState?: '일정취소'
   deliveryScheduledDate: string | null
   expectedCommission: number | null
   expectedSettlementMonth: string | null
@@ -51,6 +52,9 @@ export interface PartnerPreviewModel {
   settlements: PartnerPreviewSettlement[]
   customers: PartnerPreviewCustomer[]
 }
+export const partnerCustomerStatus = (customer: Pick<PartnerPreviewCustomer, 'status' | 'visitState'>) =>
+  customer.status === '취소' && customer.visitState === '일정취소' ? customer.visitState : customer.status
+
 const validMonth = (month: string) => /^(?!0000)\d{4}-(0[1-9]|1[0-2])$/.test(month)
 const safeDate = (value?: string) => { const date = typeof value === 'string' ? value.slice(0, 10) : ''; return isValidDeliveryDate(date) ? date : null }
 const ownStatusFor = (members: readonly Lead[]): LeadStatus => members.some(lead => lead.status === '구매완료') ? '구매완료' : members.some(lead => lead.status === '관리중') ? '관리중' : members.some(lead => lead.status === '상담 마감') ? '상담 마감' : '취소'
@@ -152,6 +156,7 @@ export function buildPartnerPreview(leads: readonly Lead[], partnerName: string,
     const expectedMonth = fee !== null ? expectedSettlementMonthFor({ deliveryScheduledDate: date || undefined }) : null
     const invitationCampaign = invitationCampaignFor(identity.invitationCampaign, partner)
     result.customers.push({ key: `customer-${index + 1}`, label: customerDisplayLabel(identity), registeredAt: ownDate, status,
+      ...(status === '취소' && identity.visitState === '일정취소' ? { visitState: '일정취소' as const } : {}),
       deliveryScheduledDate: date, expectedCommission: fee, expectedSettlementMonth: expectedMonth,
       basisRequired: required, basisReason: required ? '기준 고객 확인 필요' : null,
       ...(salesChannels?.length ? { salesChannels } : {}),

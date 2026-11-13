@@ -1,5 +1,5 @@
 import { useId, useMemo, useState } from 'react'
-import { summarizePartnerSettlements, type PartnerPreviewModel, type PartnerSalesChannel } from '../lib/partnerPreview'
+import { partnerCustomerStatus, summarizePartnerSettlements, type PartnerPreviewModel, type PartnerSalesChannel } from '../lib/partnerPreview'
 import { isApprovedSubscriptionReviewPartner } from '../lib/salesChannelReview'
 import { SUBSCRIPTION_REVIEW_PARTNERS } from '../lib/subscriptionPartners'
 import { getPartnerSettlementCard } from '../lib/partnerSettlementCard'
@@ -222,7 +222,7 @@ export function PartnerPreview({ model, presentation = 'preview' }: {
           <tbody>{customers.map(customer => <tr key={customer.key}><td className="partner-preview-customer-label">
             {customer.label}
             {customer.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
-          </td><td>{dateLabel(customer.registeredAt)}</td><td><span className={`partner-preview-status${customer.status === '구매완료' ? ' completed' : ''}`}>{customer.status}</span></td><td>{dateLabel(customer.deliveryScheduledDate)}</td><td>{customer.basisRequired ? '기준 고객 확인 필요' : customer.expectedSettlementMonth ? `${monthLabel(customer.expectedSettlementMonth)} 중순` : customer.status === '구매완료' ? '배송일 확인 필요' : '—'}</td><td className="partner-preview-customer-fee">{isPortal && customer.status === '취소' ? '—' : <>{customer.basisRequired ? '확인 필요' : customer.expectedCommission === null ? '—' : won(customer.expectedCommission)}<CustomerSalesChannels partnerName={model.partnerName} channels={customer.salesChannels} summaryOnly={isPortal}/></>}</td></tr>)}</tbody>
+          </td><td>{dateLabel(customer.registeredAt)}</td><td><span className={`partner-preview-status${customer.status === '구매완료' ? ' completed' : ''}`}>{partnerCustomerStatus(customer)}</span></td><td>{dateLabel(customer.deliveryScheduledDate)}</td><td>{customer.basisRequired ? '기준 고객 확인 필요' : customer.expectedSettlementMonth ? `${monthLabel(customer.expectedSettlementMonth)} 중순` : customer.status === '구매완료' ? '배송일 확인 필요' : '—'}</td><td className="partner-preview-customer-fee">{isPortal && customer.status === '취소' ? '—' : <>{customer.basisRequired ? '확인 필요' : customer.expectedCommission === null ? '—' : won(customer.expectedCommission)}<CustomerSalesChannels partnerName={model.partnerName} channels={customer.salesChannels} summaryOnly={isPortal}/></>}</td></tr>)}</tbody>
         </table></div> : <p className="partner-preview-empty">{isPortal ? '연결된 고객이 없습니다.' : '선택한 접수월에 연결된 고객이 없습니다.'}</p>}
       </section>
     </> : <p className="partner-preview-empty">업체를 선택해 주세요.</p>}

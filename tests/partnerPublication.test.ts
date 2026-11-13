@@ -54,6 +54,27 @@ assert.equal(iniPublication.partnerName, ini.partnerName)
 assert.equal(iniPublication.months.reduce((total, month) => total + month.customerCount, 0), 2)
 assert.deepEqual(parsePartnerPublication(iniPublication, ini.partnerId), iniPublication)
 assert.equal(iniPublication.months[0].customers.filter(customer => customer.invitationCampaign === '2026-11-iniwedding').length, 1)
+const canceledVisits = buildPartnerPublication([
+  lead('appointment-canceled', { phoneLast4: '3456', status: '취소', visitState: '일정취소' }),
+  lead('sale-canceled', { phoneLast4: '4567', status: '취소', visitState: '방문' }),
+  lead('completed-with-visit-history', { phoneLast4: '5678', visitState: '일정취소' }),
+], IWEDDING_PARTNER_ID, publishedAt)
+const canceledCustomers = canceledVisits.months[0].customers
+const canceledAppointment = canceledCustomers.find(customer => customer.label.endsWith('3456'))!
+const canceledSale = canceledCustomers.find(customer => customer.label.endsWith('4567'))!
+const completedWithVisitHistory = canceledCustomers.find(customer => customer.label.endsWith('5678'))!
+assert.equal(canceledAppointment.visitState, '일정취소')
+assert.equal(canceledAppointment.status, '취소')
+assert.equal(canceledAppointment.expectedCommission, null)
+assert.equal(canceledSale.visitState, undefined)
+assert.equal(completedWithVisitHistory.visitState, undefined)
+assert.deepEqual(parsePartnerPublication(canceledVisits, IWEDDING_PARTNER_ID), canceledVisits)
+const wrongVisitState = structuredClone(canceledVisits)
+Object.assign(wrongVisitState.months[0].customers.find(customer => customer.key === canceledAppointment.key)!, { visitState: '방문' })
+assert.equal(parsePartnerPublication(wrongVisitState, IWEDDING_PARTNER_ID), null)
+const completedVisitState = structuredClone(canceledVisits)
+completedVisitState.months[0].customers.find(customer => customer.key === completedWithVisitHistory.key)!.visitState = '일정취소'
+assert.equal(parsePartnerPublication(completedVisitState, IWEDDING_PARTNER_ID), null)
 const foreignInvitation = structuredClone(publication)
 foreignInvitation.months[0].customers[0].invitationCampaign = '2026-11-iniwedding'
 assert.equal(parsePartnerPublication(foreignInvitation, IWEDDING_PARTNER_ID), null, 'An invitation marker is limited to the approved partner')

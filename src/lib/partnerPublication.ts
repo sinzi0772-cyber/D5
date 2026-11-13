@@ -54,16 +54,19 @@ function parseCustomer(value: unknown, index: number, partnerName: string): Part
   const enhanced = !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'basisRequired')
   const hasChannels = !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'salesChannels')
   const hasInvitation = !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'invitationCampaign')
+  const hasVisitState = !!value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'visitState')
   const keys = [...customerKeys]
   if (enhanced) keys.push('basisRequired', 'basisReason')
   if (hasChannels) keys.push('salesChannels')
   if (hasInvitation) keys.push('invitationCampaign')
+  if (hasVisitState) keys.push('visitState')
   if (!exactDataRecord(value, keys)) return null
   const invitationCampaign = hasInvitation ? invitationCampaignFor(value.invitationCampaign, partnerName) : undefined
   if (hasInvitation && !invitationCampaign) return null
   if (value.key !== `customer-${index + 1}` || !safeDisplayLabel(value.label)) return null
   if (value.registeredAt !== null && !isValidDeliveryDate(value.registeredAt)) return null
   if (typeof value.status !== 'string' || !STATUSES.includes(value.status as LeadStatus)) return null
+  if (hasVisitState && (value.status !== '취소' || value.visitState !== '일정취소')) return null
   if (value.deliveryScheduledDate !== null && !isValidDeliverySchedule(value.deliveryScheduledDate)) return null
   const completed = value.status === '구매완료'
   if (enhanced && (typeof value.basisRequired !== 'boolean' || value.basisReason !== (value.basisRequired ? '기준 고객 확인 필요' : null))) return null
@@ -95,6 +98,7 @@ function parseCustomer(value: unknown, index: number, partnerName: string): Part
     label: value.label,
     registeredAt: value.registeredAt as string | null,
     status: value.status as LeadStatus,
+    ...(hasVisitState ? { visitState: '일정취소' as const } : {}),
     deliveryScheduledDate: value.deliveryScheduledDate as string | null,
     expectedCommission: value.expectedCommission as number | null,
     expectedSettlementMonth: expectedMonth,

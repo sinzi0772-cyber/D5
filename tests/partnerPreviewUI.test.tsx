@@ -101,6 +101,14 @@ for (const label of ['판매경로 · 경로 불일치', '매장방문', '일반
 assert.match(routeMarkup, /<details class="partner-preview-sales-channels has-mismatch">/)
 assert(!routeMarkup.includes('<details open'), 'Sales route details stay compact until opened')
 assert(!routeMarkup.includes('20,864,000'), 'Showing actual routes must not expose total sales amounts')
+const cancelLabels = buildPartnerPreview([
+  { ...rows[0], id: 'canceled-visit', status: '취소', visitState: '일정취소', phoneLast4: '2345' },
+  { ...rows[0], id: 'canceled-sale', status: '취소', visitState: '방문', phoneLast4: '3456' },
+], model.partnerName, '2026-09')
+const cancelMarkup = renderToStaticMarkup(<PartnerPreview model={cancelLabels} presentation="portal"/>)
+const cancelRows = [...cancelMarkup.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map(match => match[1])
+assert.match(cancelRows.find(row => row.includes('/ 2345'))!, /<span class="partner-preview-status">일정취소<\/span>/)
+assert.match(cancelRows.find(row => row.includes('/ 3456'))!, /<span class="partner-preview-status">취소<\/span>/)
 const invited = buildPartnerPreview([
   { ...rows[0], partnerName: '(주)아이니웨딩네트웍스', invitationCampaign: '2026-11-iniwedding' },
   { ...rows[1], partnerName: '(주)아이니웨딩네트웍스' },

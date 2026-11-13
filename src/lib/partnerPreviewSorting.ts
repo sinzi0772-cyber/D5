@@ -1,4 +1,4 @@
-import type { PartnerPreviewCustomer, PartnerPreviewSettlement } from './partnerPreview'
+import { partnerCustomerStatus, type PartnerPreviewCustomer, type PartnerPreviewSettlement } from './partnerPreview'
 
 export type PartnerSortDirection = 'asc' | 'desc'
 export type PartnerCustomerSortKey = 'label' | 'registeredAt' | 'status' | 'deliveryScheduledDate' | 'expectedSettlementMonth' | 'expectedCommission'
@@ -41,8 +41,9 @@ export function sortPartnerCustomers(rows: readonly PartnerPreviewCustomer[], so
   return [...rows].sort((left, right) => {
     switch (sort.key) {
       case 'label':
+        return customerText.compare(left.label, right.label) * directionMultiplier(sort.direction)
       case 'status':
-        return customerText.compare(left[sort.key], right[sort.key]) * directionMultiplier(sort.direction)
+        return customerText.compare(partnerCustomerStatus(left), partnerCustomerStatus(right)) * directionMultiplier(sort.direction)
       case 'expectedCommission':
         return compareNullable(left.expectedCommission, right.expectedCommission, sort.direction, (a, b) => a - b)
       default:
