@@ -70,6 +70,8 @@ export interface SalesRawPeriod {
   /** Valid explicit 판매일/판매일자 values from admitted source orders. */
   saleDates?: readonly string[]
   purchaseDateEvidence?: readonly PurchaseDateEvidence[]
+  /** Valid LGE배송요청일 values from admitted cash detail lines. */
+  lgeDeliveryRequestedDates?: readonly string[]
   orderCount: number
   confirmedOrderCount: number
   reservedOrderCount: number

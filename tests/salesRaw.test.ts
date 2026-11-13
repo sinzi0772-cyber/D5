@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { customerIdentityKey, isSalesCommissionChannelEligible, maskCustomerName, parseSalesRaw } from '../src/lib/salesRaw.ts'
+import { cashLgeDeliveryRequestedDatesFor, customerIdentityKey, isSalesCommissionChannelEligible, maskCustomerName, parseSalesRaw } from '../src/lib/salesRaw.ts'
 
 const headers = ['주문번호', '고객명', '핸드폰번호', '판매금액', '결제금액', '잔액', '판매경로 1', '판매경로 2', '주문확정 여부', '주문 구분', '주문유형', '원주문번호', '주문일자', '판매확정일']
 const escape = (value: string) => /["\t\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value
@@ -92,4 +92,20 @@ const unknown = parseSalesRaw(tsv(makeRow('example-unknown', { '주문확정 여
 assert.equal(unknown.customers[0].unknownSaleAmount, 1_000_000)
 assert.equal(unknown.customers[0].confirmedSaleAmount, 0)
 assert.ok(unknown.issues.some(issue => issue.code === 'invalid-date'))
+
+const lgeDeliverySource = (...rows: string[]) => tsv(...rows)
+  .replace(/\r\n/, '\t배송요청일\tLGE 배송요청일\r\n')
+const deliveryOrders = parseSalesRaw(lgeDeliverySource(
+  `${makeRow('delivery-confirmed')}\t2026-10-21\t2026-10-19`,
+  `${makeRow('delivery-generic-only')}\t2026-10-22\t`,
+  `${makeRow('delivery-bad-date')}\t2026-10-22\t2026-02-29`,
+  `${makeRow('delivery-placeholder')}\t2026-10-23\t9999-12-31`,
+  `${makeRow('delivery-reserved', { '주문확정 여부': '예약' })}\t\t2026-10-18`,
+  `${makeRow('delivery-tentative', { '주문확정 여부': '가예약' })}\t\t2026-10-19`,
+  `${makeRow('delivery-one-won', { 판매금액: '1' })}\t\t2026-10-24`,
+  `${makeRow('delivery-return', { 주문유형: '반품', 판매금액: '-30,000' })}\t\t2026-10-25`,
+  `${makeRow('delivery-unknown', { '주문확정 여부': '확인필요' })}\t\t2026-10-26`,
+)).orders
+assert.deepEqual(deliveryOrders.slice(0, 4).map(order => order.lgeDeliveryRequestedDate), ['2026-10-19', undefined, undefined, undefined])
+assert.deepEqual(cashLgeDeliveryRequestedDatesFor(deliveryOrders), ['2026-10-18', '2026-10-19'])
 console.log('Sales RAW: quoted TSV, customer identity, duplicate/conflicting orders, exact commission channels, sale amounts, pending statuses, returns, and privacy checks passed.')
