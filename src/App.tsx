@@ -1141,8 +1141,9 @@ function PasswordChangeScreen({onComplete}:{onComplete:(userId:string)=>void}) {
   return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">FIRST LOGIN</p><h1>새 비밀번호 설정</h1><p className="login-copy">초기 비밀번호를 본인만 아는 비밀번호로 변경해주세요.</p><form onSubmit={save}><label>새 비밀번호<input type="password" autoComplete="new-password" required disabled={busy} value={password} onChange={e=>setPassword(e.target.value)} placeholder="영문·숫자 포함 10자 이상"/></label><label>새 비밀번호 확인<input type="password" autoComplete="new-password" required disabled={busy} value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} placeholder="한 번 더 입력"/></label>{error ? <p className="login-error" role="alert">{error}</p> : null}<button className="btn primary" disabled={busy}>{busy?'변경 중...':'비밀번호 변경'}</button><button type="button" className="btn secondary" disabled={busy} onClick={()=>auth&&signOut(auth)}>다른 계정으로 로그인</button></form><div className="login-safe"><Sparkles size={15}/> 최초 로그인 보안 설정</div></div></div>
 }
 function LoginScreen({accountError,onLoginStart}:{accountError:string;onLoginStart:()=>void}) {
+  const formRef = useRef<HTMLFormElement>(null)
   const loginIdInput = useRef<HTMLInputElement>(null)
-  const [password,setPassword]=useState('')
+  const passwordInput = useRef<HTMLInputElement>(null)
   const [error,setError]=useState('')
   const [failureCode,setFailureCode]=useState<string | undefined>()
   const [showPassword,setShowPassword]=useState(false)
@@ -1153,6 +1154,7 @@ function LoginScreen({accountError,onLoginStart}:{accountError:string;onLoginSta
     if (busy || idComposing.current) return
     setError(''); setFailureCode(undefined); onLoginStart()
     const loginId = loginIdInput.current?.value || ''
+    const password = passwordInput.current?.value || ''
     const inputMessage = loginIdInputMessage(loginId)
     if (inputMessage) { setError(inputMessage); return }
     const normalizedId = normalizeLoginId(loginId.trim())
@@ -1175,6 +1177,19 @@ function LoginScreen({accountError,onLoginStart}:{accountError:string;onLoginSta
       setError(failure.message); setFailureCode(failure.code)
     } finally { setBusy(false) }
   }
-  return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">SECURE WORKSPACE</p><h1>D5 제휴고객 관리</h1><p className="login-copy">ID와 비밀번호로 로그인해주세요.</p><form onSubmit={login}><label htmlFor="login-id">ID<input ref={loginIdInput} id="login-id" name="loginId" aria-label="ID" aria-describedby="login-id-help" type="text" inputMode="text" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="username" required defaultValue="" onCompositionStart={() => { idComposing.current = true }} onCompositionEnd={() => { idComposing.current = false }} onBlur={() => { idComposing.current = false }} onKeyDown={event => { if (event.key === 'Enter' && (idComposing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault() }} placeholder="ID를 입력하세요"/><small id="login-id-help" className="login-id-help">영문·숫자, 대소문자 구분 없음</small></label><label>비밀번호<input id="login-password" aria-label="비밀번호" type={showPassword ? 'text' : 'password'} autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="기존 비밀번호"/></label><div className="login-password-options"><button type="button" className="login-password-toggle" aria-controls="login-password" aria-pressed={showPassword} aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={14}/> : <Eye size={14}/>}<span>{showPassword ? '숨기기' : '보기'}</span></button></div>{(error||accountError) ? <p className="login-error" role="alert">{error||accountError}{error && failureCode ? <small className="login-error-code">{failureCode}</small> : null}</p> : null}<button className="btn primary" disabled={busy}>{busy?'접속 중...':'로그인'}</button></form><div className="login-safe"><Sparkles size={15}/> Firebase 보안 인증</div></div></div>
+  const quickLogin = () => {
+    if (busy || idComposing.current) return
+    const loginId = loginIdInput.current?.value.trim()
+    if (loginId === '12784' && passwordInput.current?.value) {
+      formRef.current?.requestSubmit()
+      return
+    }
+    onLoginStart()
+    setFailureCode(undefined)
+    setError('브라우저에서 저장된 관리자 로그인 정보를 채우거나 ID와 비밀번호를 입력해주세요.')
+    if (loginId === '12784') passwordInput.current?.focus()
+    else loginIdInput.current?.focus()
+  }
+  return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">SECURE WORKSPACE</p><h1><button type="button" className="login-title" title="저장된 관리자 계정으로 빠른 로그인" onClick={quickLogin} disabled={busy}>D5 제휴고객 관리</button></h1><p className="login-copy">ID와 비밀번호로 로그인해주세요.</p><form ref={formRef} onSubmit={login}><label htmlFor="login-id">ID<input ref={loginIdInput} id="login-id" name="loginId" aria-label="ID" aria-describedby="login-id-help" type="text" inputMode="text" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="username" required defaultValue="" onCompositionStart={() => { idComposing.current = true }} onCompositionEnd={() => { idComposing.current = false }} onBlur={() => { idComposing.current = false }} onKeyDown={event => { if (event.key === 'Enter' && (idComposing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault() }} placeholder="ID를 입력하세요"/><small id="login-id-help" className="login-id-help">영문·숫자, 대소문자 구분 없음</small></label><label>비밀번호<input ref={passwordInput} id="login-password" name="password" aria-label="비밀번호" type={showPassword ? 'text' : 'password'} autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="current-password" required placeholder="기존 비밀번호"/></label><div className="login-password-options"><button type="button" className="login-password-toggle" aria-controls="login-password" aria-pressed={showPassword} aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={14}/> : <Eye size={14}/>}<span>{showPassword ? '숨기기' : '보기'}</span></button></div>{(error||accountError) ? <p className="login-error" role="alert">{error||accountError}{error && failureCode ? <small className="login-error-code">{failureCode}</small> : null}</p> : null}<button className="btn primary" disabled={busy}>{busy?'접속 중...':'로그인'}</button></form><div className="login-safe"><Sparkles size={15}/> Firebase 보안 인증</div></div></div>
 }
 
