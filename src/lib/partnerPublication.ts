@@ -1,6 +1,7 @@
 import type { Lead, LeadStatus } from '../types'
 import { STATUSES } from '../types'
 import { expectedSettlementMonthFor, isValidDeliveryDate } from './commissionSettlement'
+import { isValidDeliverySchedule } from './deliverySchedule'
 import { buildPartnerPreview, getPartnerPreviewMonths, type PartnerPreviewCustomer, type PartnerPreviewModel, type PartnerPreviewSettlement, type PartnerSalesChannel } from './partnerPreview'
 import { isSalesCommissionChannelEligible } from './salesRaw'
 import { PARTNER_ACCOUNTS, partnerIdentityFor } from './partnerIdentity'
@@ -63,7 +64,7 @@ function parseCustomer(value: unknown, index: number, partnerName: string): Part
   if (value.key !== `customer-${index + 1}` || !safeDisplayLabel(value.label)) return null
   if (value.registeredAt !== null && !isValidDeliveryDate(value.registeredAt)) return null
   if (typeof value.status !== 'string' || !STATUSES.includes(value.status as LeadStatus)) return null
-  if (value.deliveryScheduledDate !== null && !isValidDeliveryDate(value.deliveryScheduledDate)) return null
+  if (value.deliveryScheduledDate !== null && !isValidDeliverySchedule(value.deliveryScheduledDate)) return null
   const completed = value.status === '구매완료'
   if (enhanced && (typeof value.basisRequired !== 'boolean' || value.basisReason !== (value.basisRequired ? '기준 고객 확인 필요' : null))) return null
   const required = enhanced && value.basisRequired === true

@@ -1,4 +1,4 @@
-import { customerIdentityKey, isOneWonSaleAmount, isSalesCommissionChannelEligible, maskCustomerName, readTsv } from './salesRaw'
+import { customerIdentityKey, isOneWonSaleAmount, isSalesCommissionChannelEligible, maskCustomerName, normalizeLgeDeliveryRequestedDate, readTsv } from './salesRaw'
 import type { SalesRawIssue } from './salesRaw'
 import { saleDateFromColumns } from './purchaseDates'
 import { bestCustomerNumberFromRaw } from './bestCustomerNumber'
@@ -26,6 +26,8 @@ export interface SubscriptionRawItem {
   orderDate: string
   /** Explicit source 판매일/판매일자; never substituted with 주문일자. */
   saleDate?: string
+  /** Explicit 배송요청일 from the subscription order source. */
+  deliveryRequestedDate?: string
   orderStatusLabel: string
   contractStatusLabel: string
   logisticsStatusLabel: string
@@ -196,12 +198,13 @@ export function parseSubscriptionRaw(text: string, options: SubscriptionRawOptio
     const evidenceApprovalStatus = field('경로판촉증빙승인여부')
     const isEvidenceRejected = /반려|거절|불승인/.test(evidenceApprovalStatus)
     const saleDate = saleDateFromColumns(field)
+    const deliveryRequestedDate = normalizeLgeDeliveryRequestedDate(field('배송요청일'))
     const bestCustomerNumber = options.includeBestCustomerNumber ? bestCustomerNumberFromRaw(field('BEST고객번호')) : undefined
     const item: SubscriptionRawItem = {
       rowNumber, itemReference, orderReference, lineReference, identityKey,
       customerName: maskCustomerName(field('구매고객명')), phoneLast4: field('전화번호').replace(/\D/g, '').slice(-4),
       ...(bestCustomerNumber ? { bestCustomerNumber } : {}),
-      orderDate, ...(saleDate ? { saleDate } : {}), orderStatusLabel, contractStatusLabel, logisticsStatusLabel, disposition, statusDisposition,
+      orderDate, ...(saleDate ? { saleDate } : {}), ...(deliveryRequestedDate ? { deliveryRequestedDate } : {}), orderStatusLabel, contractStatusLabel, logisticsStatusLabel, disposition, statusDisposition,
       membershipBenefitBasisAmount, basisAmountMissing, basisAmountInvalid, quantity, channel1: field('판매경로1'), channel2: field('판매경로2'),
       // Proof rejection is retained for reference, not used to exclude commission.
       commissionChannelEligible: !isOneWonSaleAmount(membershipBenefitBasisAmount) && isSalesCommissionChannelEligible(field('판매경로1'), field('판매경로2')),

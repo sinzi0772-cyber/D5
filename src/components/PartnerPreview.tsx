@@ -14,7 +14,10 @@ import './PartnerPreview.css'
 const won = (value: number) => `${value.toLocaleString('ko-KR')}원`
 const count = (value: number) => value.toLocaleString('ko-KR')
 const monthLabel = (month: string) => { const [year, number] = month.split('-'); return `${year}년 ${Number(number)}월` }
-const dateLabel = (date: string | null) => date ? date.replace(/-/g, '.') : '미정'
+const dateLabel = (date: string | null) => {
+  if (!date) return '미정'
+  return date.length === 7 ? monthLabel(date) : date.replaceAll('-', '.')
+}
 
 const customerColumns: readonly { key: PartnerCustomerSortKey; label: string }[] = [
   { key: 'label', label: '고객 / 연락처 뒷자리' }, { key: 'registeredAt', label: '등록일' },

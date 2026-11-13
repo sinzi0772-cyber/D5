@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { buildCommissionSettlementMetrics, deliveryDateValidationMessage, expectedSettlementMonthFor, isValidDeliveryDate } from '../src/lib/commissionSettlement.ts'
+import { deliveryScheduleFor, isValidDeliveryMonth, rawDeliveryRequestDatesFor } from '../src/lib/deliverySchedule.ts'
 import { expectedRebateFor } from '../src/lib/salesFinance.ts'
 import type { Lead } from '../src/types.ts'
 
@@ -131,5 +132,31 @@ assert.equal(buildCommissionSettlementMetrics([manualAmount]).months[0].expected
 assert.equal(buildCommissionSettlementMetrics([manualAmount]).months[0].month, '2026-11')
 assert.equal(JSON.stringify(manualAmount), manualBefore)
 assert.deepEqual(buildCommissionSettlementMetrics([lead('before-year-maximum', { deliveryScheduledDate: '9999-09-01' }), lead('year-maximum', { deliveryScheduledDate: '9999-12-31' })]).months.map(row => row.month), ['9999-11', '10000-02'], 'Chronological order survives year rollover at the input-year boundary')
+
+for (const invalid of [null, '', '0000-11', '2026-1', '2026-00', '2026-13', '2026-11-01']) assert.equal(isValidDeliveryMonth(invalid), false)
+assert.equal(isValidDeliveryMonth('2026-11'), true)
+assert.equal(expectedSettlementMonthFor({ deliveryScheduledDate: '2026-11' }), '2027-01')
+assert.equal(deliveryDateValidationMessage({ status: '구매완료', deliveryScheduledDate: '2026-11' }), null)
+
+const rawDelivery = lead('raw-delivery', { purchaseType: '일시불+구독', subscriptionAmount: 2000000 })
+rawDelivery.salesRawPeriods!['2026-09'].lgeDeliveryRequestedDates = ['2026-12-30', '2026-12-30', '2026-02-29', '9999-12-31']
+rawDelivery.subscriptionRawPeriods!['2026-09'].deliveryRequestedDates = ['2026-12-30', '2026-12-31']
+assert.deepEqual(rawDeliveryRequestDatesFor(rawDelivery), { lumpSum: ['2026-12-30'], subscription: ['2026-12-30', '2026-12-31'] })
+assert.equal(deliveryScheduleFor(rawDelivery), '2026-12')
+assert.equal(deliveryDateValidationMessage(rawDelivery), null)
+assert.equal(expectedSettlementMonthFor(rawDelivery), '2027-02')
+const rawMetrics = buildCommissionSettlementMetrics([rawDelivery])
+assert.equal(rawMetrics.months[0].month, '2027-02')
+assert.equal(rawMetrics.months[0].leads[0].deliveryScheduledDate, undefined, 'A computed month is not a new manual entry')
+assert.equal(rawMetrics.scheduledExpectedCommission, expectedRebateFor(rawDelivery))
+assert.equal(deliveryScheduleFor({ ...rawDelivery, deliveryScheduledDate: '2027-01-02' }), '2027-01-02')
+assert.equal(deliveryScheduleFor({ ...rawDelivery, deliveryScheduledDate: '2027-01' }), '2027-01')
+assert.equal(deliveryScheduleFor({ ...rawDelivery, subscriptionSourceId: 'another-customer' }), '2026-12-30')
+rawDelivery.subscriptionRawPeriods!['2026-09'].deliveryRequestedDates = ['2027-01-01']
+assert.equal(deliveryScheduleFor(rawDelivery), null, 'Different months are not resolved to an arbitrary delivery month')
+assert.equal(buildCommissionSettlementMetrics([rawDelivery]).unscheduledCustomerCount, 1)
+const linkedRawBasis = { ...rawDelivery, caseGroupId: 'raw-delivery-group', caseBasisLeadId: rawDelivery.id }
+const linkedAlias = lead('raw-delivery-alias', { caseGroupId: linkedRawBasis.caseGroupId, caseBasisLeadId: rawDelivery.id, deliveryScheduledDate: '2026-11-01' })
+assert.equal(buildCommissionSettlementMetrics([linkedRawBasis, linkedAlias]).unscheduledCustomerCount, 1, 'Only the chosen original can supply delivery evidence')
 
 console.log('commissionSettlement tests passed: strict calendar, planned month + 2, completion/unknown scopes, linked cases, company totals and immutable fee amounts')

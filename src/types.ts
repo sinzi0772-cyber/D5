@@ -98,6 +98,8 @@ export interface SubscriptionRawPeriod {
   /** Valid explicit 판매일/판매일자 values from admitted source product lines. */
   saleDates?: readonly string[]
   purchaseDateEvidence?: readonly PurchaseDateEvidence[]
+  /** Valid 배송요청일 values from admitted subscription product lines. */
+  deliveryRequestedDates?: readonly string[]
   itemCount: number
   confirmedItemCount: number
   pendingItemCount: number

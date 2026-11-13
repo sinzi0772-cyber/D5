@@ -1,5 +1,6 @@
 import type { InvitationCampaign, Lead, LeadStatus } from '../types'
 import { expectedSettlementMonthFor, isValidDeliveryDate } from './commissionSettlement'
+import { deliveryScheduleFor } from './deliverySchedule'
 import { customerDisplayLabel } from './customerDisplay'
 import { canonicalPartnerName } from './partners'
 import { expectedRebateFor } from './salesFinance'
@@ -121,7 +122,7 @@ export function buildPartnerPreview(leads: readonly Lead[], partnerName: string,
     const { identity, financial, required, salesChannels, status, ownDate } = item
     const completed = status === '구매완료'
     const fee = !required && financial && financial.status === '구매완료' ? expectedRebateFor(financial) : null
-    const date = required ? null : isValidDeliveryDate((financial || identity).deliveryScheduledDate) ? (financial || identity).deliveryScheduledDate! : null
+    const date = required ? null : deliveryScheduleFor(identity)
     const expectedMonth = fee !== null ? expectedSettlementMonthFor({ deliveryScheduledDate: date || undefined }) : null
     const invitationCampaign = invitationCampaignFor(identity.invitationCampaign, partner)
     result.customers.push({ key: `customer-${index + 1}`, label: customerDisplayLabel(identity), registeredAt: ownDate, status,

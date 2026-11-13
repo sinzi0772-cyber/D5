@@ -2,6 +2,9 @@ import type { Lead } from '../types'
 import { expectedRebateFor } from './salesFinance'
 import { caseBasisGroupsFor, financialCaseLeadFor } from './caseBasis'
 import { canonicalPartnerName } from './partners'
+import { deliveryScheduleFor, isValidDeliverySchedule, type DeliveryScheduleLead } from './deliverySchedule'
+
+export { isValidDeliveryDate } from './deliverySchedule'
 
 export interface CommissionSettlementPartner {
   name: string
@@ -37,30 +40,21 @@ export interface CommissionSettlementMetrics {
   unfinishedExpectedCommission: number
 }
 
-/** Strict Gregorian calendar dates; input years are 0001 through 9999. */
-export function isValidDeliveryDate(value: unknown): value is string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
-  const [year, month, day] = value.split('-').map(Number)
-  if (year < 1 || month < 1 || month > 12 || day < 1) return false
-  const leapYear = year % 400 === 0 || (year % 4 === 0 && year % 100 !== 0)
-  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-  return day <= daysInMonth[month - 1]
-}
-
 /** Planned delivery month + 2, not proof of receipt or a fixed settlement day. */
-export function expectedSettlementMonthFor(lead: Pick<Lead, 'deliveryScheduledDate'>): string | null {
-  if (!isValidDeliveryDate(lead.deliveryScheduledDate)) return null
-  const [year, month] = lead.deliveryScheduledDate.split('-').map(Number)
+export function expectedSettlementMonthFor(lead: Partial<DeliveryScheduleLead>): string | null {
+  const schedule = deliveryScheduleFor(lead)
+  if (!schedule) return null
+  const [year, month] = schedule.split('-').map(Number)
   const monthIndex = year * 12 + month - 1 + 2
   return String(Math.floor(monthIndex / 12)).padStart(4, '0') + '-' + String(monthIndex % 12 + 1).padStart(2, '0')
 }
 
-export function deliveryDateValidationMessage(lead: Pick<Lead, 'status' | 'deliveryScheduledDate'>): string | null {
+export function deliveryDateValidationMessage(lead: Pick<Lead, 'status'> & Partial<DeliveryScheduleLead>): string | null {
   const date = lead.deliveryScheduledDate
   if (date === undefined || date === null || date === '') {
-    return lead.status === '구매완료' ? '구매완료 고객은 배송 예정일을 입력해주세요.' : null
+    return lead.status === '구매완료' && !deliveryScheduleFor(lead) ? '구매완료 고객은 배송 예정일을 입력해주세요.' : null
   }
-  return isValidDeliveryDate(date) ? null : '배송 예정일을 YYYY-MM-DD 형식의 올바른 날짜로 입력해주세요.'
+  return isValidDeliverySchedule(date) ? null : '배송 예정일을 YYYY-MM-DD 또는 YYYY-MM 형식으로 입력해주세요.'
 }
 
 const caseCountFor = (leads: readonly Lead[]) => new Set(leads.map(lead => lead.caseGroupId ? 'case:' + lead.caseGroupId : 'lead:' + lead.id)).size
@@ -106,7 +100,7 @@ export function buildCommissionSettlementMetrics(leads: readonly Lead[], partner
     }
     result.completedCustomerCount++
     result.completedExpectedCommission += fee
-    const month = expectedSettlementMonthFor(lead)
+    const month = expectedSettlementMonthFor(group.selection.basis ?? lead)
     if (!month) {
       result.unscheduledCustomerCount++
       result.unscheduledExpectedCommission += fee
