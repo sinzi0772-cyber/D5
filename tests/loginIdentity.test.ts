@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { firebasePasswordForLogin, loginEmailFor, loginIdInputMessage, normalizeLoginId } from '../src/lib/loginIdentity.ts'
+import { alternateSameIdPasswordForLogin, firebasePasswordForLogin, loginEmailFor, loginIdInputMessage, normalizeLoginId } from '../src/lib/loginIdentity.ts'
 import { accountAccessError, SHARED_ACCOUNT_EMPLOYEE_NO, SHARED_ACCOUNT_MESSAGE } from '../src/lib/accountAccess.ts'
 
 const normalizationCases = Object.freeze([
@@ -50,40 +50,23 @@ for (const [id, password, expected] of legacyCases) {
 }
 assert.equal(JSON.stringify(legacyCases), before, 'Identity helpers never mutate input fixtures')
 
-// Explicitly approved temporary credentials use synthetic identities only.
-const approvedTemporaryIds = Object.freeze(['E00042'])
-const temporaryCases = Object.freeze([
-  ['E00042', 'E00042', 'E00042'],
+const temporaryCases = [
+  ['E00042', 'E00042', 'e00042'],
   ['E00042', 'e00042', 'E00042'],
-  ['e00042', 'E00042', 'E00042'],
   ['e00042', 'e00042', 'E00042'],
-  ['E00042', 'e00043', 'e00043'],
-  ['E00042', '00042', '00042'],
-  ['E00042', 'D5e00042', 'D5e00042'],
-  ['E00042', '  e00042  ', '  e00042  '],
-  ['E00042', 'e00042 ', 'e00042 '],
-  ['E00042', 'e00042\n', 'e00042\n'],
-  ['E00042', 'e-00042', 'e-00042'],
-  ['E00042', 'ｅ00042', 'ｅ00042'],
-  ['E00042', 'Synthetic-Custom-Case09', 'Synthetic-Custom-Case09'],
-  ['E00042', 'synthetic-custom-case09', 'synthetic-custom-case09'],
-  ['E00042', '', ''],
-  ['QA12345', 'qa12345', 'qa12345'],
-  ['00042', '00042', 'D500042'],
-  ['1234', '1234', 'D51234'],
-] as const)
-const temporaryBefore = JSON.stringify(temporaryCases)
-const approvalsBefore = JSON.stringify(approvedTemporaryIds)
+  ['E000421', 'e000421', 'E000421'],
+  ['E00042', 'e00043', undefined],
+  ['E00042', 'e00042 ', undefined],
+  ['E00042', 'e00042\n', undefined],
+  ['E00042', 'ｅ00042', undefined],
+  ['E00042', 'Synthetic-Custom-Case09', undefined],
+  ['QA12345', 'qa12345', undefined],
+  ['00042', '00042', undefined],
+] as const
 for (const [id, password, expected] of temporaryCases) {
-  assert.equal(firebasePasswordForLogin(id, password, approvedTemporaryIds), expected, 'Only an approved temporary same-ID ASCII password may use canonical casing')
+  assert.equal(alternateSameIdPasswordForLogin(id, password), expected)
 }
-assert.equal(firebasePasswordForLogin('E00042', 'e00042'), 'e00042', 'Default behavior must not change any alphabetic account password')
-assert.equal(firebasePasswordForLogin('E00042', 'e00042', []), 'e00042', 'An empty approval list cannot grant casing compatibility')
-assert.equal(firebasePasswordForLogin('E00042', 'e00042', ['QA12345']), 'e00042', 'Another approved account cannot broaden the requested account policy')
-assert.equal(firebasePasswordForLogin('E00042', 'e00042', ['e00042']), 'e00042', 'Approval entries must be exact canonical IDs, not normalized implicitly')
-assert.equal(firebasePasswordForLogin('00042', '00042', ['00042']), 'D500042', 'Explicit approvals must not replace the existing numeric legacy prefix')
-assert.equal(JSON.stringify(temporaryCases), temporaryBefore, 'Temporary compatibility never changes input fixtures')
-assert.equal(JSON.stringify(approvedTemporaryIds), approvalsBefore, 'A readonly approval registry must remain unchanged')
+assert.equal(firebasePasswordForLogin('E00042', 'e00042'), 'e00042', 'Try the original password first')
 
 for (const role of ['admin', 'store_manager', 'assistant_manager', 'manager']) {
   const profile = Object.freeze({ employeeNo: 'QA12345', role, approved: true })
@@ -97,4 +80,4 @@ assert.match(accountAccessError('QA12345') || '', /승인된 직원 정보가 �
 assert.match(accountAccessError('QA12345', { employeeNo: '12345', role: 'manager' }) || '', /일치하지 않습니다/, 'Letter prefixes cannot be silently dropped during profile approval')
 assert.equal(accountAccessError(normalizeLoginId(SHARED_ACCOUNT_EMPLOYEE_NO)), SHARED_ACCOUNT_MESSAGE, 'The retired numeric shared account remains blocked')
 
-console.log('Login identity: ASCII IDs, leading zeroes, numeric legacy prefix, opt-in temporary ASCII casing, exact custom passwords and unchanged staff approval guards passed.')
+console.log('Login identity: ASCII IDs, leading zeroes, numeric legacy prefix, legacy same-ID ASCII casing, exact custom passwords and unchanged staff approval guards passed.')

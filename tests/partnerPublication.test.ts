@@ -66,6 +66,19 @@ const linkedInvitation = buildPartnerPublication([
 ], ini.partnerId, publishedAt)
 assert.equal(linkedInvitation.months[0].customers[0].invitationCampaign, undefined, 'A different displayed customer cannot inherit an invitation')
 assert.equal(parsePartnerPublication(iniPublication, IWEDDING_PARTNER_ID), null)
+
+const cloud = PARTNER_ACCOUNTS.weddingcloud
+const cloudPublication = buildPartnerPublication([
+  ...rows,
+  lead('cloud-legal', { partnerName: '(주)웨딩크라우드' }),
+  lead('cloud-short', { partnerName: '웨딩크라우드' }),
+  lead('cloud-similar', { partnerName: '(주) 웨딩크라우드협력사' }),
+], cloud.partnerId, publishedAt)
+assert.equal(cloudPublication.partnerName, '(주) 웨딩크라우드')
+assert.equal(cloudPublication.months.reduce((total, month) => total + month.customerCount, 0), 2)
+assert.deepEqual(parsePartnerPublication(cloudPublication, cloud.partnerId), cloudPublication)
+assert.equal(parsePartnerPublication(cloudPublication, IWEDDING_PARTNER_ID), null)
+
 assert.equal(parsePartnerPublication(publication, ini.partnerId), null)
 assert.equal(parsePartnerPublication({ ...iniPublication, months: publication.months }, ini.partnerId), null, 'Foreign monthly data cannot pass under the new account')
 assert.throws(() => buildPartnerPublication(rows, 'constructor', publishedAt), /승인된 업체 ID/)

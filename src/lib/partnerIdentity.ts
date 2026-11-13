@@ -1,23 +1,28 @@
-export interface PartnerIdentity {
-  readonly loginId: string
+export interface PartnerTenant {
   readonly partnerId: string
   readonly partnerName: string
 }
 
-/** Explicit, approved tenant mappings only. Contains no passwords or credentials. */
-export const PARTNER_ACCOUNTS: Readonly<Record<string, PartnerIdentity>> = Object.freeze({
+export interface PartnerIdentity extends PartnerTenant {
+  readonly loginId: string
+}
+
+/** Public company identifiers. Login IDs come from approved server profiles. */
+export const PARTNER_ACCOUNTS: Readonly<Record<string, PartnerTenant>> = Object.freeze({
   iwedding: Object.freeze({
-    loginId: 'E90227',
     partnerId: 'iwedding',
     partnerName: '(주)아이패밀리에스씨',
   }),
   iniwedding: Object.freeze({
-    loginId: 'E75351',
     partnerId: 'iniwedding',
     partnerName: '(주) 아이니웨딩네트웍스',
   }),
+  weddingcloud: Object.freeze({
+    partnerId: 'weddingcloud',
+    partnerName: '(주) 웨딩크라우드',
+  }),
 })
 
-export function partnerIdentityFor(partnerId: string): PartnerIdentity | undefined {
+export function partnerIdentityFor(partnerId: string): PartnerTenant | undefined {
   return Object.prototype.hasOwnProperty.call(PARTNER_ACCOUNTS, partnerId) ? PARTNER_ACCOUNTS[partnerId] : undefined
 }

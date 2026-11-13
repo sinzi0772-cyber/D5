@@ -43,6 +43,7 @@ declare global {
   interface String {
     size(): number
     matches(pattern: string): boolean
+    lower(): string
     rulesReplace(pattern: string, replacement: string): string
   }
 }
@@ -57,6 +58,7 @@ Object.defineProperties(Array.prototype, {
 Object.defineProperties(String.prototype, {
   size: { configurable: true, value: function (this: string) { return this.length } },
   matches: { configurable: true, value: function (this: string, pattern: string) { return new RegExp(`^(?:${pattern})$`, pattern.includes('\\p{') ? 'u' : '').test(String(this)) } },
+  lower: { configurable: true, value: function (this: string) { return String(this).toLowerCase() } },
   rulesReplace: { configurable: true, value: function (this: string, pattern: string, replacement: string) { return String(this).replace(new RegExp(pattern, 'g'), replacement) } },
 })
 
@@ -117,7 +119,9 @@ function blockEnd(source: string, opening: number): number {
 function translated(source: string): string {
   const expression = '[A-Za-z_]\\w*(?:\\([^()]*\\))?(?:\\.[A-Za-z_]\\w*(?:\\([^()]*\\))?)*'
   return source
-    .replace(/\b(getAfter|existsAfter|get|exists)\(\/databases\/\$\(database\)\/documents\/([A-Za-z]+)\/\$\(([^)]+)\)\)/g, (_all, method: string, collection: string, id: string) => `${method}(path('${collection}', ${id}))`)
+    .replace(/\b(getAfter|existsAfter|get|exists)\(\/databases\/\$\(database\)\/documents\/([A-Za-z]+)\/(?:\$\(([^)]+)\)|([A-Za-z0-9_-]+))\)/g,
+      (_all, method: string, collection: string, dynamicId: string | undefined, literalId: string | undefined) =>
+        method + "(path('" + collection + "', " + (dynamicId ?? JSON.stringify(literalId)) + "))")
     .replace(new RegExp(`(${expression})\\s+is\\s+(string|number|int|list|map)\\b`, 'g'), (_all, value: string, type: string) => `isType(${value}, '${type}')`)
     .replace(new RegExp(`(${expression})\\s+in\\s+(\\[[^\\]]*\\])`, 'g'), (_all, value: string, list: string) => `includes(${list}, ${value})`)
     .replace(/\.replace\(/g, '.rulesReplace(')
@@ -202,9 +206,13 @@ function assertBatch(name: string, database: Database, writes: Write[], auth: Au
 const authFor = (uid: string, email = `${uid}@synthetic.local`): Auth => ({ uid, token: { email } })
 const admin = authFor('admin')
 const manager = authFor('manager')
-const partner = authFor('partner', 'e90227@d5.local')
-const iniPartner = authFor('ini-partner', 'e75351@d5.local')
-const iniProfile = { role: 'partner', active: true, approved: true, loginId: 'E75351', partnerId: 'iniwedding', partnerName: '(주) 아이니웨딩네트웍스', mustChangePassword: false }
+const partner = authFor('partner', 'ptest001@d5.local')
+const iniPartner = authFor('ini-partner', 'ptest002@d5.local')
+const iniProfile = { role: 'partner', active: true, approved: true, loginId: 'PTEST002', partnerId: 'iniwedding', partnerName: '(주) 아이니웨딩네트웍스', mustChangePassword: false }
+const cloudPartner = authFor('cloud-partner', 'ptest003@d5.local')
+const cloudProfile = { ...iniProfile, loginId: 'PTEST003', partnerId: 'weddingcloud', partnerName: '(주) 웨딩크라우드' }
+const rosterAdmin = authFor('roster-admin', '12784@d5.local')
+const rosterProfile = { role: 'admin', employeeNo: '12784', active: true, approved: true }
 const profiles: [string, Data][] = [
   ['profiles/admin', { role: 'admin', employeeNo: '1000', active: true, approved: true }],
   ['profiles/store', { role: 'store_manager', employeeNo: '1001', active: true, approved: true }],
@@ -212,8 +220,9 @@ const profiles: [string, Data][] = [
   ['profiles/manager', { role: 'manager', employeeNo: '111', active: true, approved: true }],
   ['profiles/special', { role: 'admin', employeeNo: '1292', active: true, approved: true }],
   ['profiles/disabled', { role: 'admin', employeeNo: '1003', disabled: true, active: true, approved: true }],
-  ['profiles/partner', { role: 'partner', employeeNo: '1292', active: true, approved: true, loginId: 'E90227', partnerId: 'iwedding', partnerName: '(주)아이패밀리에스씨', mustChangePassword: false }],
+  ['profiles/partner', { role: 'partner', employeeNo: '1292', active: true, approved: true, loginId: 'PTEST001', partnerId: 'iwedding', partnerName: '(주)아이패밀리에스씨', mustChangePassword: false }],
   ['profiles/ini-partner', iniProfile],
+  ['profiles/cloud-partner', cloudProfile],
 ]
 const caseId = 'case-test'
 const now = '2026-10-13T03:00:00.000Z'
@@ -436,8 +445,9 @@ for (const auth of [authFor('special'), authFor('disabled'), partner, iniPartner
 }
 const iweddingView = { schemaVersion: 1, partnerId: 'iwedding', partnerName: '(주)아이패밀리에스씨', publishedAt: now, months: [] }
 const iniView = { ...iweddingView, partnerId: 'iniwedding', partnerName: iniProfile.partnerName }
-const views = seed(['partnerViews/iwedding', iweddingView], ['partnerViews/iniwedding', iniView], ['partnerViews/other', { partnerId: 'other' }], ['referrals/owner', owner], [`caseGroups/${caseId}`, guard(['owner'])], ['usage/admin', {}], ['adminSources/source', {}])
-for (const [auth, own, other] of [[partner, 'iwedding', 'iniwedding'], [iniPartner, 'iniwedding', 'iwedding']] as const) {
+const cloudView = { ...iweddingView, partnerId: 'weddingcloud', partnerName: cloudProfile.partnerName }
+const views = seed(['partnerViews/weddingcloud', cloudView], ['partnerViews/iwedding', iweddingView], ['partnerViews/iniwedding', iniView], ['partnerViews/other', { partnerId: 'other' }], ['referrals/owner', owner], [`caseGroups/${caseId}`, guard(['owner'])], ['usage/admin', {}], ['adminSources/source', {}])
+for (const [auth, own, other] of [[partner, 'iwedding', 'iniwedding'], [iniPartner, 'iniwedding', 'iwedding'], [cloudPartner, 'weddingcloud', 'iwedding']] as const) {
   assert.equal(evaluate(views, views, `partnerViews/${own}`, 'get', auth).allowed, true)
   assert.equal(evaluate(views, views, `partnerViews/${own}`, 'list', auth).allowed, false, 'Partners cannot list, even for their own document')
   for (const path of [`partnerViews/${other}`, 'partnerViews/other', 'referrals/owner', `caseGroups/${caseId}`, 'usage/admin', 'adminSources/source']) {
@@ -445,13 +455,13 @@ for (const [auth, own, other] of [[partner, 'iwedding', 'iniwedding'], [iniPartn
   }
 }
 assert.equal(evaluate(views, views, 'partnerViews/iniwedding', 'list', admin).allowed, true, 'Authorized staff retain publication list access')
-assert.equal(evaluate(views, views, 'partnerViews/iniwedding', 'get', authFor('ini-partner', 'e90227@d5.local')).allowed, false, 'Tenant profile must match token email')
-for (const change of [{ partnerId: 'iwedding' }, { partnerName: iweddingView.partnerName }, { loginId: 'E90227' }, { approved: false }, { active: false }, { mustChangePassword: true }]) {
+assert.equal(evaluate(views, views, 'partnerViews/iniwedding', 'get', authFor('ini-partner', 'ptest001@d5.local')).allowed, false, 'Tenant profile must match token email')
+for (const change of [{ partnerId: 'iwedding' }, { partnerName: iweddingView.partnerName }, { loginId: 'PTEST001' }, { approved: false }, { active: false }, { mustChangePassword: true }]) {
   const invalid = new Map(views)
   invalid.set('profiles/ini-partner', { ...iniProfile, ...change })
   assert.equal(evaluate(invalid, invalid, 'partnerViews/iniwedding', 'get', iniPartner).allowed, false, 'Invalid or not-ready profile cannot read publication')
 }
-for (const publication of [iweddingView, iniView]) {
+for (const publication of [iweddingView, iniView, cloudView]) {
   const path = `partnerViews/${publication.partnerId}`
   assertBatch('admin can publish a matching tenant view', seed(), [{ path, data: publication }], admin, true)
   assertBatch('partner cannot edit a tenant view', views, [{ path, data: publication }], iniPartner, false)
@@ -461,6 +471,58 @@ assertBatch('admin cannot publish an unknown tenant', views, [{ path: 'partnerVi
 assertBatch('partner cannot switch tenant profile', views, [{ path: 'profiles/ini-partner', data: { ...iniProfile, partnerId: 'iwedding' } }], iniPartner, false)
 for (const path of ['referrals/owner', `caseGroups/${caseId}`, 'usage/admin']) assert.equal(evaluate(views, views, path, 'get', authFor('special')).allowed, false, `Employee 1292 remains excluded: ${path}`)
 assert.equal(evaluate(views, views, 'profiles/special', 'get', authFor('special')).allowed, true, 'The excluded employee may still read their own profile')
+
+const roster = new Map(views)
+roster.set('profiles/roster-admin', rosterProfile)
+roster.set('profiles/unbound-admin', rosterProfile)
+roster.set('partnerAccountRoster/access', { adminUid: 'roster-admin' })
+const partnerProfilePaths = ['profiles/partner', 'profiles/ini-partner', 'profiles/cloud-partner']
+for (const path of partnerProfilePaths) for (const operation of ['get', 'list']) {
+  assert.equal(evaluate(roster, roster, path, operation, rosterAdmin).allowed, true, 'Bound administrator can view partner profiles')
+  for (const auth of [admin, authFor('store'), authFor('assistant'), manager,
+    authFor('unbound-admin', '12784@d5.local'), authFor('roster-admin', 'wrong@d5.local'), null]) {
+    assert.equal(evaluate(roster, roster, path, operation, auth).allowed, false, 'Partner roster is scoped to the bound administrator')
+  }
+}
+for (const invalidProfile of [{ ...rosterProfile, active: false }, { ...rosterProfile, approved: false },
+  { ...rosterProfile, role: 'store_manager' }, { ...rosterProfile, employeeNo: '1000' }]) {
+  const invalid = new Map(roster)
+  invalid.set('profiles/roster-admin', invalidProfile)
+  assert.equal(evaluate(invalid, invalid, 'profiles/cloud-partner', 'list', rosterAdmin).allowed, false)
+}
+const missingBinding = new Map(roster)
+missingBinding.delete('partnerAccountRoster/access')
+assert.equal(evaluate(missingBinding, missingBinding, 'profiles/cloud-partner', 'list', rosterAdmin).allowed, false)
+for (const auth of [rosterAdmin, admin, cloudPartner, null]) {
+  for (const operation of ['get', 'list']) {
+    assert.equal(evaluate(roster, roster, 'partnerAccountRoster/access', operation, auth).allowed, false, 'Binding document is server-only')
+  }
+  assertBatch('cannot overwrite roster binding', roster, [{ path: 'partnerAccountRoster/access', data: { adminUid: 'unbound-admin' } }], auth, false)
+}
+assert.equal(evaluate(roster, roster, 'profiles/cloud-partner', 'get', cloudPartner).allowed, true, 'Own partner profile remains available')
+assert.equal(evaluate(roster, roster, 'profiles/cloud-partner', 'list', cloudPartner).allowed, false, 'Partner cannot list its own profile')
+assert.equal(evaluate(roster, roster, 'profiles/partner', 'get', cloudPartner).allowed, false, 'Partner cannot view another tenant profile')
+assert.equal(evaluate(roster, roster, 'profiles/manager', 'list', admin).allowed, true, 'Authorized staff can still query staff profiles')
+assert.equal(evaluate(roster, roster, 'profiles/manager', 'get', authFor('store')).allowed, true, 'Authorized staff can still get staff profiles')
+for (const auth of [admin, rosterAdmin]) {
+  assertBatch('app administrators cannot edit partner profile credentials', roster,
+    [{ path: 'profiles/cloud-partner', data: { ...cloudProfile, loginId: 'OTHERID' } }], auth, false)
+  assertBatch('app administrators cannot change a partner profile into staff', roster,
+    [{ path: 'profiles/cloud-partner', data: { ...cloudProfile, role: 'admin' } }], auth, false)
+  assertBatch('app administrators cannot change a staff profile into partner', roster,
+    [{ path: 'profiles/manager', data: cloudProfile }], auth, false)
+}
+assertBatch('app administrator can still edit staff profiles', roster, [
+  { path: 'profiles/manager', data: { ...roster.get('profiles/manager'), displayName: '직원' } },
+], admin, true)
+const cloudPasswordPending = new Map(roster)
+cloudPasswordPending.set('profiles/cloud-partner', { ...cloudProfile, mustChangePassword: true })
+assertBatch('partner can record their own password change', cloudPasswordPending, [
+  { path: 'profiles/cloud-partner', data: { ...cloudProfile, passwordChangedAt: now, updatedAt: now } },
+], cloudPartner, true)
+const uncanonicalCloud = new Map(roster)
+uncanonicalCloud.set('profiles/cloud-partner', { ...cloudProfile, loginId: 'ptest003' })
+assert.equal(evaluate(uncanonicalCloud, uncanonicalCloud, 'partnerViews/weddingcloud', 'get', cloudPartner).allowed, false, 'Saved login ID must be canonical')
 
 const mergedIds = ['alias', 'owner']
 const mergeWrites: Write[] = [

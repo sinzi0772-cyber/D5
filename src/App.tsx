@@ -11,6 +11,7 @@ import type { SeptemberAppointment } from './data/septemberAppointments'
 import { ExecutiveDashboard } from './components/ExecutiveDashboard'
 import { PartnerPreview } from './components/PartnerPreview'
 import { PartnerPortal } from './components/PartnerPortal'
+import { PartnerAccountsDialog } from './components/PartnerAccountsDialog'
 import { SettlementGuideModal } from './components/SettlementGuideModal'
 import { UpdateHistoryModal } from './components/UpdateHistoryModal'
 import { NOVEMBER_D5_APPOINTMENTS_THROUGH } from './data/updateHistory'
@@ -48,7 +49,7 @@ import { comparePurchaseAmounts, getVisiblePurchaseMembers, purchaseSortValue } 
 import { buildCustomerCaseList } from './lib/customerCaseList'
 import { buildSeptemberSyncPlan, canStartSeptemberSync, septemberExistingPatch } from './lib/septemberSync'
 import { accountAccessError, checkedPartnerIdentity, SHARED_ACCOUNT_EMPLOYEE_NO, SHARED_ACCOUNT_MESSAGE } from './lib/accountAccess'
-import { firebasePasswordForLogin, loginEmailFor, loginIdInputMessage, normalizeLoginId } from './lib/loginIdentity'
+import { alternateSameIdPasswordForLogin, firebasePasswordForLogin, loginEmailFor, loginIdInputMessage, normalizeLoginId } from './lib/loginIdentity'
 import { PARTNER_ACCOUNTS } from './lib/partnerIdentity'
 import { loginFailureFor } from './lib/loginError'
 import { STATUSES, type AppointmentType, type Lead, type LeadStatus, type MemoEntry, type PurchaseType, type VisitState } from './types'
@@ -269,6 +270,8 @@ export default function App() {
   const [usageRows, setUsageRows] = useState<UsageRow[]>([])
   const [accessCountSort, setAccessCountSort] = useState<AccessCountDirection>(null)
   const [settlementGuideOpen, setSettlementGuideOpen] = useState(false)
+  const [partnerAccountsOpen, setPartnerAccountsOpen] = useState(false)
+  const closePartnerAccounts = useCallback(() => setPartnerAccountsOpen(false), [])
   const [updateHistoryOpen, setUpdateHistoryOpen] = useState(false)
   const closeUpdateHistory = useCallback(() => setUpdateHistoryOpen(false), [])
   const [salesReviewOpen, setSalesReviewOpen] = useState(false)
@@ -284,7 +287,7 @@ export default function App() {
   latestSessionKey.current = sessionKey
   const salesReviewReady = Boolean(authReady && dataReady && serverConfirmed && !dataError && currentUser && !currentUser.mustChangePassword && canPreviewPartner(currentUser.role) && workspaceView === 'staff' && referralReadiness.current?.sessionKey === sessionKey && referralReadiness.current.serverConfirmed)
   const salesReviewItems = useMemo(() => salesReviewReady && currentUser ? getSalesChannelReviewItems(leads, { role: currentUser.role, employeeNo: currentUser.loginId, displayName: currentUser.name }, subscriptionReviewPartners) : [], [salesReviewReady, leads, currentUser?.role, currentUser?.loginId, currentUser?.name])
-  useEffect(() => { setSalesReviewOpen(false); setSalesReviewShownSession(''); setUpdateHistoryOpen(false) }, [sessionKey])
+  useEffect(() => { setSalesReviewOpen(false); setSalesReviewShownSession(''); setUpdateHistoryOpen(false); setPartnerAccountsOpen(false) }, [sessionKey])
   useEffect(() => {
     if (!salesReviewReady || !salesReviewItems.length) { setSalesReviewOpen(false); return }
     if (salesReviewShownSession !== sessionKey) { setSalesReviewOpen(true); setSalesReviewShownSession(sessionKey) }
@@ -602,6 +605,7 @@ export default function App() {
       ? `최근 7일 ${recent7Users}명이 접속했습니다. 기록 없음 ${neverAccessedCount}명을 확인해주세요.`
       : `저장된 접속 기록이 없습니다. 운영 배포 이후부터 실제 기록이 집계됩니다.`
   const canManageAll = Boolean(currentUser && ['admin', 'store_manager', 'assistant_manager', '데모 관리자'].includes(currentUser.role))
+  const canViewPartnerAccounts = Boolean(currentUser?.role === 'admin' && currentUser.loginId === '12784' && auth?.currentUser?.uid === currentUser.id)
 
   const notify = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(''), 2800) }
   const resetCustomerFilters = () => { setQuery(''); setPartnerFilter('전체 제휴업체'); setManagerFilter('전체 담당자'); setStatusFilter('전체'); setVisitFilter('전체') }
@@ -748,7 +752,7 @@ export default function App() {
 
     <main>
       <section className="content">
-        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>{isPartnerPreview ? '연결 고객, 한눈에.' : '좋은 인연을, 놓치지 않도록.'}</h1><p>{isPartnerPreview ? '업체별 고객 진행 현황과 예상 정산을 확인하세요.' : '제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.'}</p></div><div className="heading-actions">{!isPartnerPreview && salesReviewReady && salesReviewItems.length > 0 ? <button type="button" className="btn sales-review-open" aria-haspopup="dialog" aria-expanded={salesReviewOpen} onClick={() => setSalesReviewOpen(true)}>판매경로 점검 {salesReviewItems.length}개</button> : null}<button type="button" className="btn secondary" aria-haspopup="dialog" aria-expanded={updateHistoryOpen} onClick={() => setUpdateHistoryOpen(true)}><Clock3 size={16}/>업데이트 내역</button><button type="button" className="btn guide-button" aria-haspopup="dialog" aria-expanded={settlementGuideOpen} onClick={()=>setSettlementGuideOpen(true)}><CircleHelp size={16}/>제휴·정산 안내</button>{canManageAll && !isPartnerPreview ? <button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button> : null}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
+        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>{isPartnerPreview ? '연결 고객, 한눈에.' : '좋은 인연을, 놓치지 않도록.'}</h1><p>{isPartnerPreview ? '업체별 고객 진행 현황과 예상 정산을 확인하세요.' : '제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.'}</p></div><div className="heading-actions">{!isPartnerPreview && salesReviewReady && salesReviewItems.length > 0 ? <button type="button" className="btn sales-review-open" aria-haspopup="dialog" aria-expanded={salesReviewOpen} onClick={() => setSalesReviewOpen(true)}>판매경로 점검 {salesReviewItems.length}개</button> : null}{canViewPartnerAccounts && !isPartnerPreview ? <button type="button" className="btn secondary" aria-haspopup="dialog" aria-expanded={partnerAccountsOpen} onClick={() => setPartnerAccountsOpen(true)}><Building2 size={16}/>업체 계정</button> : null}<button type="button" className="btn secondary" aria-haspopup="dialog" aria-expanded={updateHistoryOpen} onClick={() => setUpdateHistoryOpen(true)}><Clock3 size={16}/>업데이트 내역</button><button type="button" className="btn guide-button" aria-haspopup="dialog" aria-expanded={settlementGuideOpen} onClick={()=>setSettlementGuideOpen(true)}><CircleHelp size={16}/>제휴·정산 안내</button>{canManageAll && !isPartnerPreview ? <button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button> : null}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
 
         {dataError&&<div className="data-alert"><CircleHelp size={18}/><div><strong>데이터를 불러오지 못했습니다.</strong><span>{dataError}</span></div><button onClick={()=>window.location.reload()}>다시 시도</button></div>}
 
@@ -820,8 +824,9 @@ export default function App() {
         ? edit => saveLeadSalesRoute(active.id, edit) : undefined}
       onClose={() => { setActive(null); setCreating(false); setOpenMemoOnDrawer(false); setOpenSalesRouteLeadId('') }} onSave={saveLead} onUnlink={unlinkCase} remoteChanged={!creating && Boolean(leads.find(item => item.id === active.id && (item.updatedAt !== active.updatedAt || item.caseGroupId !== active.caseGroupId || rawRevisionFor(item) !== rawRevisionFor(active) || assignmentRevisionFor(item) !== assignmentRevisionFor(active) || memoHistoryRevisionFor(item) !== memoHistoryRevisionFor(active))))}/>}
     {settlementGuideOpen ? <SettlementGuideModal audience={isPartnerPreview ? 'partner' : 'staff'} onClose={closeSettlementGuide}/> : null}
+    {canViewPartnerAccounts && !isPartnerPreview && partnerAccountsOpen ? <PartnerAccountsDialog onClose={closePartnerAccounts}/> : null}
     {updateHistoryOpen ? <UpdateHistoryModal onClose={closeUpdateHistory}/> : null}
-    {salesReviewOpen && !updateHistoryOpen && salesReviewShownSession === sessionKey && salesReviewReady && salesReviewItems.length > 0 ? <SalesChannelReviewModal items={salesReviewItems} onClose={closeSalesReview} onSelectLead={leadId => { const lead = leads.find(item => item.id === leadId); if (!lead) return; setSalesReviewOpen(false); setActive(lead); setOpenSalesRouteLeadId(lead.id); setCreating(false); setOpenMemoOnDrawer(false) }}/> : null}
+    {salesReviewOpen && !updateHistoryOpen && !partnerAccountsOpen && salesReviewShownSession === sessionKey && salesReviewReady && salesReviewItems.length > 0 ? <SalesChannelReviewModal items={salesReviewItems} onClose={closeSalesReview} onSelectLead={leadId => { const lead = leads.find(item => item.id === leadId); if (!lead) return; setSalesReviewOpen(false); setActive(lead); setOpenSalesRouteLeadId(lead.id); setCreating(false); setOpenMemoOnDrawer(false) }}/> : null}
     {!isPartnerPreview && toast ? <div className="toast"><Check size={17}/>{toast}</div> : null}
   </div>
 }
@@ -1155,10 +1160,21 @@ function LoginScreen({accountError,onLoginStart}:{accountError:string;onLoginSta
     if(normalizedId===SHARED_ACCOUNT_EMPLOYEE_NO){setError(SHARED_ACCOUNT_MESSAGE);return}
     setBusy(true)
     if(!auth){setError('Firebase 연결이 필요합니다.');setBusy(false);return}
-    const firebasePassword = firebasePasswordForLogin(normalizedId, password, [PARTNER_ACCOUNTS.iwedding.loginId])
-    try { await signInWithEmailAndPassword(auth, loginEmailFor(normalizedId),firebasePassword) }
-    catch (error) { const failure = loginFailureFor(error); setError(failure.message); setFailureCode(failure.code) }
-    setBusy(false)
+    const email = loginEmailFor(normalizedId)
+    const firebasePassword = firebasePasswordForLogin(normalizedId, password)
+    try {
+      try {
+        await signInWithEmailAndPassword(auth, email, firebasePassword)
+      } catch (error) {
+        const alternate = alternateSameIdPasswordForLogin(normalizedId, password)
+        const code = loginFailureFor(error).code
+        if (!alternate || (code !== 'auth/invalid-credential' && code !== 'auth/wrong-password')) throw error
+        await signInWithEmailAndPassword(auth, email, alternate)
+      }
+    } catch (error) {
+      const failure = loginFailureFor(error)
+      setError(failure.message); setFailureCode(failure.code)
+    } finally { setBusy(false) }
   }
   return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">SECURE WORKSPACE</p><h1>D5 제휴고객 관리</h1><p className="login-copy">ID와 비밀번호로 로그인해주세요.</p><form onSubmit={login}><label htmlFor="login-id">ID<input ref={loginIdInput} id="login-id" name="loginId" aria-label="ID" aria-describedby="login-id-help" type="text" inputMode="text" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="username" required defaultValue="" onCompositionStart={() => { idComposing.current = true }} onCompositionEnd={() => { idComposing.current = false }} onBlur={() => { idComposing.current = false }} onKeyDown={event => { if (event.key === 'Enter' && (idComposing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault() }} placeholder="ID를 입력하세요"/><small id="login-id-help" className="login-id-help">영문·숫자, 대소문자 구분 없음</small></label><label>비밀번호<input id="login-password" aria-label="비밀번호" type={showPassword ? 'text' : 'password'} autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="current-password" required value={password} onChange={e=>setPassword(e.target.value)} placeholder="기존 비밀번호"/></label><div className="login-password-options"><button type="button" className="login-password-toggle" aria-controls="login-password" aria-pressed={showPassword} aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={14}/> : <Eye size={14}/>}<span>{showPassword ? '숨기기' : '보기'}</span></button></div>{(error||accountError) ? <p className="login-error" role="alert">{error||accountError}{error && failureCode ? <small className="login-error-code">{failureCode}</small> : null}</p> : null}<button className="btn primary" disabled={busy}>{busy?'접속 중...':'로그인'}</button></form><div className="login-safe"><Sparkles size={15}/> Firebase 보안 인증</div></div></div>
 }

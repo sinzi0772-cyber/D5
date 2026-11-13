@@ -45,27 +45,27 @@ assert.equal(accountAccessError(employeeNo, firstLoginProfile), null, 'An approv
 assert.equal(firstLoginProfile.mustChangePassword, true, 'Validation must not clear the password-change requirement')
 assert.deepEqual(approvedProfile, { employeeNo, displayName: '테스트 직원', role: 'manager' }, 'Validation must not alter approval data')
 
-const partnerIdentity = PARTNER_ACCOUNTS.iwedding
-const iniIdentity = PARTNER_ACCOUNTS.iniwedding
+const partnerIdentity = { ...PARTNER_ACCOUNTS.iwedding, loginId: 'E00041' }
+const iniIdentity = { ...PARTNER_ACCOUNTS.iniwedding, loginId: 'E00042' }
 const iniProfile = { ...iniIdentity, role: 'partner', active: true, approved: true, mustChangePassword: false }
-assert.strictEqual(checkedPartnerIdentity(iniIdentity.loginId, iniProfile), iniIdentity)
+assert.deepEqual(checkedPartnerIdentity(iniIdentity.loginId, iniProfile), iniIdentity)
 assert.equal(accountAccessError(iniIdentity.loginId, iniProfile), null)
 assert.equal(checkedPartnerIdentity(partnerIdentity.loginId, iniProfile), null)
 assert.equal(checkedPartnerIdentity(iniIdentity.loginId, { ...iniProfile, partnerId: partnerIdentity.partnerId }), null)
 assert.equal(checkedPartnerIdentity(iniIdentity.loginId, { ...iniProfile, partnerName: partnerIdentity.partnerName }), null)
-assert.deepEqual(partnerIdentity, { loginId: 'E90227', partnerId: 'iwedding', partnerName: '(주)아이패밀리에스씨' })
+assert.deepEqual(partnerIdentity, { loginId: 'E00041', partnerId: 'iwedding', partnerName: '(주)아이패밀리에스씨' })
 assert.equal(Object.isFrozen(PARTNER_ACCOUNTS), true)
-assert.equal(Object.isFrozen(partnerIdentity), true)
+assert.equal(Object.isFrozen(PARTNER_ACCOUNTS.iwedding), true)
 const partnerProfile = Object.freeze({ ...partnerIdentity, role: 'partner', active: true, approved: true, mustChangePassword: true })
 const partnerBefore = JSON.stringify(partnerProfile)
-assert.equal(accountAccessError('E90227', partnerProfile), null, 'Only the explicitly approved and active company profile may enter the separate partner flow')
-assert.strictEqual(checkedPartnerIdentity('E90227', partnerProfile), partnerIdentity, 'Validated identity is the immutable trusted mapping, not arbitrary profile fields')
+assert.equal(accountAccessError('E00041', partnerProfile), null, 'Only the explicitly approved and active company profile may enter the separate partner flow')
+assert.deepEqual(checkedPartnerIdentity('E00041', partnerProfile), partnerIdentity, 'Validated identity is the immutable trusted mapping, not arbitrary profile fields')
 assert.equal(Object.prototype.hasOwnProperty.call(partnerProfile, 'employeeNo'), false, 'Company access does not require or derive a staff employee number')
 assert.equal(partnerProfile.mustChangePassword, true, 'The separate first-login password requirement remains set')
-assert.deepEqual(Object.keys(checkedPartnerIdentity('E90227', partnerProfile)!).sort(), ['loginId', 'partnerId', 'partnerName'], 'Identity output contains only the three approved tenant fields')
+assert.deepEqual(Object.keys(checkedPartnerIdentity('E00041', partnerProfile)!).sort(), ['loginId', 'partnerId', 'partnerName'], 'Identity output contains only the three approved tenant fields')
 
 for (const changes of [
-  { loginId: undefined }, { loginId: 'e90227' }, { loginId: ' E90227 ' }, { loginId: 'E90228' }, { loginId: 90227 },
+  { loginId: undefined }, { loginId: 'e00041' }, { loginId: ' E00041 ' }, { loginId: 'E00043' }, { loginId: 41 },
   { partnerId: undefined }, { partnerId: '' }, { partnerId: 'IWEDDING' }, { partnerId: 'iwedding ' }, { partnerId: 'other-company' },
   { partnerId: '__proto__' }, { partnerId: 'constructor' }, { partnerId: 'toString' },
   { partnerName: undefined }, { partnerName: '아이웨딩' }, { partnerName: '아이패밀리에스씨' },
@@ -74,31 +74,33 @@ for (const changes of [
   { approved: undefined }, { approved: 'true' }, { approved: 1 },
 ]) {
   const invalid = { ...partnerProfile, ...changes }
-  assert.equal(checkedPartnerIdentity('E90227', invalid), null, 'Missing, coerced, unknown or noncanonical company fields must fail closed')
-  assert.match(accountAccessError('E90227', invalid) || '', /승인된 업체 계정 정보가 일치하지 않습니다/)
+  assert.equal(checkedPartnerIdentity('E00041', invalid), null, 'Missing, coerced, unknown or noncanonical company fields must fail closed')
+  assert.match(accountAccessError('E00041', invalid) || '', /승인된 업체 계정 정보가 일치하지 않습니다/)
 }
-for (const loginId of ['e90227', ' E90227 ', 'E90228', '90227', '', 'QA12345']) {
+for (const loginId of ['e00041', ' E00041 ', 'E00043', '00041', '', 'QA12345']) {
   assert.equal(checkedPartnerIdentity(loginId, partnerProfile), null, 'Login identity must match exact normalized uppercase approved ID')
   assert.notEqual(accountAccessError(loginId, partnerProfile), null)
 }
-assert.equal(checkedPartnerIdentity('E90227'), null)
-assert.equal(checkedPartnerIdentity('E90227', { ...partnerProfile, loginId: undefined, employeeNo: 'E90227' }), null, 'Staff employeeNo must not substitute for an approved partner loginId')
-assert.strictEqual(checkedPartnerIdentity('E90227', { ...partnerProfile, employeeNo: 'unused-staff-field' }), partnerIdentity, 'Unused employeeNo cannot alter the trusted partner identity')
+assert.equal(checkedPartnerIdentity('E00041'), null)
+assert.equal(checkedPartnerIdentity('E00041', { ...partnerProfile, loginId: undefined, employeeNo: 'E00041' }), null, 'Staff employeeNo must not substitute for an approved partner loginId')
+assert.deepEqual(checkedPartnerIdentity('E00041', { ...partnerProfile, employeeNo: 'unused-staff-field' }), partnerIdentity, 'Unused employeeNo cannot alter the trusted partner identity')
 
 for (const blockedFields of [
   { disabled: true }, { active: false }, { approved: false },
   { status: 'inactive' }, { status: 'disabled' }, { status: 'suspended' },
 ]) {
   const stoppedPartner = { ...partnerProfile, ...blockedFields }
-  assert.equal(checkedPartnerIdentity('E90227', stoppedPartner), null)
-  assert.match(accountAccessError('E90227', stoppedPartner) || '', /사용이 중지된 계정/, 'Staged or suspended company profiles must not be activated by a local validator')
+  assert.equal(checkedPartnerIdentity('E00041', stoppedPartner), null)
+  assert.match(accountAccessError('E00041', stoppedPartner) || '', /사용이 중지된 계정/, 'Staged or suspended company profiles must not be activated by a local validator')
 }
-assert.equal(accountAccessError('E90227', { ...partnerProfile, disabled: false, status: 'active' }), null)
+assert.equal(accountAccessError('E00041', { ...partnerProfile, disabled: false, status: 'active' }), null)
 for (const role of ['admin', 'store_manager', 'assistant_manager', 'manager', 'company', '', undefined]) {
-  assert.equal(checkedPartnerIdentity('E90227', { ...partnerProfile, role }), null, 'Staff and unknown roles never produce a company identity')
+  assert.equal(checkedPartnerIdentity('E00041', { ...partnerProfile, role }), null, 'Staff and unknown roles never produce a company identity')
 }
 assert.equal(accountAccessError(SHARED_ACCOUNT_EMPLOYEE_NO, partnerProfile), SHARED_ACCOUNT_MESSAGE, 'A company profile cannot bypass retired-account denial')
 assert.equal(JSON.stringify(partnerProfile), partnerBefore, 'Company validation does not change approval, activation, mapping or password-change flags')
-assert.deepEqual(PARTNER_ACCOUNTS.iwedding, { loginId: 'E90227', partnerId: 'iwedding', partnerName: '(주)아이패밀리에스씨' })
+assert.ok(Object.values(PARTNER_ACCOUNTS).every(tenant => !('loginId' in tenant)))
+const weddingCloud = { ...PARTNER_ACCOUNTS.weddingcloud, loginId: 'E000045' }
+assert.deepEqual(checkedPartnerIdentity(weddingCloud.loginId, { ...weddingCloud, role: 'partner', active: true, approved: true }), weddingCloud)
 
 console.log('accountAccess: exact approved partner identity and staged rejection, shared account denial, unchanged staff roles, inactive flags and immutable profiles passed')

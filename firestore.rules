@@ -18,29 +18,39 @@ service cloud.firestore {
         && (!profile.keys().hasAny(['status']) || !(profile.status in ['inactive', 'disabled', 'suspended']));
     }
 
+    function staffProfileRole(role) {
+      return role in ['admin', 'store_manager', 'assistant_manager', 'manager'];
+    }
+
     function isStaff() {
       return signedIn() && enabledProfile()
-        && myProfile().role in ['admin', 'store_manager', 'assistant_manager', 'manager']
+        && staffProfileRole(myProfile().role)
         && myProfile().employeeNo is string && myProfile().employeeNo != '1292';
     }
 
     function approvedPartnerName(partnerId, partnerName) {
       return (partnerId == 'iwedding' && partnerName == '(주)아이패밀리에스씨')
-        || (partnerId == 'iniwedding' && partnerName == '(주) 아이니웨딩네트웍스');
+        || (partnerId == 'iniwedding' && partnerName == '(주) 아이니웨딩네트웍스')
+        || (partnerId == 'weddingcloud' && partnerName == '(주) 웨딩크라우드');
     }
 
     function isPartner() {
       return signedIn() && enabledProfile() && myProfile().role == 'partner'
         && myProfile().active == true && myProfile().approved == true
         && approvedPartnerName(myProfile().partnerId, myProfile().partnerName)
-        && ((myProfile().partnerId == 'iwedding' && myProfile().loginId == 'E90227'
-            && request.auth.token.email == 'e90227@d5.local')
-          || (myProfile().partnerId == 'iniwedding' && myProfile().loginId == 'E75351'
-            && request.auth.token.email == 'e75351@d5.local'));
+        && myProfile().loginId is string
+        && myProfile().loginId.matches('^[A-Z0-9]+$')
+        && request.auth.token.email == myProfile().loginId.lower() + '@d5.local';
     }
 
     function canManageAll() {
       return isStaff() && myProfile().role in ['admin', 'store_manager', 'assistant_manager'];
+    }
+
+    function canViewPartnerAccountRoster() {
+      return isStaff() && myProfile().role == 'admin' && myEmployeeNo() == '12784'
+        && request.auth.token.email == '12784@d5.local'
+        && get(/databases/$(database)/documents/partnerAccountRoster/access).data.adminUid == request.auth.uid;
     }
 
     function canViewUsage() {
@@ -330,11 +340,21 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /partnerAccountRoster/{documentId} {
+      allow read, write: if false;
+    }
+
     match /profiles/{userId} {
-      allow read: if signedIn() && (request.auth.uid == userId || canManageAll());
+      allow get: if signedIn() && (request.auth.uid == userId
+        || (canManageAll() && staffProfileRole(resource.data.role))
+        || (canViewPartnerAccountRoster() && resource.data.role == 'partner'));
+      allow list: if (canManageAll() && staffProfileRole(resource.data.role))
+        || (canViewPartnerAccountRoster() && resource.data.role == 'partner');
       allow create: if false;
       allow update: if signedIn() && (
-        (isStaff() && myProfile().role == 'admin')
+        (isStaff() && myProfile().role == 'admin'
+          && resource.data.get('role', null) != 'partner'
+          && request.resource.data.get('role', null) != 'partner')
         || (
           request.auth.uid == userId
           && (isStaff() || isPartner())

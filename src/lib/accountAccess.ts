@@ -12,8 +12,8 @@ export function checkedPartnerIdentity(loginId: string, profile?: Record<string,
     || profile.disabled === true || (typeof profile.status === 'string' && inactiveStatuses.has(profile.status))) return null
   if (typeof profile.partnerId !== 'string') return null
   const identity = partnerIdentityFor(profile.partnerId)
-  if (!identity || loginId !== identity.loginId || profile.loginId !== identity.loginId || profile.partnerName !== identity.partnerName) return null
-  return identity
+  if (!identity || !/^[A-Z0-9]{1,64}$/.test(loginId) || profile.loginId !== loginId || profile.partnerName !== identity.partnerName) return null
+  return { ...identity, loginId }
 }
 
 /** Validate server-provided approval without creating or changing a user's role. */
