@@ -106,6 +106,7 @@ const invited = buildPartnerPreview([
   { ...rows[1], partnerName: '(주)아이니웨딩네트웍스' },
 ], '(주) 아이니웨딩네트웍스', '2026-09')
 const invitedMarkup = renderToStaticMarkup(<PartnerPreview model={invited} presentation="portal"/>)
-assert.equal((invitedMarkup.match(/11월 초대전 연결/g) || []).length, 1, 'Only the reviewed invitation customer receives a badge')
-assert.match(invitedMarkup, /김\*\* \/ 0252.*11월 초대전 연결/)
+assert.equal((invitedMarkup.match(/>11월 초대전<\/em>/g) || []).length, 1, 'Only the reviewed invitation customer receives a badge')
+assert.match(invitedMarkup, /<td class=\"partner-preview-customer-label\">김\*\* \/ 0252<em class=\"invitation-campaign-badge\">11월 초대전<\/em><\/td>/)
+assert.ok(!invitedMarkup.includes('11월 초대전 연결'))
 console.log('partnerPreview UI tests passed: safe compact route details, masked customers, sorting and immutable models')
