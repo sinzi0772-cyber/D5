@@ -12,10 +12,51 @@
 .partner-portal-toolbar .guide-button::after{display:none}
 .partner-portal-toolbar .guide-button:hover{background:#e2f2eb;transform:none}
 .partner-portal button:focus-visible,.partner-portal select:focus-visible{outline:3px solid #0d8a8a;outline-offset:3px}
-.partner-portal-period{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;margin-bottom:20px}
-.partner-portal-period label{display:flex;align-items:center;gap:8px;min-width:0;font-size:13px}
-.partner-portal-period label span{white-space:nowrap}
-.partner-portal-period select{min-width:132px;max-width:100%;min-height:36px;padding:6px 10px;font-size:13px}
-.partner-portal-period select:disabled{background:#f4f7f6;color:#72827f}
 .partner-portal-error{padding:16px;border:1px solid #e9c7c7;background:#fff7f7;border-radius:10px;color:#a34a4a}
-@media(max-width:600px){.partner-portal{margin:0;padding:24px 18px;min-height:100vh;border:0;border-radius:0}.partner-portal-toolbar{align-items:flex-start;flex-direction:column;gap:18px;padding-bottom:20px}.partner-portal-toolbar>div:first-child{padding-left:14px;border-left-width:3px}.partner-portal-toolbar h1{font-size:28px;letter-spacing:-.8px}.partner-portal-toolbar>div:last-child{width:100%}.partner-portal-period{margin-bottom:12px}.partner-portal-period label{gap:6px}.partner-portal-period select{min-width:0}}
+@media(max-width:600px){.partner-portal{margin:0;padding:24px 18px;min-height:100vh;border:0;border-radius:0}.partner-portal-toolbar{align-items:flex-start;flex-direction:column;gap:18px;padding-bottom:20px}.partner-portal-toolbar>div:first-child{padding-left:14px;border-left-width:3px}.partner-portal-toolbar h1{font-size:28px;letter-spacing:-.8px}.partner-portal-toolbar>div:last-child{width:100%}}
+.partner-portal-settlement {
+  margin-bottom: 22px;
+  padding: 16px;
+  border: 1px solid #dce9e4;
+  border-radius: 12px;
+  background: #f8fbfa;
+}
+.partner-portal-settlement-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.partner-portal-settlement-heading h2 { margin: 0; font-size: 16px; color: #193c42; }
+.partner-portal-settlement-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin: 12px 0;
+}
+.partner-portal-settlement-summary > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; }
+.partner-portal-settlement-summary dt { color: #4e6c67; font-size: 12px; }
+.partner-portal-settlement-summary dd { margin: 0; color: #193c42; font-size: 14px; font-weight: 700; }
+.partner-portal-settlement-summary .partner-portal-settlement-total { margin-left: auto; }
+.partner-portal-settlement-total dd { color: #0b7269; font-size: 24px; line-height: 1.25; overflow-wrap: anywhere; }
+.partner-portal-settlement-months {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 132px), 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.partner-portal-settlement-months li { min-width: 0; padding: 8px 10px; border: 1px solid #e0ebe6; border-radius: 8px; background: #fff; }
+.partner-portal-settlement-months li > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; color: #42615a; font-size: 12px; }
+.partner-portal-settlement-months small { color: #59766e; font-size: 11px; }
+.partner-portal-settlement-months strong { display: block; margin-top: 3px; color: #087970; font-size: 15px; overflow-wrap: anywhere; }
+.partner-portal-settlement-months .partner-portal-settlement-undated strong { color: #936023; }
+.partner-portal-settlement-note { margin: 8px 0 0; color: #59766e; font-size: 11px; line-height: 1.5; }
+@media (max-width: 600px) {
+  .partner-portal-settlement { padding: 12px; }
+  .partner-portal-settlement-summary { gap: 6px 14px; }
+  .partner-portal-settlement-summary .partner-portal-settlement-total { flex-basis: 100%; margin-left: 0; }
+}

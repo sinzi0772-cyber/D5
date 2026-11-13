@@ -83,17 +83,21 @@ export function PartnerPreview({ model, presentation = 'preview' }: {
   const feeCard = getPartnerSettlementCard(settlementSummary, requestedSettlement)
   const isPortal = presentation === 'portal'
   const hasSettlementMonths = feeCard.options.length > 0
-  const settlementMonthControl = (hasSettlementMonths || isPortal) ? (
-    <label className={isPortal ? undefined : 'partner-preview-fee-period'}>
+  const settlementMonthControl = hasSettlementMonths ? (
+    <label className="partner-preview-fee-period">
       <span>정산월</span>
-      <select aria-label="예상 수수료 정산월" value={feeCard.selection} disabled={!hasSettlementMonths} onChange={event => setRequestedSettlement(event.target.value)}>
-        {hasSettlementMonths
-          ? feeCard.options.map(option => <option key={option.value} value={option.value}>{option.month ? monthLabel(option.month) : '정산월 미정'}</option>)
-          : <option value="">정산 내역 없음</option>}
+      <select aria-label="예상 수수료 정산월" value={feeCard.selection} onChange={event => setRequestedSettlement(event.target.value)}>
+        {feeCard.options.map(option => <option key={option.value} value={option.value}>{option.month ? monthLabel(option.month) : '정산월 미정'}</option>)}
       </select>
     </label>
   ) : null
-  const SectionHeading = presentation === 'portal' ? 'h2' : 'h3'
+  const SectionHeading = isPortal ? 'h2' : 'h3'
+  const customerFilter = hasInvitations && <div className="partner-preview-customer-filter" role="group" aria-label="연결 고객 필터">
+    <button type="button" aria-pressed={!filterInvitations} onClick={() => setInvitationOnly(false)}>전체 고객</button>
+    <button type="button" aria-pressed={filterInvitations} onClick={() => setInvitationOnly(true)}>{NOVEMBER_INVITATION_LABEL}</button>
+  </div>
+  const basisRequiredCount = settlementSummary.basisRequiredCount ?? 0
+  const basisNotice = basisRequiredCount > 0 && <p className="partner-preview-undated" role="status">묶음 기준 미선택 {count(basisRequiredCount)}명 · 예상 수수료 제외</p>
   const feeCaption = feeCard.selection === 'undated'
     ? `배송예정일 입력 필요 · 고객 ${count(feeCard.customerCount)}명`
     : feeCard.selection
@@ -105,46 +109,65 @@ export function PartnerPreview({ model, presentation = 'preview' }: {
     </header>
 
     {model.partnerName ? <>
-      {isPortal ? <div className="partner-portal-period">{settlementMonthControl}</div> : null}
-      <div className="partner-preview-stats">
-        <div><span>{isPortal ? '전체 접수' : '접수'}</span><strong>{count(model.receiptCount)}<small>건</small></strong><p>고객 {count(model.customerCount)}명</p></div>
-        <div><span>판매 건수</span><strong>{count(model.completedCount)}<small>건</small></strong><p>관리중 {count(model.activeCount)}건</p></div>
-        <div className="partner-preview-fee" id={feeCardId} aria-label="월별 예상 수수료">
-          <div className="partner-preview-fee-heading">
-            <span>{filterInvitations ? `${NOVEMBER_INVITATION_LABEL} 예상 수수료` : '예상 수수료'}</span>
-            {isPortal ? null : settlementMonthControl}
+      {isPortal ? <section className="partner-portal-settlement" aria-label="예상 정산">
+        <div className="partner-portal-settlement-heading"><h2>예상 정산</h2>{customerFilter}</div>
+        <dl className="partner-portal-settlement-summary">
+          <div><dt>접수</dt><dd>{count(filterInvitations ? invitedCustomers.length : model.receiptCount)}건</dd></div>
+          <div><dt>판매</dt><dd>{count(filterInvitations ? invitedCustomers.filter(customer => !customer.basisRequired && customer.status === '구매완료').length : model.completedCount)}건</dd></div>
+          <div className="partner-portal-settlement-total"><dt>예상 수수료 합계</dt><dd aria-live="polite">{hasSettlementMonths ? won(settlementSummary.completedExpectedCommission) : settlementSummary.basisRequiredCount ? '기준 확인 필요' : '0원'}</dd></div>
+        </dl>
+        {hasSettlementMonths ? <>
+          <ul className="partner-portal-settlement-months" aria-label="월별 예상 정산">
+            {settlementSummary.settlements.map(bucket => <li key={bucket.month}>
+              <div><time dateTime={bucket.month}>{bucket.month.replace('-', '.')}</time><small>{count(bucket.customerCount)}명</small></div>
+              <strong>{won(bucket.expectedCommission)}</strong>
+            </li>)}
+            {settlementSummary.undatedCustomerCount > 0 && <li className="partner-portal-settlement-undated">
+              <div><span>정산월 미정</span><small>{count(settlementSummary.undatedCustomerCount)}명</small></div>
+              <strong>{won(settlementSummary.undatedExpectedCommission)}</strong>
+            </li>}
+          </ul>
+          {settlementSummary.settlements.length > 0 && <p className="partner-portal-settlement-note">배송예정월의 익익월 중순 정산 예상 · 실제 수령월에 따라 변동</p>}
+        </> : <p className="partner-preview-empty">예상 정산 내역이 없습니다.</p>}
+        {basisNotice}
+      </section> : <>
+        <div className="partner-preview-stats">
+          <div><span>접수</span><strong>{count(model.receiptCount)}<small>건</small></strong><p>고객 {count(model.customerCount)}명</p></div>
+          <div><span>판매 건수</span><strong>{count(model.completedCount)}<small>건</small></strong><p>관리중 {count(model.activeCount)}건</p></div>
+          <div className="partner-preview-fee" id={feeCardId} aria-label="월별 예상 수수료">
+            <div className="partner-preview-fee-heading">
+              <span>{filterInvitations ? `${NOVEMBER_INVITATION_LABEL} 예상 수수료` : '예상 수수료'}</span>
+              {settlementMonthControl}
+            </div>
+            <strong aria-live="polite">{settlementSummary.basisRequiredCount && !hasSettlementMonths ? '기준 확인 필요' : won(feeCard.expectedCommission)}</strong>
+            <p>{feeCaption}</p>
           </div>
-          <strong aria-live="polite">{settlementSummary.basisRequiredCount && !hasSettlementMonths ? '기준 확인 필요' : won(feeCard.expectedCommission)}</strong>
-          <p>{feeCaption}</p>
         </div>
-      </div>
-      {(settlementSummary.basisRequiredCount || 0) > 0 ? <p className="partner-preview-undated" role="status">묶음 기준 미선택 {count(settlementSummary.basisRequiredCount!)}명 · 예상 수수료 제외</p> : null}
 
-      <section className="partner-preview-settlement" aria-label="업체 월별 예상 정산">
-        <div className="partner-preview-section-heading"><SectionHeading>월별 예상 정산{filterInvitations ? ` · ${NOVEMBER_INVITATION_LABEL}` : ''}</SectionHeading><p>배송예정월의 익익월 중순 · 실제 수령월에 따라 변동</p></div>
-        {feeCard.options.length > 0 ? <div className="partner-preview-settlement-table"><table aria-label="월별 예상 정산표">
-          <thead><tr>{settlementColumns.map(column => <SortColumn key={column.key} label={column.label} direction={settlementSort.key === column.key ? settlementSort.direction : null} nextDirection={nextPartnerSettlementSort(settlementSort, column.key).direction} onSort={() => setSettlementSort(current => nextPartnerSettlementSort(current, column.key))}/>)}</tr></thead>
-          <tbody>
-            {settlements.map(bucket => <tr key={bucket.month} className={feeCard.selection === bucket.month ? 'is-selected' : undefined}>
-              <th scope="row"><button type="button" className="partner-preview-month-select" aria-label={`${monthLabel(bucket.month)} 예상 수수료 보기`} aria-pressed={feeCard.selection === bucket.month} aria-controls={feeCardId} onClick={() => setRequestedSettlement(bucket.month)}>{monthLabel(bucket.month)} 중순</button></th>
-              <td>{count(bucket.customerCount)}명</td><td><strong>{won(bucket.expectedCommission)}</strong></td>
-            </tr>)}
-            {settlementSummary.undatedCustomerCount > 0 ? <tr className={`partner-preview-undated-row${feeCard.selection === 'undated' ? ' is-selected' : ''}`}>
-              <th scope="row"><button type="button" className="partner-preview-month-select partner-preview-undated" aria-label="정산월 미정 예상 수수료 보기" aria-pressed={feeCard.selection === 'undated'} aria-controls={feeCardId} onClick={() => setRequestedSettlement('undated')}>정산월 미정<small>배송예정일 미입력</small></button></th>
-              <td>{count(settlementSummary.undatedCustomerCount)}명</td><td><strong>{won(settlementSummary.undatedExpectedCommission)}</strong></td>
-            </tr> : null}
-          </tbody>
-        </table></div> : <p className="partner-preview-empty">예상 정산 수수료가 없습니다.</p>}
-      </section>
+        {basisNotice}
+        <section className="partner-preview-settlement" aria-label="업체 월별 예상 정산">
+          <div className="partner-preview-section-heading"><SectionHeading>월별 예상 정산{filterInvitations ? ` · ${NOVEMBER_INVITATION_LABEL}` : ''}</SectionHeading><p>배송예정월의 익익월 중순 · 실제 수령월에 따라 변동</p></div>
+          {feeCard.options.length > 0 ? <div className="partner-preview-settlement-table"><table aria-label="월별 예상 정산표">
+            <thead><tr>{settlementColumns.map(column => <SortColumn key={column.key} label={column.label} direction={settlementSort.key === column.key ? settlementSort.direction : null} nextDirection={nextPartnerSettlementSort(settlementSort, column.key).direction} onSort={() => setSettlementSort(current => nextPartnerSettlementSort(current, column.key))}/>)}</tr></thead>
+            <tbody>
+              {settlements.map(bucket => <tr key={bucket.month} className={feeCard.selection === bucket.month ? 'is-selected' : undefined}>
+                <th scope="row"><button type="button" className="partner-preview-month-select" aria-label={`${monthLabel(bucket.month)} 예상 수수료 보기`} aria-pressed={feeCard.selection === bucket.month} aria-controls={feeCardId} onClick={() => setRequestedSettlement(bucket.month)}>{monthLabel(bucket.month)} 중순</button></th>
+                <td>{count(bucket.customerCount)}명</td><td><strong>{won(bucket.expectedCommission)}</strong></td>
+              </tr>)}
+              {settlementSummary.undatedCustomerCount > 0 ? <tr className={`partner-preview-undated-row${feeCard.selection === 'undated' ? ' is-selected' : ''}`}>
+                <th scope="row"><button type="button" className="partner-preview-month-select partner-preview-undated" aria-label="정산월 미정 예상 수수료 보기" aria-pressed={feeCard.selection === 'undated'} aria-controls={feeCardId} onClick={() => setRequestedSettlement('undated')}>정산월 미정<small>배송예정일 미입력</small></button></th>
+                <td>{count(settlementSummary.undatedCustomerCount)}명</td><td><strong>{won(settlementSummary.undatedExpectedCommission)}</strong></td>
+              </tr> : null}
+            </tbody>
+          </table></div> : <p className="partner-preview-empty">예상 정산 수수료가 없습니다.</p>}
+        </section>
+      </>}
 
       <section className="partner-preview-customers" aria-label="자사 연결 고객 현황">
         <div className="partner-preview-section-heading">
           <SectionHeading>연결 고객</SectionHeading>
           <div className="partner-preview-customer-controls">
-            {hasInvitations && <div className="partner-preview-customer-filter" role="group" aria-label="연결 고객 필터">
-              <button type="button" aria-pressed={!filterInvitations} onClick={() => setInvitationOnly(false)}>전체 고객</button>
-              <button type="button" aria-pressed={filterInvitations} onClick={() => setInvitationOnly(true)}>{NOVEMBER_INVITATION_LABEL}</button>
-            </div>}
+            {!isPortal && customerFilter}
             <small aria-live="polite">{customerSortCaptions[customerSort.key][customerSort.direction]}</small>
           </div>
         </div>

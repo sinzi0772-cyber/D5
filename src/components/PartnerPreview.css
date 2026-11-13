@@ -100,14 +100,6 @@
 .partner-preview-status.completed { background: #e6f4ee; color: #20835e; }
 .partner-preview-portal { border: 0; border-radius: 0; background: transparent; padding: 0; }
 .partner-preview-portal > .partner-preview-heading { display: none; }
-.partner-preview-portal .partner-preview-stats { margin-bottom: 24px; padding: 8px 0 24px; border-bottom: 1px solid #e6eeeb; }
-.partner-preview-portal .partner-preview-stats > div { padding: 0 20px; border: 0; border-radius: 0; background: transparent; }
-.partner-preview-portal .partner-preview-stats > div:first-child { padding-left: 0; }
-.partner-preview-portal .partner-preview-stats > div + div { border-left: 1px solid #e6eeeb; }
-.partner-preview-portal .partner-preview-stats strong { font-size: 26px; }
-.partner-preview-portal .partner-preview-stats .partner-preview-fee { background: transparent; color: #0b7269; }
-.partner-preview-portal .partner-preview-fee > strong { font-size: 30px; }
-.partner-preview-portal .partner-preview-settlement { padding: 0; border: 0; border-radius: 0; background: transparent; margin-bottom: 28px; }
 .partner-preview-portal .partner-preview-section-heading h2, .partner-preview-portal .partner-preview-section-heading h3 { font-size: 16px; }
 .partner-preview-portal .partner-preview-section-heading p { font-size: 12px; }
 .partner-preview-portal .partner-preview-table-scroll td { font-size: 13px; }
@@ -124,11 +116,6 @@
   .partner-preview .partner-preview-month-select { padding: 9px 8px; }
   .partner-preview-settlement-table strong { font-size: 13px; }
   .partner-preview-portal { padding: 0; }
-  .partner-preview-portal .partner-preview-stats { padding: 6px 0 20px; gap: 18px 0; }
-  .partner-preview-portal .partner-preview-stats > div { padding: 0 16px; }
-  .partner-preview-portal .partner-preview-stats .partner-preview-fee { border-left: 0; border-top: 1px solid #e6eeeb; padding: 16px 0 0; }
-  .partner-preview-portal .partner-preview-stats strong { font-size: 24px; }
-  .partner-preview-portal .partner-preview-fee > strong { font-size: 28px; }
 }
 @media print {
   .partner-preview, .partner-preview * { visibility: visible !important; }
