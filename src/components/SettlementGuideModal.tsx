@@ -95,7 +95,7 @@ export function SettlementGuideModal({ onClose, audience = 'staff' }: { onClose:
           <ul>
             <li>
               <strong>제휴 연결 주문의 판매 RAW 기준</strong>
-              <span>일시불은 ‘매출’, 구독은 ‘마감됨’ 건만 예상 수수료에 반영합니다.</span>
+              <span>일시불 ‘매출·주문확정’, 구독 ‘마감됨·주문확정’을 예상 수수료에 반영합니다.</span>
               <span>구독 수수료는 대상 제휴업체에 적용합니다.</span>
             </li>
             {audience === 'staff' ? <li>

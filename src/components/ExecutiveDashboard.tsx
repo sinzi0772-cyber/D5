@@ -16,7 +16,7 @@ const financialDefinitions = '총판매금액 = 일시불 + 구독(출하대기 
 const performanceColumnHelp = (key: SortColumn) => key === 'completed'
   ? '구매완료 상태 기준 · 묶음 고객은 1건'
   : key === 'sales' ? financialDefinitions
-  : key === 'expectedCommission' ? '일시불 매출과 대상 구독 마감분의 예상 수수료'
+  : key === 'expectedCommission' ? '일시불 매출·주문확정과 대상 구독 마감됨·주문확정의 예상 수수료'
   : key === 'salesProgress' ? '구매완료 건수순 · 동률은 접수·배정 건수순'
   : undefined
 const monthLabel = (month: string) => `${month.slice(0, 4)}년 ${Number(month.slice(5))}월`

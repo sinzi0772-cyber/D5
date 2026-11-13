@@ -13,8 +13,8 @@ const cashRows = parseSalesRaw(tsv([cashHeader,
   cash('cash-refund', -20_000, '주문확정', '매출'),
   cash('cash-one', 1, '주문확정', '매출'),
 ])).orders
-assert.equal(cashSettlementBasisFor(cashRows), 80_000)
-assert.equal(cashSettlementBasisFor([cashRows[1]]), 0)
+assert.equal(cashSettlementBasisFor(cashRows), 150_000)
+assert.equal(cashSettlementBasisFor([cashRows[1]]), 70_000)
 assert.equal(cashSettlementBasisFor([{ ...cashRows[0], sourceOrderStatus: undefined }]), undefined)
 
 const subscription = (id: string, amount: number, status: string, cancellation = '') => [id, 1, '김*수', '0001', '2026-09-21', amount, status, cancellation]
@@ -27,6 +27,6 @@ const subscriptions = parseSubscriptionRaw(tsv([
   subscription('sub-canceled', 10_000, '마감됨', '2026-09-23'),
   subscription('sub-one', 1, '마감됨'),
 ]), { confirmedStatuses: ['마감됨', '출고됨', '주문확정'], reservedStatuses: ['출하대기'] }).items
-assert.equal(subscriptionSettlementBasisFor(subscriptions), 200_000)
-assert.equal(subscriptionSettlementBasisFor(subscriptions.slice(1)), 0)
+assert.equal(subscriptionSettlementBasisFor(subscriptions), 270_000)
+assert.equal(subscriptionSettlementBasisFor(subscriptions.slice(1)), 70_000)
 console.log('Settlement basis: exact RAW statuses, signed returns, cancellation, and one-won exclusions passed')
