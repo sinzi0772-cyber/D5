@@ -21,20 +21,24 @@
   border-radius: 12px;
   background: #f8fbfa;
 }
-.partner-portal-settlement-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
+.partner-portal .partner-portal-event-button {
+  min-height: 32px;
+  padding: 4px 10px;
+  border-color: #cfdded;
+  background: #f3f7fd;
+  color: #274d80;
+  font-size: 12px;
+  font-weight: 600;
 }
-.partner-portal-settlement-heading h2 { margin: 0; font-size: 16px; color: #193c42; }
+.partner-portal .partner-portal-event-button:hover,
+.partner-portal .partner-portal-event-button[aria-expanded="true"] { background: #e8eff8; }
+.partner-portal-event-settlement { margin-bottom: 12px; border-color: #dce6f3; background: #f6f9fe; }
 .partner-portal-settlement-summary {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px 22px;
-  margin: 12px 0;
+  margin: 0 0 12px;
 }
 .partner-portal-settlement-summary > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; }
 .partner-portal-settlement-summary dt { color: #4e6c67; font-size: 12px; }
