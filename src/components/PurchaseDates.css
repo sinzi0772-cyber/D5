@@ -1,7 +1,5 @@
 .purchase-dates{margin-top:14px;padding:12px 14px;border:1px solid var(--border,#dce4e6);border-radius:10px;background:#f8fbfb;font-size:12px;color:#36575b}
-.purchase-dates-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.purchase-dates-heading strong{font-size:12px;font-weight:600}
-.purchase-dates-heading small{font-size:10px;color:#70878b}
+.purchase-dates-heading{font-weight:600}
 .purchase-dates dl{margin:9px 0 0;display:grid;gap:6px}
 .purchase-dates dl>div{display:grid;grid-template-columns:42px minmax(0,1fr);gap:8px}
 .purchase-dates dt{color:#70878b}
@@ -9,4 +7,3 @@
 .purchase-date-value{display:inline-block;white-space:nowrap;font-variant-numeric:tabular-nums}
 .purchase-date-value:not(:last-child){margin-inline-end:4px}
 .purchase-date-value small{font-size:10px;color:#5f777b}
-.purchase-dates p{margin:8px 0 0;color:#70878b}

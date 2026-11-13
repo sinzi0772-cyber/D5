@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { PurchaseDates } from '../src/components/PurchaseDates'
 import { cashPurchaseDateEvidenceFor, normalizePurchaseDate, purchaseDatesFor, saleDateFromColumns, saleDatesFromRows, subscriptionPurchaseDateEvidenceFor } from '../src/lib/purchaseDates'
 import { parseSalesRaw } from '../src/lib/salesRaw'
 import { parseSubscriptionRaw } from '../src/lib/subscriptionRaw'
@@ -67,4 +70,14 @@ assert.deepEqual(purchaseDatesFor(lead), [
 ])
 assert.deepEqual(purchaseDatesFor({}).map(row => row.evidence), [[], []])
 assert.deepEqual(purchaseDatesFor({ salesRawPeriods: [] } as unknown as Lead).map(row => row.evidence), [[], []])
+
+const renderDates = (dateFields: Pick<Lead, 'salesRawPeriods' | 'subscriptionRawPeriods'>) =>
+  renderToStaticMarkup(createElement(PurchaseDates, { lead: dateFields as Lead }))
+assert.equal(renderDates({}), '')
+const cashOnly = renderDates({ salesRawPeriods: lead.salesRawPeriods })
+assert.match(cashOnly, /<strong class="purchase-dates-heading">BEST 판매일자<\/strong>/)
+assert.match(cashOnly, /<dt>일시불<\/dt>/)
+assert.match(cashOnly, /<time dateTime="2026-10-07">2026\.10\.07<\/time><small> \(주문일자\)<\/small>/)
+assert.doesNotMatch(cashOnly, /구독|미확인/)
+assert.match(renderDates(lead), /<dt>구독<\/dt>/)
 console.log('Purchase dates: explicit sale columns, aliases, invalid/conflicting values, labeled confirmed and order dates, sorted distinct dates, and unchanged financial totals passed.')
