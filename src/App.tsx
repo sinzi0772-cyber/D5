@@ -5,7 +5,7 @@ import {
   Settings, Sparkles, UserRound, UsersRound, X,
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from 'firebase/auth'
-import { collection, doc, getDoc, onSnapshot, query as firestoreQuery, runTransaction, setDoc, where, increment } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocFromServer, onSnapshot, query as firestoreQuery, runTransaction, setDoc, where, increment } from 'firebase/firestore'
 import { auth, db, isDemoMode, isFirebaseConfigured } from './lib/firebase'
 import type { SeptemberAppointment } from './data/septemberAppointments'
 import { ExecutiveDashboard } from './components/ExecutiveDashboard'
@@ -183,6 +183,9 @@ const approvedStaff = [
   ...managers.map(member => ({ employeeNo: member.employeeNo, displayName: member.name, role: member.role === '지점장' ? 'store_manager' : member.role === '부지점장' ? 'assistant_manager' : 'manager' })),
 ]
 type AppUser = { id: string; loginId: string; name: string; role: string; mustChangePassword: boolean; partnerId?: string; partnerName?: string }
+const quickAdminLoginId = '12784'
+const isQuickAdminAccount = (user: User | null) => user?.email === loginEmailFor(quickAdminLoginId)
+
 type UsageRow = { userId: string; employeeNo: string; displayName: string; role: string; firstSeenAt: string; lastSeenAt: string; lastSeenDate: string; visitCount: number }
 const appUserFromSession = (user: User): AppUser => ({
   id: user.uid,
@@ -264,6 +267,8 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<AppUser | null>(isDemoMode ? { id: 'demo', loginId: 'demo', name: 'D5 관리자', role: '데모 관리자', mustChangePassword: false } : null)
   const [authReady, setAuthReady] = useState(!isFirebaseConfigured)
   const [authError, setAuthError] = useState('')
+  const [pendingAdminSession, setPendingAdminSession] = useState<User | null>(null)
+  const resumeAdminSession = useRef<((user: User) => void) | null>(null)
   const [dataReady, setDataReady] = useState(isDemoMode)
   const [dataError, setDataError] = useState('')
   const [serverConfirmed, setServerConfirmed] = useState(false)
@@ -295,33 +300,52 @@ export default function App() {
   const customerPanelRef = useRef<HTMLDivElement>(null)
   const customerHeadingRef = useRef<HTMLHeadingElement>(null)
 
+  const resetWorkspace = useCallback(() => {
+    latestSessionKey.current = ''
+    setDataReady(false)
+    setDataError('')
+    setOpenMemoOnDrawer(false)
+    setOpenSalesRouteLeadId('')
+    setSettlementGuideOpen(false)
+    setToast('')
+    setCurrentUser(null)
+    setLeads([])
+    setUsageRows([])
+    setSeptemberSource(null)
+    setServerConfirmed(false)
+    referralReadiness.current = null
+    publishedRevision.current.clear()
+    setActive(null)
+    setCreating(false)
+    setQuery('')
+    setManagerFilter('전체 담당자')
+    setPartnerFilter('전체 제휴업체')
+    setStatusFilter('전체')
+    setVisitFilter('전체')
+    setChosenIntakeMonth('')
+    setWorkspaceView('staff')
+    setPreviewPartner('')
+  }, [])
+
   useEffect(() => {
     if (!auth || !db) return
     const firestoreDb = db
     const firebaseAuth = auth
     let active = true
     let revision = 0
-    const unsubscribe = onAuthStateChanged(firebaseAuth, async firebaseUser => {
+    let initialAuthEvent = true
+    let resumeInProgress = false
+    async function openSession(firebaseUser: User | null, mode: 'restore' | 'sign-in' | 'resume') {
       const currentRevision = ++revision
       const isCurrentSession = () => active && currentRevision === revision && firebaseAuth.currentUser?.uid === firebaseUser?.uid
-      setCurrentUser(null)
-      setLeads([])
-      setUsageRows([])
-      setSeptemberSource(null)
-      setServerConfirmed(false)
-      referralReadiness.current = null
-      publishedRevision.current.clear()
-      setActive(null)
-      setCreating(false)
-      setQuery('')
-      setManagerFilter('전체 담당자')
-      setPartnerFilter('전체 제휴업체')
-      setStatusFilter('전체')
-      setVisitFilter('전체')
-      setChosenIntakeMonth('')
-      setWorkspaceView('staff')
-      setPreviewPartner('')
+      resetWorkspace()
+      setPendingAdminSession(null)
       if (!firebaseUser) { setAuthReady(true); return }
+      if (mode === 'restore' && isQuickAdminAccount(firebaseUser)) {
+        setPendingAdminSession(firebaseUser)
+        setAuthReady(true)
+        return
+      }
       setAuthReady(false)
       const baseUser = appUserFromSession(firebaseUser)
       let denialMessage = ''
@@ -331,25 +355,49 @@ export default function App() {
           throw new Error(denialMessage)
         }
         const profileRef = doc(firestoreDb, 'profiles', firebaseUser.uid)
-        const profileSnapshot = await getDoc(profileRef)
+        if (mode === 'resume') await firebaseUser.getIdToken(true)
+        if (!isCurrentSession()) return
+        const profileSnapshot = await (mode === 'resume' ? getDocFromServer(profileRef) : getDoc(profileRef))
         if (!isCurrentSession()) return
         const profile = profileSnapshot.exists() ? profileSnapshot.data() : undefined
         const accessError = accountAccessError(baseUser.loginId, profile)
+          || (mode === 'resume' && profile?.role !== 'admin' ? '관리자 권한을 확인하지 못했습니다. 다시 로그인해주세요.' : null)
         if (accessError) { denialMessage = accessError; throw new Error(accessError) }
         setAuthError('')
         const partner = checkedPartnerIdentity(baseUser.loginId, profile)
         setCurrentUser({ ...baseUser, name: String(profile?.displayName || baseUser.name), role: String(profile?.role), mustChangePassword: Boolean(profile?.mustChangePassword), ...(partner ? { partnerId: partner.partnerId, partnerName: partner.partnerName } : {}) })
-      } catch {
+      } catch (error) {
         if (!isCurrentSession()) return
+        const code = error instanceof Error && 'code' in error ? error.code : undefined
+        if (mode === 'resume' && (code === 'unavailable' || code === 'deadline-exceeded' || code === 'auth/network-request-failed')) {
+          setPendingAdminSession(firebaseUser)
+          setAuthError('인터넷 연결을 확인하고 제목을 다시 눌러주세요.')
+          return
+        }
         setAuthError(denialMessage || '사용자 권한을 확인하지 못했습니다. 다시 로그인해주세요.')
         setCurrentUser(null)
         await signOut(firebaseAuth).catch(() => undefined)
       } finally {
         if (active && currentRevision === revision) setAuthReady(true)
       }
+    }
+    const unsubscribe = onAuthStateChanged(firebaseAuth, firebaseUser => {
+      const mode = initialAuthEvent ? 'restore' : 'sign-in'
+      initialAuthEvent = false
+      void openSession(firebaseUser, mode)
     })
-    return () => { active = false; revision++; unsubscribe() }
-  }, [])
+    resumeAdminSession.current = user => {
+      if (resumeInProgress || !isQuickAdminAccount(user) || firebaseAuth.currentUser !== user) return
+      resumeInProgress = true
+      void openSession(user, 'resume').finally(() => { resumeInProgress = false })
+    }
+    return () => {
+      active = false
+      revision++
+      resumeAdminSession.current = null
+      unsubscribe()
+    }
+  }, [resetWorkspace])
 
 
   useEffect(() => {
@@ -380,7 +428,7 @@ export default function App() {
     return () => { active = false; readiness.serverConfirmed = false; unsubscribe() }
   }, [currentUser?.id, currentUser?.loginId, currentUser?.role, currentUser?.mustChangePassword])
   useEffect(() => {
-    if (!db || !currentUser || currentUser.mustChangePassword || !canPreviewPartner(currentUser.role) || isDemoMode || currentUser.loginId === '12784') return
+    if (!db || !currentUser || currentUser.mustChangePassword || !canPreviewPartner(currentUser.role) || isDemoMode || currentUser.loginId === quickAdminLoginId) return
     const firestoreDb = db
     const recordUsage = async () => {
       const usageRef = doc(firestoreDb, 'usage', currentUser.id)
@@ -605,7 +653,14 @@ export default function App() {
       ? `최근 7일 ${recent7Users}명이 접속했습니다. 기록 없음 ${neverAccessedCount}명을 확인해주세요.`
       : `저장된 접속 기록이 없습니다. 운영 배포 이후부터 실제 기록이 집계됩니다.`
   const canManageAll = Boolean(currentUser && ['admin', 'store_manager', 'assistant_manager', '데모 관리자'].includes(currentUser.role))
-  const canViewPartnerAccounts = Boolean(currentUser?.role === 'admin' && currentUser.loginId === '12784' && auth?.currentUser?.uid === currentUser.id)
+  const canViewPartnerAccounts = Boolean(currentUser?.role === 'admin' && currentUser.loginId === quickAdminLoginId && auth?.currentUser?.uid === currentUser.id)
+  const pauseAdminWorkspace = () => {
+    const firebaseUser = auth?.currentUser
+    if (!canViewPartnerAccounts || !firebaseUser || !isQuickAdminAccount(firebaseUser)) return
+    resetWorkspace()
+    setAuthError('')
+    setPendingAdminSession(firebaseUser)
+  }
 
   const notify = (msg: string) => { setToast(msg); window.setTimeout(() => setToast(''), 2800) }
   const resetCustomerFilters = () => { setQuery(''); setPartnerFilter('전체 제휴업체'); setManagerFilter('전체 담당자'); setStatusFilter('전체'); setVisitFilter('전체') }
@@ -743,6 +798,15 @@ export default function App() {
   }
   if (!isFirebaseConfigured && !isDemoMode) return <SetupRequired/>
   if (!authReady) return <div className="loading-screen"><div className="brand-mark">D5</div><p>안전하게 연결하는 중...</p></div>
+  if (pendingAdminSession) return <AdminResumeScreen
+    accountError={authError}
+    onResume={() => resumeAdminSession.current?.(pendingAdminSession)}
+    onSignOut={async () => {
+      if (!auth || auth.currentUser !== pendingAdminSession) return
+      try { await signOut(auth) }
+      catch { setAuthError('로그아웃하지 못했습니다. 다시 시도해주세요.') }
+    }}
+  />
   if (!currentUser) return <LoginScreen accountError={authError} onLoginStart={() => setAuthError('')}/>
   if (currentUser.mustChangePassword) return <PasswordChangeScreen key={currentUser.id} onComplete={userId => setCurrentUser(user => user?.id === userId && auth?.currentUser?.uid === userId ? { ...user, mustChangePassword: false } : user)}/>
   if (currentUser.role === 'partner') return currentUser.partnerId ? <PartnerPortal userId={currentUser.id} loginId={currentUser.loginId} partnerId={currentUser.partnerId}/> : <div className="loading-screen"><p>업체 연결 정보를 확인해 주세요.</p><button onClick={() => auth && signOut(auth)}>로그아웃</button></div>
@@ -752,7 +816,7 @@ export default function App() {
 
     <main>
       <section className="content">
-        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>{isPartnerPreview ? '연결 고객, 한눈에.' : '좋은 인연을, 놓치지 않도록.'}</h1><p>{isPartnerPreview ? '업체별 고객 진행 현황과 예상 정산을 확인하세요.' : '제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.'}</p></div><div className="heading-actions">{!isPartnerPreview && salesReviewReady && salesReviewItems.length > 0 ? <button type="button" className="btn sales-review-open" aria-haspopup="dialog" aria-expanded={salesReviewOpen} onClick={() => setSalesReviewOpen(true)}>판매경로 점검 {salesReviewItems.length}개</button> : null}{canViewPartnerAccounts && !isPartnerPreview ? <button type="button" className="btn secondary" aria-haspopup="dialog" aria-expanded={partnerAccountsOpen} onClick={() => setPartnerAccountsOpen(true)}><Building2 size={16}/>업체 계정</button> : null}<button type="button" className="btn secondary" aria-haspopup="dialog" aria-expanded={updateHistoryOpen} onClick={() => setUpdateHistoryOpen(true)}><Clock3 size={16}/>업데이트 내역</button><button type="button" className="btn guide-button" aria-haspopup="dialog" aria-expanded={settlementGuideOpen} onClick={()=>setSettlementGuideOpen(true)}><CircleHelp size={16}/>제휴·정산 안내</button>{canManageAll && !isPartnerPreview ? <button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button> : null}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
+        <div className="page-heading"><div>{isDemoMode&&<div className="demo-notice"><span>DEMO</span><strong>데모 모드</strong><p>표시된 고객은 예시 데이터이며 변경사항은 운영 DB에 저장되지 않습니다.</p></div>}<p className="eyebrow">PARTNER REFERRAL CRM</p><h1>{isPartnerPreview ? '연결 고객, 한눈에.' : '좋은 인연을, 놓치지 않도록.'}</h1><p>{isPartnerPreview ? '업체별 고객 진행 현황과 예상 정산을 확인하세요.' : '제휴업체 소개 고객의 접수부터 방문, 상담, 계약까지 한곳에서 관리하세요.'}</p></div><div className="heading-actions">{!isPartnerPreview && salesReviewReady && salesReviewItems.length > 0 ? <button type="button" className="btn sales-review-open" aria-haspopup="dialog" aria-expanded={salesReviewOpen} onClick={() => setSalesReviewOpen(true)}>판매경로 점검 {salesReviewItems.length}개</button> : null}{canViewPartnerAccounts && !isPartnerPreview ? <button type="button" className="btn secondary" aria-haspopup="dialog" aria-expanded={partnerAccountsOpen} onClick={() => setPartnerAccountsOpen(true)}><Building2 size={16}/>업체 계정</button> : null}<button type="button" className="btn secondary" aria-haspopup="dialog" aria-expanded={updateHistoryOpen} onClick={() => setUpdateHistoryOpen(true)}><Clock3 size={16}/>업데이트 내역</button><button type="button" className="btn guide-button" aria-haspopup="dialog" aria-expanded={settlementGuideOpen} onClick={()=>setSettlementGuideOpen(true)}><CircleHelp size={16}/>제휴·정산 안내</button>{canManageAll && !isPartnerPreview ? <button className="btn primary" onClick={() => { setActive(blankLead()); setCreating(true); setOpenMemoOnDrawer(false) }}><Plus size={18}/>신규 고객 등록</button> : null}{canViewPartnerAccounts && isQuickAdminAccount(auth?.currentUser ?? null) && <button type="button" className="btn secondary" onClick={pauseAdminWorkspace}>로그인 화면</button>}{isFirebaseConfigured&&<button className="btn secondary" onClick={()=>auth&&signOut(auth)}><LogOut size={16}/>로그아웃</button>}</div></div>
 
         {dataError&&<div className="data-alert"><CircleHelp size={18}/><div><strong>데이터를 불러오지 못했습니다.</strong><span>{dataError}</span></div><button onClick={()=>window.location.reload()}>다시 시도</button></div>}
 
@@ -1140,6 +1204,22 @@ function PasswordChangeScreen({onComplete}:{onComplete:(userId:string)=>void}) {
   }
   return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">FIRST LOGIN</p><h1>새 비밀번호 설정</h1><p className="login-copy">초기 비밀번호를 본인만 아는 비밀번호로 변경해주세요.</p><form onSubmit={save}><label>새 비밀번호<input type="password" autoComplete="new-password" required disabled={busy} value={password} onChange={e=>setPassword(e.target.value)} placeholder="영문·숫자 포함 10자 이상"/></label><label>새 비밀번호 확인<input type="password" autoComplete="new-password" required disabled={busy} value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} placeholder="한 번 더 입력"/></label>{error ? <p className="login-error" role="alert">{error}</p> : null}<button className="btn primary" disabled={busy}>{busy?'변경 중...':'비밀번호 변경'}</button><button type="button" className="btn secondary" disabled={busy} onClick={()=>auth&&signOut(auth)}>다른 계정으로 로그인</button></form><div className="login-safe"><Sparkles size={15}/> 최초 로그인 보안 설정</div></div></div>
 }
+function AdminResumeScreen({ accountError, onResume, onSignOut }: { accountError: string; onResume: () => void; onSignOut: () => Promise<void> }) {
+  const [signingOut, setSigningOut] = useState(false)
+  return <div className="login-screen"><div className="login-card">
+    <div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div>
+    <p className="eyebrow">SECURE WORKSPACE</p>
+    <h1><button type="button" className="login-title" title="관리자 세션으로 계속" onClick={onResume} disabled={signingOut}>D5 제휴고객 관리</button></h1>
+    <p className="login-copy">제목을 눌러 관리자 접속을 계속하세요.</p>
+    {accountError && <p className="login-error" role="alert">{accountError}</p>}
+    <button type="button" className="btn secondary" disabled={signingOut} onClick={async () => {
+      setSigningOut(true)
+      try { await onSignOut() } finally { setSigningOut(false) }
+    }}>로그아웃</button>
+    <div className="login-safe"><Sparkles size={15}/> Firebase 보안 인증</div>
+  </div></div>
+}
+
 function LoginScreen({accountError,onLoginStart}:{accountError:string;onLoginStart:()=>void}) {
   const formRef = useRef<HTMLFormElement>(null)
   const loginIdInput = useRef<HTMLInputElement>(null)
@@ -1180,14 +1260,14 @@ function LoginScreen({accountError,onLoginStart}:{accountError:string;onLoginSta
   const quickLogin = () => {
     if (busy || idComposing.current) return
     const loginId = loginIdInput.current?.value.trim()
-    if (loginId === '12784' && passwordInput.current?.value) {
+    if (loginId === quickAdminLoginId && passwordInput.current?.value) {
       formRef.current?.requestSubmit()
       return
     }
     onLoginStart()
     setFailureCode(undefined)
     setError('브라우저에서 저장된 관리자 로그인 정보를 채우거나 ID와 비밀번호를 입력해주세요.')
-    if (loginId === '12784') passwordInput.current?.focus()
+    if (loginId === quickAdminLoginId) passwordInput.current?.focus()
     else loginIdInput.current?.focus()
   }
   return <div className="login-screen"><div className="login-card"><div className="login-logo"><div className="brand-mark">D5</div><div><strong>Partner Desk</strong><span>LG전자 플래그십 D5</span></div></div><p className="eyebrow">SECURE WORKSPACE</p><h1><button type="button" className="login-title" title="저장된 관리자 계정으로 빠른 로그인" onClick={quickLogin} disabled={busy}>D5 제휴고객 관리</button></h1><p className="login-copy">ID와 비밀번호로 로그인해주세요.</p><form ref={formRef} onSubmit={login}><label htmlFor="login-id">ID<input ref={loginIdInput} id="login-id" name="loginId" aria-label="ID" aria-describedby="login-id-help" type="text" inputMode="text" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="username" required defaultValue="" onCompositionStart={() => { idComposing.current = true }} onCompositionEnd={() => { idComposing.current = false }} onBlur={() => { idComposing.current = false }} onKeyDown={event => { if (event.key === 'Enter' && (idComposing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) event.preventDefault() }} placeholder="ID를 입력하세요"/><small id="login-id-help" className="login-id-help">영문·숫자, 대소문자 구분 없음</small></label><label>비밀번호<input ref={passwordInput} id="login-password" name="password" aria-label="비밀번호" type={showPassword ? 'text' : 'password'} autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="current-password" required placeholder="기존 비밀번호"/></label><div className="login-password-options"><button type="button" className="login-password-toggle" aria-controls="login-password" aria-pressed={showPassword} aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={14}/> : <Eye size={14}/>}<span>{showPassword ? '숨기기' : '보기'}</span></button></div>{(error||accountError) ? <p className="login-error" role="alert">{error||accountError}{error && failureCode ? <small className="login-error-code">{failureCode}</small> : null}</p> : null}<button className="btn primary" disabled={busy}>{busy?'접속 중...':'로그인'}</button></form><div className="login-safe"><Sparkles size={15}/> Firebase 보안 인증</div></div></div>
