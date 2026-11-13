@@ -14,12 +14,11 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
   const [publication, setPublication] = useState<PartnerPublication | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [checkedAt, setCheckedAt] = useState('')
   const [settlementGuideOpen, setSettlementGuideOpen] = useState(false)
   const closeSettlementGuide = useCallback(() => setSettlementGuideOpen(false), [])
 
   useEffect(() => {
-    setPublication(null); setCheckedAt(''); setError(''); setLoading(true)
+    setPublication(null); setError(''); setLoading(true)
     if (!db || !auth || auth.currentUser?.uid !== userId) { setError('로그인 연결을 확인해 주세요.'); setLoading(false); return }
     const firestoreDb = db
     const firebaseAuth = auth
@@ -28,7 +27,7 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
     const sameSession = () => active && firebaseAuth.currentUser?.uid === userId
     const clearPublication = (message: string) => {
       stopPublication?.(); stopPublication = null
-      setPublication(null); setCheckedAt(''); setError(message); setLoading(false)
+      setPublication(null); setError(message); setLoading(false)
     }
     const stopProfile = onSnapshot(doc(firestoreDb, 'profiles', userId), { includeMetadataChanges: true }, snapshot => {
       if (!sameSession()) return
@@ -47,12 +46,11 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
       stopPublication = onSnapshot(doc(firestoreDb, 'partnerViews', identity.partnerId), { includeMetadataChanges: true }, published => {
         if (!sameSession()) return
         if (published.metadata.fromCache || published.metadata.hasPendingWrites) {
-          setPublication(null); setCheckedAt(''); setError('서버 연결을 확인해 주세요.'); setLoading(false); return
+          setPublication(null); setError('서버 연결을 확인해 주세요.'); setLoading(false); return
         }
         const next = published.exists() ? parsePartnerPublication(published.data(), identity.partnerId) : null
-        if (!next) { setPublication(null); setCheckedAt(''); setError('업체 자료가 아직 게시되지 않았습니다. 관리자에게 확인해 주세요.'); setLoading(false); return }
+        if (!next) { setPublication(null); setError('업체 자료가 아직 게시되지 않았습니다. 관리자에게 확인해 주세요.'); setLoading(false); return }
         setPublication(next)
-        setCheckedAt(new Date().toISOString())
         setError(''); setLoading(false)
       }, () => { if (sameSession()) clearPublication('업체 자료 조회 권한을 확인해 주세요.') })
     }, () => { if (sameSession()) clearPublication('업체 계정 권한을 확인하지 못했습니다.') })
@@ -60,7 +58,6 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
   }, [userId, loginId, partnerId])
 
   const model = useMemo(() => publication?.months.length ? buildPartnerPortalModel(publication) : null, [publication])
-  const stamp = (value: string) => new Date(value).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
   return <main className="partner-portal">
     <header className="partner-portal-toolbar">
       <div>
@@ -75,7 +72,6 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
     </header>
     {loading ? <p role="status">업체 자료를 확인하는 중입니다.</p> : error ? <p className="partner-portal-error" role="alert">{error}</p> : null}
     {model ? <PartnerPreview model={model} presentation="portal"/> : publication && !loading && !error ? <section className="partner-preview partner-preview-portal"><p>연결 고객 자료가 없습니다.</p></section> : null}
-    {publication ? <details className="partner-portal-info"><summary>자료 갱신 정보</summary><div><span>자료 갱신 {stamp(publication.publishedAt)}</span>{checkedAt ? <span>서버 확인 {stamp(checkedAt)}</span> : null}</div><p className="partner-portal-note">묶음은 선택한 기준으로 계산합니다. 관리자가 게시한 자료를 자동으로 불러옵니다.</p></details> : null}
     {settlementGuideOpen ? <SettlementGuideModal onClose={closeSettlementGuide} audience="partner"/> : null}
   </main>
 }
