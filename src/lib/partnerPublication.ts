@@ -2,7 +2,7 @@ import type { Lead, LeadStatus } from '../types'
 import { STATUSES } from '../types'
 import { expectedSettlementMonthFor, isValidDeliveryDate } from './commissionSettlement'
 import { isValidDeliverySchedule } from './deliverySchedule'
-import { buildPartnerPreview, getPartnerPreviewMonths, type PartnerPreviewCustomer, type PartnerPreviewModel, type PartnerPreviewSettlement, type PartnerSalesChannel } from './partnerPreview'
+import { buildPartnerPreview, getPartnerPreviewMonths, summarizePartnerSettlements, type PartnerPreviewCustomer, type PartnerPreviewModel, type PartnerPreviewSettlement, type PartnerSalesChannel } from './partnerPreview'
 import { isSalesCommissionChannelEligible } from './salesRaw'
 import { PARTNER_ACCOUNTS, partnerIdentityFor } from './partnerIdentity'
 import { invitationCampaignFor } from './invitationCampaign'
@@ -200,6 +200,24 @@ export function parsePartnerPublication(value: unknown, expectedPartnerId: strin
     return encodedBytes(result) <= MAX_PARTNER_PUBLICATION_BYTES ? result : null
   } catch {
     return null
+  }
+}
+
+/** Combine one tenant's validated intake cohorts for the portal. */
+export function buildPartnerPortalModel(publication: PartnerPublication): Omit<PartnerPreviewModel, 'intakeMonth'> {
+  const { months, partnerName } = publication
+  const customers = months.flatMap(month => month.customers.map(customer => ({
+    ...customer,
+    key: `${month.intakeMonth}:${customer.key}`,
+  })))
+  return {
+    partnerName,
+    customers,
+    customerCount: customers.length,
+    receiptCount: months.reduce((total, month) => total + month.receiptCount, 0),
+    completedCount: months.reduce((total, month) => total + month.completedCount, 0),
+    activeCount: months.reduce((total, month) => total + month.activeCount, 0),
+    ...summarizePartnerSettlements(customers),
   }
 }
 

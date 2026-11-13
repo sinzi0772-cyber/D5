@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type ReactNode } from 'react'
+import { useId, useMemo, useState } from 'react'
 import { summarizePartnerSettlements, type PartnerPreviewModel, type PartnerSalesChannel } from '../lib/partnerPreview'
 import { isApprovedSubscriptionReviewPartner } from '../lib/salesChannelReview'
 import { SUBSCRIPTION_REVIEW_PARTNERS } from '../lib/subscriptionPartners'
@@ -64,10 +64,9 @@ function CustomerSalesChannels({ channels: allChannels, partnerName, summaryOnly
 }
 
 /** Accepts only the safe projection; no saved documents or staff-only callbacks. */
-export function PartnerPreview({ model, presentation = 'preview', intakeMonthControl }: {
-  model: PartnerPreviewModel
+export function PartnerPreview({ model, presentation = 'preview' }: {
+  model: Omit<PartnerPreviewModel, 'intakeMonth'> & { intakeMonth?: string }
   presentation?: 'preview' | 'portal'
-  intakeMonthControl?: ReactNode
 }) {
   const [requestedSettlement, setRequestedSettlement] = useState('')
   const [customerSort, setCustomerSort] = useState<PartnerSort<PartnerCustomerSortKey>>(DEFAULT_CUSTOMER_SORT)
@@ -82,10 +81,10 @@ export function PartnerPreview({ model, presentation = 'preview', intakeMonthCon
   const settlements = useMemo(() => sortPartnerSettlements(settlementSummary.settlements, settlementSort), [settlementSummary.settlements, settlementSort])
   const feeCardId = useId()
   const feeCard = getPartnerSettlementCard(settlementSummary, requestedSettlement)
-  const groupMonthControls = presentation === 'portal' && Boolean(intakeMonthControl)
+  const isPortal = presentation === 'portal'
   const hasSettlementMonths = feeCard.options.length > 0
-  const settlementMonthControl = (hasSettlementMonths || groupMonthControls) ? (
-    <label className={groupMonthControls ? undefined : 'partner-preview-fee-period'}>
+  const settlementMonthControl = (hasSettlementMonths || isPortal) ? (
+    <label className={isPortal ? undefined : 'partner-preview-fee-period'}>
       <span>정산월</span>
       <select aria-label="예상 수수료 정산월" value={feeCard.selection} disabled={!hasSettlementMonths} onChange={event => setRequestedSettlement(event.target.value)}>
         {hasSettlementMonths
@@ -102,21 +101,18 @@ export function PartnerPreview({ model, presentation = 'preview', intakeMonthCon
       : '예정된 수수료 없음'
   return <section className={`partner-preview${presentation === 'portal' ? ' partner-preview-portal' : ''}`} aria-label={presentation === 'portal' ? '업체 고객 현황' : '업체용 화면 미리보기'}>
     <header className="partner-preview-heading">
-      <div><span className="partner-preview-eyebrow">PARTNER VIEW</span><h2>{model.partnerName || '제휴업체를 선택해 주세요'}</h2><p>{monthLabel(model.intakeMonth)} 접수 · 묶음은 최초 접수월 기준</p></div>
+      <div><span className="partner-preview-eyebrow">PARTNER VIEW</span><h2>{model.partnerName || '제휴업체를 선택해 주세요'}</h2>{!isPortal && model.intakeMonth && <p>{monthLabel(model.intakeMonth)} 접수 · 묶음은 최초 접수월 기준</p>}</div>
     </header>
 
     {model.partnerName ? <>
-      {groupMonthControls ? <div className="partner-portal-period" role="group" aria-label="조회 기준 월">
-        {intakeMonthControl}
-        {settlementMonthControl}
-      </div> : null}
+      {isPortal ? <div className="partner-portal-period">{settlementMonthControl}</div> : null}
       <div className="partner-preview-stats">
-        <div><span>접수</span><strong>{count(model.receiptCount)}<small>건</small></strong><p>고객 {count(model.customerCount)}명</p></div>
+        <div><span>{isPortal ? '전체 접수' : '접수'}</span><strong>{count(model.receiptCount)}<small>건</small></strong><p>고객 {count(model.customerCount)}명</p></div>
         <div><span>판매 건수</span><strong>{count(model.completedCount)}<small>건</small></strong><p>관리중 {count(model.activeCount)}건</p></div>
         <div className="partner-preview-fee" id={feeCardId} aria-label="월별 예상 수수료">
           <div className="partner-preview-fee-heading">
             <span>{filterInvitations ? `${NOVEMBER_INVITATION_LABEL} 예상 수수료` : '예상 수수료'}</span>
-            {groupMonthControls ? null : settlementMonthControl}
+            {isPortal ? null : settlementMonthControl}
           </div>
           <strong aria-live="polite">{settlementSummary.basisRequiredCount && !hasSettlementMonths ? '기준 확인 필요' : won(feeCard.expectedCommission)}</strong>
           <p>{feeCaption}</p>
@@ -158,7 +154,7 @@ export function PartnerPreview({ model, presentation = 'preview', intakeMonthCon
             {customer.label}
             {customer.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
           </td><td>{dateLabel(customer.registeredAt)}</td><td><span className={`partner-preview-status${customer.status === '구매완료' ? ' completed' : ''}`}>{customer.status}</span></td><td>{dateLabel(customer.deliveryScheduledDate)}</td><td>{customer.basisRequired ? '기준 고객 확인 필요' : customer.expectedSettlementMonth ? `${monthLabel(customer.expectedSettlementMonth)} 중순` : customer.status === '구매완료' ? '배송일 확인 필요' : '—'}</td><td className="partner-preview-customer-fee">{customer.basisRequired ? '확인 필요' : customer.expectedCommission === null ? '—' : won(customer.expectedCommission)}<CustomerSalesChannels partnerName={model.partnerName} channels={customer.salesChannels} summaryOnly={presentation === 'portal'}/></td></tr>)}</tbody>
-        </table></div> : <p className="partner-preview-empty">선택한 접수월에 연결된 고객이 없습니다.</p>}
+        </table></div> : <p className="partner-preview-empty">{isPortal ? '연결된 고객이 없습니다.' : '선택한 접수월에 연결된 고객이 없습니다.'}</p>}
       </section>
     </> : <p className="partner-preview-empty">업체를 선택해 주세요.</p>}
   </section>

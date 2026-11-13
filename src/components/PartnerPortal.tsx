@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CircleHelp, LogOut } from 'lucide-react'
 import { signOut } from 'firebase/auth'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { auth, db } from '../lib/firebase'
 import { checkedPartnerIdentity } from '../lib/accountAccess'
-import { parsePartnerPublication, type PartnerPublication } from '../lib/partnerPublication'
+import { buildPartnerPortalModel, parsePartnerPublication, type PartnerPublication } from '../lib/partnerPublication'
 import { PartnerPreview } from './PartnerPreview'
 import { SettlementGuideModal } from './SettlementGuideModal'
 import './PartnerPortal.css'
@@ -12,7 +12,6 @@ import './PartnerPortal.css'
 /** Real company sessions never receive staff Lead documents or staff controls. */
 export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; loginId: string; partnerId: string }) {
   const [publication, setPublication] = useState<PartnerPublication | null>(null)
-  const [month, setMonth] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [checkedAt, setCheckedAt] = useState('')
@@ -20,7 +19,7 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
   const closeSettlementGuide = useCallback(() => setSettlementGuideOpen(false), [])
 
   useEffect(() => {
-    setPublication(null); setMonth(''); setCheckedAt(''); setError(''); setLoading(true)
+    setPublication(null); setCheckedAt(''); setError(''); setLoading(true)
     if (!db || !auth || auth.currentUser?.uid !== userId) { setError('로그인 연결을 확인해 주세요.'); setLoading(false); return }
     const firestoreDb = db
     const firebaseAuth = auth
@@ -54,22 +53,13 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
         if (!next) { setPublication(null); setCheckedAt(''); setError('업체 자료가 아직 게시되지 않았습니다. 관리자에게 확인해 주세요.'); setLoading(false); return }
         setPublication(next)
         setCheckedAt(new Date().toISOString())
-        setMonth(current => next.months.some(model => model.intakeMonth === current) ? current : next.months[0]?.intakeMonth || '')
         setError(''); setLoading(false)
       }, () => { if (sameSession()) clearPublication('업체 자료 조회 권한을 확인해 주세요.') })
     }, () => { if (sameSession()) clearPublication('업체 계정 권한을 확인하지 못했습니다.') })
     return () => { active = false; stopPublication?.(); stopProfile() }
   }, [userId, loginId, partnerId])
 
-  const selected = publication?.months.find(model => model.intakeMonth === month)
-  const intakeMonthControl = publication ? (
-    <label>
-      <span>접수월</span>
-      <select aria-label="업체 접수월" value={month} onChange={event => setMonth(event.target.value)}>
-        {publication.months.map(model => <option key={model.intakeMonth} value={model.intakeMonth}>{model.intakeMonth.replace('-', '년 ')}월</option>)}
-      </select>
-    </label>
-  ) : null
+  const model = useMemo(() => publication?.months.length ? buildPartnerPortalModel(publication) : null, [publication])
   const stamp = (value: string) => new Date(value).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })
   return <main className="partner-portal">
     <header className="partner-portal-toolbar">
@@ -84,7 +74,7 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
       </div>
     </header>
     {loading ? <p role="status">업체 자료를 확인하는 중입니다.</p> : error ? <p className="partner-portal-error" role="alert">{error}</p> : null}
-    {selected ? <PartnerPreview model={selected} presentation="portal" intakeMonthControl={intakeMonthControl}/> : publication && !loading && !error ? <section className="partner-preview partner-preview-portal"><p>연결 고객 자료가 없습니다.</p></section> : null}
+    {model ? <PartnerPreview model={model} presentation="portal"/> : publication && !loading && !error ? <section className="partner-preview partner-preview-portal"><p>연결 고객 자료가 없습니다.</p></section> : null}
     {publication ? <details className="partner-portal-info"><summary>자료 갱신 정보</summary><div><span>자료 갱신 {stamp(publication.publishedAt)}</span>{checkedAt ? <span>서버 확인 {stamp(checkedAt)}</span> : null}</div><p className="partner-portal-note">묶음은 선택한 기준으로 계산합니다. 관리자가 게시한 자료를 자동으로 불러옵니다.</p></details> : null}
     {settlementGuideOpen ? <SettlementGuideModal onClose={closeSettlementGuide} audience="partner"/> : null}
   </main>
