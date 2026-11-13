@@ -74,18 +74,33 @@ function PortalSettlement({ summary, receiptCount, completedCount, event }: {
   completedCount: number
   event?: boolean
 }) {
+  const [requestedMonth, setRequestedMonth] = useState('')
+  const selectedBucket = summary.settlements.find(bucket => bucket.month === requestedMonth)
+  const showUndated = requestedMonth === 'undated' && summary.undatedCustomerCount > 0
+  const selectedMonth = selectedBucket?.month ?? (showUndated ? 'undated' : '')
+  const visibleSettlements = selectedBucket ? [selectedBucket] : showUndated ? [] : summary.settlements
+  const includeUndated = summary.undatedCustomerCount > 0 && !selectedBucket
+  const total = selectedBucket?.expectedCommission ?? (showUndated ? summary.undatedExpectedCommission : summary.completedExpectedCommission)
   const hasSettlementMonths = summary.settlements.length > 0 || summary.undatedCustomerCount > 0
   const basisRequiredCount = summary.basisRequiredCount ?? 0
   return <section className={event ? 'partner-portal-settlement partner-portal-event-settlement' : 'partner-portal-settlement'}
     aria-label={event ? NOVEMBER_INVITATION_LABEL + ' 예상 수수료' : '월별 예상 수수료'}>
+    {hasSettlementMonths && <label className="partner-portal-settlement-period">
+      <span>정산월</span>
+      <select aria-label={event ? `${NOVEMBER_INVITATION_LABEL} 정산월` : '정산월'} value={selectedMonth} onChange={event => setRequestedMonth(event.target.value)}>
+        <option value="">전체 정산월</option>
+        {summary.settlements.map(bucket => <option key={bucket.month} value={bucket.month}>{monthLabel(bucket.month)}</option>)}
+        {summary.undatedCustomerCount > 0 && <option value="undated">정산월 미정</option>}
+      </select>
+    </label>}
     <dl className="partner-portal-settlement-summary">
       <div><dt>접수</dt><dd>{count(receiptCount)}건</dd></div>
       <div><dt>판매</dt><dd>{count(completedCount)}건</dd></div>
-      <div className="partner-portal-settlement-total"><dt>예상 수수료 합계</dt><dd aria-live="polite">{hasSettlementMonths ? won(summary.completedExpectedCommission) : summary.basisRequiredCount ? '기준 확인 필요' : '0원'}</dd></div>
+      <div className="partner-portal-settlement-total"><dt>{selectedMonth ? '예상 수수료' : '예상 수수료 합계'}</dt><dd aria-live="polite">{hasSettlementMonths ? won(total) : summary.basisRequiredCount ? '기준 확인 필요' : '0원'}</dd></div>
     </dl>
     {hasSettlementMonths ? <>
       <ul className="partner-portal-settlement-months" aria-label="월별 예상 정산">
-        {summary.settlements.map(bucket => {
+        {visibleSettlements.map(bucket => {
           const deliveryMonth = scheduledDeliveryMonthForSettlement(bucket.month)
           return <li key={bucket.month}>
             <div className="partner-portal-settlement-amount"><strong>{won(bucket.expectedCommission)}</strong><small>{count(bucket.customerCount)}명</small></div>
@@ -95,12 +110,12 @@ function PortalSettlement({ summary, receiptCount, completedCount, event }: {
             </div>
           </li>
         })}
-        {summary.undatedCustomerCount > 0 && <li className="partner-portal-settlement-undated">
+        {includeUndated && <li className="partner-portal-settlement-undated">
           <div className="partner-portal-settlement-amount"><strong>{won(summary.undatedExpectedCommission)}</strong><small>{count(summary.undatedCustomerCount)}명</small></div>
           <div className="partner-portal-settlement-dates"><span>정산월 미정</span></div>
         </li>}
       </ul>
-      {summary.settlements.length > 0 && <p className="partner-portal-settlement-note">실제 수령월에 따라 정산 시점이 달라질 수 있습니다.</p>}
+      {visibleSettlements.length > 0 && <p className="partner-portal-settlement-note">실제 수령월에 따라 정산 시점이 달라질 수 있습니다.</p>}
     </> : <p className="partner-preview-empty">예상 정산 내역이 없습니다.</p>}
     {basisRequiredCount > 0 && <BasisNotice customerCount={basisRequiredCount}/>}
   </section>

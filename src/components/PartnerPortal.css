@@ -33,6 +33,20 @@
 .partner-portal .partner-portal-event-button:hover,
 .partner-portal .partner-portal-event-button[aria-expanded="true"] { background: #e8eff8; }
 .partner-portal-event-settlement { margin-bottom: 12px; border-color: #dce6f3; background: #f6f9fe; }
+.partner-portal-settlement-period {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: #4e6c67;
+  font-size: 12px;
+}
+.partner-portal .partner-portal-settlement-period select {
+  min-height: 34px;
+  min-width: 132px;
+  max-width: 100%;
+  padding: 5px 9px;
+}
 .partner-portal-settlement-summary {
   display: flex;
   align-items: center;
