@@ -27,6 +27,27 @@
 .partner-preview-section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
 .partner-preview-section-heading h2, .partner-preview-section-heading h3 { font-size: 15px; margin: 0; }
 .partner-preview-section-heading small { color: #778c92; font-size: 11px; }
+.partner-preview-customer-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.partner-preview-customer-filter { display: inline-flex; gap: 2px; padding: 3px; border-radius: 8px; background: #edf4f2; }
+.partner-preview .partner-preview-customer-filter button {
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #48625d;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.partner-preview .partner-preview-customer-filter button[aria-pressed="true"] {
+  border-color: #c6e1d9;
+  background: #fff;
+  color: #0b7269;
+  font-weight: 700;
+}
+.partner-preview .partner-preview-customer-filter button:focus-visible { outline: 2px solid #208d80; outline-offset: 2px; }
 .partner-preview-settlement-table { border: 1px solid #dfeae5; border-radius: 8px; overflow: hidden; background: #fff; }
 .partner-preview-settlement-table table { width: 100%; min-width: 0; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
 .partner-preview-settlement-table th, .partner-preview-settlement-table td { width: auto; height: auto; padding: 10px 12px; border: 0; border-top: 1px solid #e5eeea; vertical-align: middle; font-size: 13px; }

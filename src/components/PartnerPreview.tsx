@@ -68,7 +68,13 @@ export function PartnerPreview({ model, presentation = 'preview', intakeMonthCon
   const [requestedSettlement, setRequestedSettlement] = useState('')
   const [customerSort, setCustomerSort] = useState<PartnerSort<PartnerCustomerSortKey>>(DEFAULT_CUSTOMER_SORT)
   const [settlementSort, setSettlementSort] = useState<PartnerSort<PartnerSettlementSortKey>>(DEFAULT_SETTLEMENT_SORT)
-  const customers = useMemo(() => sortPartnerCustomers(model.customers, customerSort), [model.customers, customerSort])
+  const [invitationOnly, setInvitationOnly] = useState(false)
+  const hasInvitations = model.customers.some(customer => customer.invitationCampaign)
+  const filterInvitations = invitationOnly && hasInvitations
+  const customers = useMemo(() => sortPartnerCustomers(
+    filterInvitations ? model.customers.filter(customer => customer.invitationCampaign) : model.customers,
+    customerSort,
+  ), [model.customers, customerSort, filterInvitations])
   const settlements = useMemo(() => sortPartnerSettlements(model.settlements, settlementSort), [model.settlements, settlementSort])
   const feeCardId = useId()
   const feeCard = getPartnerSettlementCard(model, requestedSettlement)
@@ -132,7 +138,16 @@ export function PartnerPreview({ model, presentation = 'preview', intakeMonthCon
       </section>
 
       <section className="partner-preview-customers" aria-label="자사 연결 고객 현황">
-        <div className="partner-preview-section-heading"><SectionHeading>연결 고객</SectionHeading><small aria-live="polite">{customerSortCaptions[customerSort.key][customerSort.direction]}</small></div>
+        <div className="partner-preview-section-heading">
+          <SectionHeading>연결 고객</SectionHeading>
+          <div className="partner-preview-customer-controls">
+            {hasInvitations && <div className="partner-preview-customer-filter" role="group" aria-label="연결 고객 필터">
+              <button type="button" aria-pressed={!filterInvitations} onClick={() => setInvitationOnly(false)}>전체 고객</button>
+              <button type="button" aria-pressed={filterInvitations} onClick={() => setInvitationOnly(true)}>{NOVEMBER_INVITATION_LABEL}</button>
+            </div>}
+            <small aria-live="polite">{customerSortCaptions[customerSort.key][customerSort.direction]}</small>
+          </div>
+        </div>
         {customers.length > 0 ? <div className="partner-preview-table-scroll"><table aria-label="연결 고객 목록">
           <thead><tr>{customerColumns.map(column => <SortColumn key={column.key} label={column.label} direction={customerSort.key === column.key ? customerSort.direction : null} nextDirection={nextPartnerCustomerSort(customerSort, column.key).direction} onSort={() => setCustomerSort(current => nextPartnerCustomerSort(current, column.key))}/>)}</tr></thead>
           <tbody>{customers.map(customer => <tr key={customer.key}><td className="partner-preview-customer-label">
