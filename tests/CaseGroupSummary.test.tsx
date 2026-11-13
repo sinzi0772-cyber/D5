@@ -5,8 +5,8 @@ import { CaseGroupSummary } from '../src/components/CaseGroupSummary'
 import type { Lead } from '../src/types'
 
 const members: Lead[] = [
-  { id: 'qa-A', customerName: '가나다', phoneLast4: '01000004101', registeredAt: '2026-10-01', updatedAt: '2026-10-19', gender: '미입력', partnerName: '합성 업체', status: '상담 마감', visitState: '방문', lumpSumAmount: 100000 },
-  { id: 'qa-B', customerName: '나다라', phoneLast4: '01000004202', registeredAt: '2026-11-08', updatedAt: '2026-11-09', gender: '미입력', partnerName: '합성 업체', status: '관리중', visitState: '미정', lumpSumAmount: 200000 },
+  { id: 'qa-A', customerName: '가나다', phoneLast4: '01000004101', registeredAt: '2026-10-01', updatedAt: '2026-10-19', gender: '미입력', partnerName: '합성 업체', appointmentType: '이업종제휴', status: '상담 마감', visitState: '방문', lumpSumAmount: 100000 },
+  { id: 'qa-B', customerName: '나다라', phoneLast4: '01000004202', registeredAt: '2026-11-08', updatedAt: '2026-11-09', gender: '미입력', partnerName: '합성 업체', appointmentType: '미선택', status: '관리중', visitState: '미정', lumpSumAmount: 200000 },
 ]
 const before = JSON.stringify(members)
 let calls = 0
@@ -20,7 +20,15 @@ const html = render()
 assert.equal((html.match(/aria-label="묶음 고객 요약"/g) || []).length, 1)
 assert(html.includes('1명으로 집계') && html.includes('구매금액 합산'))
 assert(html.includes('가** / 4101') && html.includes('나** / 4202'))
-assert(html.includes('접수일 <time dateTime="2026-10-01">2026.10.01</time>') && html.includes('접수일 <time dateTime="2026-11-08">2026.11.08</time>'))
+assert(html.includes('접수일 <time dateTime="2026-10-01">2026.10.01</time> · 이업종제휴'))
+assert(html.includes('접수일 <time dateTime="2026-11-08">2026.11.08</time> · 접수 방식 미확인'))
+assert(!html.includes('미선택'))
+const mixedMethods = render({ members: [
+  { ...members[0], appointmentType: '상담예약(이업종)' },
+  { ...members[1], appointmentType: undefined },
+] })
+assert(mixedMethods.includes('접수일 <time dateTime="2026-10-01">2026.10.01</time> · 상담예약(이업종)'))
+assert(mixedMethods.includes('접수일 <time dateTime="2026-11-08">2026.11.08</time> · 접수 방식 미확인'))
 assert(!html.includes('가나다') && !html.includes('01000004101'))
 assert(html.includes('aria-pressed="true"') && html.includes('aria-pressed="false"'))
 assert(html.includes('aria-label="묶음 처리 선택"') && html.includes('선택 변경'))
@@ -42,7 +50,7 @@ assert.match(readonly, /aria-label="묶음 처리 선택"[^>]*disabled=""/)
 assert(!readonly.includes('두 고객 연결 해제'))
 const linking = render({ onSelectMember: undefined })
 assert(linking.includes('class="case-group-member"') && !linking.includes('aria-pressed='))
-assert(linking.includes('접수일 <time dateTime="2026-11-08">2026.11.08</time>'))
+assert(linking.includes('접수일 <time dateTime="2026-11-08">2026.11.08</time> · 접수 방식 미확인'))
 assert(render({ amountMode: 'single' }).includes('기준 고객 금액 유지'))
 const selected = render({ basisLeadId: 'qa-A' })
 assert.equal((selected.match(/>집계 제외<\/small>/g) || []).length, 1)

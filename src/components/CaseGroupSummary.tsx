@@ -1,6 +1,6 @@
 import { useId, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
-import type { Lead } from '../types'
+import type { AppointmentType, Lead } from '../types'
 import { customerDisplayLabel } from '../lib/customerDisplay'
 
 interface CaseGroupSummaryProps {
@@ -21,6 +21,10 @@ interface CaseGroupSummaryProps {
   children: ReactNode
 }
 
+export function caseOriginalIntakeMethod(type: AppointmentType | undefined): string {
+  return type === '이업종제휴' || type === '상담예약(이업종)' ? type : '접수 방식 미확인'
+}
+
 /** Display only: choice and save behavior remain owned by the editor. */
 export function CaseGroupSummary({ members, activeLeadId, basisLabel, basisLeadId, amountMode, pendingReason, staged, choiceOpen, disabled, onChoose, onAddMember, onSelectMember, onUnlink, unlinkBusy, children }: CaseGroupSummaryProps) {
   const [expanded, setExpanded] = useState(true)
@@ -35,7 +39,7 @@ export function CaseGroupSummary({ members, activeLeadId, basisLabel, basisLeadI
     <div className="case-group-members" aria-label="묶인 고객">
       {members.map(member => {
         const details = <>
-          <small>접수일 {member.registeredAt ? <time dateTime={member.registeredAt}>{member.registeredAt.replaceAll('-', '.')}</time> : '—'}</small>
+          <small>접수일 {member.registeredAt ? <time dateTime={member.registeredAt}>{member.registeredAt.replaceAll('-', '.')}</time> : '—'} · {caseOriginalIntakeMethod(member.appointmentType)}</small>
           <small title={`원본 상태: ${member.status}`}>{memberStatus(member)}</small>
         </>
         return onSelectMember

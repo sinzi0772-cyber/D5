@@ -5,6 +5,7 @@ import {
   Settings, Sparkles, UserRound, UsersRound, X,
 } from 'lucide-react'
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, updatePassword, type User } from 'firebase/auth'
+import { FirebaseError } from 'firebase/app'
 import { collection, doc, getDoc, getDocFromServer, onSnapshot, query as firestoreQuery, runTransaction, setDoc, where, increment } from 'firebase/firestore'
 import { auth, db, isDemoMode, isFirebaseConfigured } from './lib/firebase'
 import type { SeptemberAppointment } from './data/septemberAppointments'
@@ -16,7 +17,7 @@ import { SettlementGuideModal } from './components/SettlementGuideModal'
 import { UpdateHistoryModal } from './components/UpdateHistoryModal'
 import { NOVEMBER_D5_APPOINTMENTS_THROUGH } from './data/updateHistory'
 import { CaseMergeChoiceModal, type CaseMergeChoice } from './components/CaseMergeChoiceModal'
-import { CaseGroupSummary } from './components/CaseGroupSummary'
+import { CaseGroupSummary, caseOriginalIntakeMethod } from './components/CaseGroupSummary'
 import { SalesChannelDetails, type SalesChannelRouteEdit } from './components/SalesChannelDetails'
 import { saveSalesRouteCorrection } from './lib/salesRouteCorrectionSave'
 import { canEditSalesRouteFor } from './lib/salesRouteCorrections'
@@ -687,10 +688,10 @@ export default function App() {
       ? { ...lead, salesRouteCorrections: [...(lead.salesRouteCorrections ?? []), correction] } : lead))
     notify('판매경로를 저장했습니다.')
   }
-  const saveLead = async (lead: Lead, linkTargetId?: string, options?: CaseEditorSaveOptions): Promise<boolean> => {
+  const saveLead = async (lead: Lead, linkTargetId?: string, options?: CaseEditorSaveOptions): Promise<string | null> => {
     const original = active?.id === lead.id ? active : lead
     const deliveryError = caseSaveDeliveryError(original, lead, Boolean(linkTargetId), creating)
-    if (deliveryError) { notify(deliveryError); return false }
+    if (deliveryError) return deliveryError
     const openingMembers = options?.openingMembers || (original.caseGroupId ? leads.filter(item => item.caseGroupId === original.caseGroupId) : [original])
     const formBaseline = options?.formBaseline || original
     const canonicalPartner = creating ? partners.find(partner => partnerKey(partner) === partnerKey(lead.partnerName)) : undefined
@@ -708,19 +709,19 @@ export default function App() {
     }
     try {
       if (isFirebaseConfigured) {
-        if (!db || !currentUser || !dataReady || !serverConfirmed || dataError) throw new Error('서버 확인이 끝난 뒤 다시 저장해주세요.')
+        if (!db || !currentUser || !dataReady || !serverConfirmed || dataError) return '서버에서 최신 고객 정보를 불러오는 중입니다. 잠시 뒤 다시 저장해주세요.'
         const actor = currentUser
         const ownSession = sessionKey
         const result = await saveCaseCustomer(db, {
           original, draft: sanitized, formBaseline, openingMembers, creating, linkTargetId,
           actorId: actor.id, actorEmployeeNo: actor.loginId, canManageAll, basis: options?.basis,
           assertSession: () => {
-            if (latestSessionKey.current !== ownSession || auth?.currentUser?.uid !== actor.id) throw new Error('로그인 상태가 변경되어 저장을 중단했습니다.')
+            if (latestSessionKey.current !== ownSession || auth?.currentUser?.uid !== actor.id) throw new CaseSaveError('CASE_SAVE_SESSION_CHANGED', '로그인 상태가 변경되었습니다. 다시 로그인한 뒤 저장해주세요.')
           },
         })
         setActive(null); setCreating(false); setOpenMemoOnDrawer(false)
         notify(linkTargetId ? original.caseGroupId ? '고객을 묶음에 추가했습니다.' : '접수건이 연결되었습니다.' : result.shared ? '묶음 고객의 담당자·판매금액이 함께 저장되었습니다.' : '고객 정보가 저장되었습니다.')
-        return true
+        return null
       }
       const linkTarget = linkTargetId ? leads.find(item => item.id === linkTargetId) : undefined
       if (linkTargetId && !linkTarget) throw new Error('연결할 고객을 다시 선택해주세요.')
@@ -755,10 +756,19 @@ export default function App() {
           : [{ ...sanitized, updatedAt: now }, ...previous])
       }
       setActive(null); setCreating(false); setOpenMemoOnDrawer(false); notify(linkTargetId ? original.caseGroupId ? '고객을 묶음에 추가했습니다.' : '접수건이 연결되었습니다.' : '고객 정보가 저장되었습니다.')
-      return true
+      return null
     } catch (error) {
-      notify(error instanceof CaseSaveError || error instanceof Error && !isFirebaseConfigured ? error.message : '저장하지 못했습니다. 연결 고객의 변경 여부와 서버 권한을 확인해주세요.')
-      return false
+      if (error instanceof CaseSaveError || error instanceof Error && !isFirebaseConfigured) return error.message
+      if (error instanceof FirebaseError) {
+        switch (error.code) {
+          case 'permission-denied': return '이 변경사항을 저장할 권한이 없습니다. 연결 대상과 로그인 계정의 권한을 확인해주세요.'
+          case 'unauthenticated': return '로그인 상태를 확인할 수 없습니다. 다시 로그인한 뒤 저장해주세요.'
+          case 'aborted': return '저장 중 고객 정보가 변경되었습니다. 상세 화면을 다시 열어 확인해주세요.'
+          case 'unavailable':
+          case 'deadline-exceeded': return '서버 연결이 원활하지 않습니다. 잠시 뒤 다시 저장해주세요.'
+        }
+      }
+      return '고객 정보를 저장하지 못했습니다. 다시 시도해주세요.'
     }
   }
   const unlinkCase = async (lead: Lead, openingMembers?: Lead[]): Promise<boolean> => {
@@ -870,7 +880,7 @@ export default function App() {
             return <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{customerDisplayName(l.customerName).slice(0,1)}</span><div><strong className="customer-labels">{customerLabels.map(customer => <span key={customer.id}>
               {customer.label}
               {customer.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
-            </span>)}</strong>{l.caseGroupId && <em className="case-badge">{leads.filter(member => member.caseGroupId === l.caseGroupId).length === 2 ? '신랑/신부' : '연결 고객 함께 관리'}</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{l.appointmentType&&l.appointmentType!=='미선택'&&<em className="appointment-type">{l.appointmentType}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${filteredModel.excludedRowIds.has(l.id) ? 'gray' : statusTone[l.status]}`} title={filteredModel.excludedRowIds.has(l.id) ? `원본 상태: ${l.status}` : undefined}><i/>{filteredModel.excludedRowIds.has(l.id) ? '집계 제외' : l.status}</span></td><td>{l.status === '취소' ? <span className="purchase-empty">—</span> : <PurchaseSummary members={members} completeMembers={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]}/>}</td><td><ManagementSummary lead={l} members={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]} onOpenCancellation={member=>{setActive(member);setCreating(false);setOpenMemoOnDrawer(true)}} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>
+            </span>)}</strong>{l.caseGroupId && <em className="case-badge">{members.length > 1 && customerLabels.length === 1 ? '묶음 접수' : leads.filter(member => member.caseGroupId === l.caseGroupId).length === 2 ? '신랑/신부' : '연결 고객 함께 관리'}</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{l.appointmentType&&l.appointmentType!=='미선택'&&<em className="appointment-type">{l.appointmentType}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${filteredModel.excludedRowIds.has(l.id) ? 'gray' : statusTone[l.status]}`} title={filteredModel.excludedRowIds.has(l.id) ? `원본 상태: ${l.status}` : undefined}><i/>{filteredModel.excludedRowIds.has(l.id) ? '집계 제외' : l.status}</span></td><td>{l.status === '취소' ? <span className="purchase-empty">—</span> : <PurchaseSummary members={members} completeMembers={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]}/>}</td><td><ManagementSummary lead={l} members={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]} onOpenCancellation={member=>{setActive(member);setCreating(false);setOpenMemoOnDrawer(true)}} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>
           })}</tbody></table>{visibleRows.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
           <div className="panel-foot"><span>{formatMonth(intakeMonth)} · 접수 {visibleRows.length}건 · 고객 {visibleRows.length}명</span><span><i className="privacy-dot"/>민감정보 최소 수집 적용</span></div>
         </div>
@@ -964,7 +974,7 @@ function CustomerNameField({ lead, creating, onChange }: { lead: Lead; creating:
 }
 
 
-function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,openSalesRouteInitially,onSaveSalesRoute,onClose,onSave,onUnlink,remoteChanged}:{lead:Lead,linkedLeads:Lead[],allLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,openSalesRouteInitially:boolean,onSaveSalesRoute?:(edit:SalesChannelRouteEdit)=>Promise<void>,onClose:()=>void,onSave:(l:Lead,linkTargetId?:string,options?:CaseEditorSaveOptions)=>Promise<boolean>,onUnlink:(lead:Lead,openingMembers?:Lead[])=>Promise<boolean>,remoteChanged:boolean}) {
+function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,openSalesRouteInitially,onSaveSalesRoute,onClose,onSave,onUnlink,remoteChanged}:{lead:Lead,linkedLeads:Lead[],allLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,openSalesRouteInitially:boolean,onSaveSalesRoute?:(edit:SalesChannelRouteEdit)=>Promise<void>,onClose:()=>void,onSave:(l:Lead,linkTargetId?:string,options?:CaseEditorSaveOptions)=>Promise<string | null>,onUnlink:(lead:Lead,openingMembers?:Lead[])=>Promise<boolean>,remoteChanged:boolean}) {
   // The parent keys the editor by customer id. These are immutable opening
   // baselines, not live props: a sibling update must not silently reset a draft.
   const [initial] = useState(() => {
@@ -1072,7 +1082,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
     <label>기존 고객 찾기<input placeholder="고객명·휴대폰 뒷자리·제휴업체 검색" value={linkSearch} onChange={event => setLinkSearch(event.target.value)} disabled={saving || editorChanged}/></label>
     <label>{sharedMode ? '추가할 고객' : '연결할 고객'}<select aria-label={sharedMode ? '추가할 고객' : '연결할 고객'} required value={linkTargetId} onChange={event => chooseLinkTarget(event.target.value)} disabled={saving || editorChanged}>
       <option value="">{linkChoices.length ? '고객을 선택하세요' : '검색 결과가 없습니다'}</option>
-      {linkChoices.map(item => <option key={item.id} value={item.id}>{customerDisplayLabel(item)} · {item.partnerName} · {formatDate(item.registeredAt)}{item.caseGroupId ? ' · 묶음' : ''}</option>)}
+      {linkChoices.map(item => <option key={item.id} value={item.id}>{customerDisplayLabel(item)} · {item.partnerName} · {formatDate(item.registeredAt)} · {caseOriginalIntakeMethod(item.appointmentType)}{item.caseGroupId ? ' · 묶음' : ''}</option>)}
     </select></label>
     {sharedMode && <button type="button" className="btn secondary case-link-cancel" disabled={saving} onClick={cancelLink}>고객 추가 취소</button>}
   </div>
@@ -1106,7 +1116,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
     {!creating && !hasCaseChoice && <div className="identity"><div>{customerDisplayName(lead.customerName).slice(0,1)}</div><section><strong>{customerDisplayLabel(lead)}</strong>{lead.bestCustomerNumber ? <small className="customer-best-number">고객번호 {lead.bestCustomerNumber}</small> : <span>고객 식별정보</span>}</section><span className={`badge ${statusTone[form.status]}`}><i/>{form.status}</span></div>}
     {dualIntake && <div className="duplicate-intake-notice"><CircleHelp size={17}/><div><strong>두 방식 중복 접수</strong><p>이업종제휴 · 상담예약(이업종)</p></div></div>}
     {editorChanged && <div className="drawer-sync-warning" role="alert">다른 사용자가 이 고객 또는 연결 고객 정보를 변경했습니다. 화면을 닫고 다시 열어 최신 내용을 확인해주세요.</div>}
-    <form onSubmit={async e => {e.preventDefault(); if (saving || editorChanged || caseChoiceOpen || linkExisting && !linkTargetId) return; if (needsCaseChoice) { setCaseChoiceOpen(true); return } setSaving(true); setSaveError(''); try { const saved = await onSave(form, linkExisting ? linkTargetId : undefined, {formBaseline:formBaseline.current, openingMembers, basis}); if (!saved) setSaveError(sharedMode ? '저장하지 않았습니다. 기준 고객 선택과 최신 연결 정보를 확인해주세요.' : '저장하지 않았습니다. 최신 고객 정보와 연결 대상을 확인해주세요.') } finally {setSaving(false)}}}>
+    <form onSubmit={async e => {e.preventDefault(); if (saving || editorChanged || caseChoiceOpen || linkExisting && !linkTargetId) return; if (needsCaseChoice) { setCaseChoiceOpen(true); return } setSaving(true); setSaveError(''); try { const error = await onSave(form, linkExisting ? linkTargetId : undefined, {formBaseline:formBaseline.current, openingMembers, basis}); if (error) setSaveError(error) } finally {setSaving(false)}}}>
       {hasCaseChoice && <CaseGroupSummary key={lead.id} members={openingMembers} activeLeadId={lead.id}
         basisLabel={wholeCaseSelection?.basis ? customerDisplayLabel(wholeCaseSelection.basis) : undefined} basisLeadId={wholeCaseSelection?.basis?.id}
         amountMode={wholeCaseSelection?.status === 'unresolved' || linkingMode && !basis.caseLeadId ? 'pending' : wholeCaseSelection?.mergeMemberIds ? 'merged' : 'single'}
@@ -1115,10 +1125,10 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
         onAddMember={canManageAll && sharedMode && !linkExisting && initial.members.length < MAX_CASE_MEMBERS ? startLink : undefined}
         onSelectMember={sharedMode && !linkExisting ? onSelectLinked : undefined}
         onUnlink={linkedLeads.length > 1 && canManageAll && !linkExisting ? unlinkSelected : undefined} unlinkBusy={unlinkBusy}>
-        {openingMembers.map(member => <div className="case-original-record" key={member.id}><strong>{customerDisplayLabel(member)}</strong><small>접수일 <time dateTime={member.registeredAt}>{formatDate(member.registeredAt)}</time></small><span>일시불 {enteredAmountFor(member, 'lumpSum') === undefined ? '미입력' : formatWon(lumpSumAmountFor(member))} · 구독 {enteredAmountFor(member, 'subscription') === undefined ? '미입력' : formatWon(subscriptionAmountFor(member))}</span><small>담당자 {member.manager || '미배정'} · {member.status} · 배송 {formatDate(member.deliveryScheduledDate)}</small></div>)}
+        {openingMembers.map(member => <div className="case-original-record" key={member.id}><strong>{customerDisplayLabel(member)}</strong><small>접수일 <time dateTime={member.registeredAt}>{formatDate(member.registeredAt)}</time> · {caseOriginalIntakeMethod(member.appointmentType)}</small><span>일시불 {enteredAmountFor(member, 'lumpSum') === undefined ? '미입력' : formatWon(lumpSumAmountFor(member))} · 구독 {enteredAmountFor(member, 'subscription') === undefined ? '미입력' : formatWon(subscriptionAmountFor(member))}</span><small>담당자 {member.manager || '미배정'} · {member.status} · 배송 {formatDate(member.deliveryScheduledDate)}</small></div>)}
       </CaseGroupSummary>}
       {sharedMode && linkPicker}
-      {(saveError || sharingError) && <p className="case-share-error" role="alert">{saveError || sharingError}</p>}
+      {sharingError && <p className="case-share-error" role="alert">{sharingError}</p>}
       <CaseSharingHistoryView lead={lead}/>
       <fieldset><legend>기본 정보</legend><div className="form-grid">
         <label>등록일자<input type="date" required disabled={!creating} value={form.registeredAt} onChange={e=>update('registeredAt',e.target.value)}/></label>
@@ -1126,7 +1136,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
         <CustomerNameField key={`${form.id}-customer-name`} lead={form} creating={creating} onChange={name=>update('customerName',name)}/>
         <label>휴대폰 뒷 4자리<input required disabled={!creating} inputMode="numeric" maxLength={4} pattern="[0-9]{4}" placeholder="4240" value={creating ? form.phoneLast4 : phoneLast4Display(form.phoneLast4)} onChange={e=>update('phoneLast4',last4(e.target.value))}/></label>
       </div></fieldset>
-      <fieldset><legend>약속 유형</legend><label>접수 방식<select value={form.appointmentType||'미선택'} onChange={e=>update('appointmentType',e.target.value as AppointmentType)}><option value="미선택">미선택</option><option value="이업종제휴">이업종제휴</option><option value="상담예약(이업종)">상담예약(이업종)</option></select></label><div className="appointment-help">{form.appointmentType==='상담예약(이업종)'?'고객 직접 접수':form.appointmentType==='이업종제휴'?'업체 소개 접수':'접수 방식을 선택하세요.'}</div></fieldset>
+      <fieldset><legend>약속 유형</legend><label>접수 방식<select value={form.appointmentType||'미선택'} onChange={e=>update('appointmentType',e.target.value as AppointmentType)}><option value="미선택">{creating ? '미선택' : caseOriginalIntakeMethod('미선택')}</option><option value="이업종제휴">이업종제휴</option><option value="상담예약(이업종)">상담예약(이업종)</option></select></label><div className="appointment-help">{form.appointmentType==='상담예약(이업종)'?'고객 직접 접수':form.appointmentType==='이업종제휴'?'업체 소개 접수':creating?'접수 방식을 선택하세요.':'이 접수 기록에 등록된 방식이 없습니다.'}</div></fieldset>
       {canManageAll && !sharedMode && <fieldset className="case-link-fieldset"><legend>같은 접수건 연결</legend>
         <label className="case-link-check"><input type="checkbox" checked={linkExisting} onChange={event => event.target.checked ? startLink() : cancelLink()}/><span>이 고객을 기존 접수건과 묶기</span></label>
         <small>묶음은 1건으로 집계합니다. 원본 기록은 유지됩니다.</small>{linkPicker}
@@ -1137,7 +1147,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
       <SalesChannelDetails members={salesRouteMembers} editableLeadId={!remoteChanged && !saving && onSaveSalesRoute ? lead.id : undefined}
         onSaveRoute={onSaveSalesRoute} initiallyOpen={openSalesRouteInitially}/>
       <fieldset><legend>진행 관리</legend><div className="form-grid"><label>담당 매니저<select disabled={!canManageAll} value={manualManager ? '__manual__' : form.manager||''} onChange={e=>{if(e.target.value==='__manual__'){setManualManager(true);update('manager','')}else{setManualManager(false);update('manager',e.target.value)}}}><option value="__manual__">직접입력</option><option value="">미배정</option>{managers.filter(m=>m.role==='매니저').map(m=><option key={m.employeeNo} value={m.name}>{m.name}</option>)}</select>{manualManager && canManageAll && <input className="manual-manager" autoFocus placeholder="담당자 이름 직접입력" value={form.manager||''} onChange={e=>update('manager',e.target.value)}/>}</label><label>현재 상태<select value={form.status} onChange={e=>update('status',e.target.value)}>{STATUSES.map(s=><option key={s}>{s}</option>)}</select></label><label>방문 여부<select value={form.visitState} onChange={e=>update('visitState',e.target.value as VisitState)}><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label></div><button type="button" className="memo-open" onClick={()=>setMemoOpen(true)}><span><Clock3 size={18}/><b>관리메모</b></span><small>{cancellationMemoCount ? '관리 '+managementMemoCount+'건 · 주문 취소 '+cancellationMemoCount+'건' : managementMemoCount ? managementMemoCount+'건의 관리 이력' : '접촉 내용과 다음 계획을 기록하세요'}</small><i>보기 →</i></button></fieldset>
-      <div className="drawer-actions"><button type="button" className="btn secondary" onClick={onClose}>취소</button><button className="btn primary" type="submit" disabled={editorChanged || saving || unlinkBusy}><Check size={17}/>{saving ? '저장 중...' : creating ? '고객 등록' : '변경사항 저장'}</button></div>
+      <div className="drawer-actions">{saveError && <p className="case-share-error drawer-save-error" role="alert">{saveError}</p>}<button type="button" className="btn secondary" onClick={onClose}>취소</button><button className="btn primary" type="submit" disabled={editorChanged || saving || unlinkBusy}><Check size={17}/>{saving ? '저장 중...' : creating ? '고객 등록' : '변경사항 저장'}</button></div>
     </form>
   </aside>{caseChoiceOpen && <CaseMergeChoiceModal members={choiceMembers} initialBasisId={basis.caseLeadId || lead.caseBasisLeadId || lead.id} initialMergeMemberIds={wholeCaseSelection?.mergeMemberIds} disabled={editorChanged || saving || !canManageAll} onClose={closeCaseChoice} onConfirm={chooseCaseBasis}/>}
   {memoOpen&&<MemoModal lead={form} manager={form.manager||'미배정'} entries={memoEntries} onChange={entries=>setForm(f=>({...f,memoHistory:entries,note:entries.filter(entry=>!isBestCancellationMemo(entry)).at(-1)?.content??f.note}))} onClose={()=>setMemoOpen(false)}/>}</>

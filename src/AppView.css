@@ -17,6 +17,7 @@
 .login-error-code{display:block;margin-top:4px;font-size:9px;overflow-wrap:anywhere}
 .login-id-help{display:block;margin-top:6px;color:#858a95;font-size:9px;font-weight:400;line-height:1.5}
 .case-share-error{color:#a34235;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.drawer-save-error{position:absolute;inset:auto 12px calc(100% + 8px);margin:0;padding:10px 12px;border:1px solid #f1d0ca;border-radius:8px;background:#fff6f4;text-align:left}
 .case-sharing-history{margin:0 0 16px;padding:10px 12px;border:1px solid #e4e7eb;border-radius:8px;font-size:11px;line-height:1.6}
 .case-sharing-history summary{cursor:pointer;color:#53666c;font-weight:700}
 .case-sharing-history p{color:#6f7b84;margin:8px 0}
