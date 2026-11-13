@@ -40,13 +40,21 @@ export interface CommissionSettlementMetrics {
   unfinishedExpectedCommission: number
 }
 
+const settlementDelayMonths = 2
+
+function offsetMonth(value: string, months: number): string {
+  const monthIndex = monthIndexFor(value) + months
+  return String(Math.floor(monthIndex / 12)).padStart(4, '0') + '-' + String(monthIndex % 12 + 1).padStart(2, '0')
+}
+
 /** Planned delivery month + 2, not proof of receipt or a fixed settlement day. */
 export function expectedSettlementMonthFor(lead: Partial<DeliveryScheduleLead>): string | null {
   const schedule = deliveryScheduleFor(lead)
-  if (!schedule) return null
-  const [year, month] = schedule.split('-').map(Number)
-  const monthIndex = year * 12 + month - 1 + 2
-  return String(Math.floor(monthIndex / 12)).padStart(4, '0') + '-' + String(monthIndex % 12 + 1).padStart(2, '0')
+  return schedule ? offsetMonth(schedule, settlementDelayMonths) : null
+}
+
+export function scheduledDeliveryMonthForSettlement(month: string): string {
+  return offsetMonth(month, -settlementDelayMonths)
 }
 
 export function deliveryDateValidationMessage(lead: Pick<Lead, 'status'> & Partial<DeliveryScheduleLead>): string | null {

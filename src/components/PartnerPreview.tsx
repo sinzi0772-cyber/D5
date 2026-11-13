@@ -4,6 +4,7 @@ import { isApprovedSubscriptionReviewPartner } from '../lib/salesChannelReview'
 import { SUBSCRIPTION_REVIEW_PARTNERS } from '../lib/subscriptionPartners'
 import { getPartnerSettlementCard } from '../lib/partnerSettlementCard'
 import { NOVEMBER_INVITATION_LABEL } from '../lib/invitationCampaign'
+import { scheduledDeliveryMonthForSettlement } from '../lib/commissionSettlement'
 import {
   DEFAULT_CUSTOMER_SORT, DEFAULT_SETTLEMENT_SORT, nextPartnerCustomerSort, nextPartnerSettlementSort,
   sortPartnerCustomers, sortPartnerSettlements,
@@ -84,16 +85,22 @@ function PortalSettlement({ summary, receiptCount, completedCount, event }: {
     </dl>
     {hasSettlementMonths ? <>
       <ul className="partner-portal-settlement-months" aria-label="월별 예상 정산">
-        {summary.settlements.map(bucket => <li key={bucket.month}>
-          <div><time dateTime={bucket.month}>{bucket.month.replace('-', '.')}</time><small>{count(bucket.customerCount)}명</small></div>
-          <strong>{won(bucket.expectedCommission)}</strong>
-        </li>)}
+        {summary.settlements.map(bucket => {
+          const deliveryMonth = scheduledDeliveryMonthForSettlement(bucket.month)
+          return <li key={bucket.month}>
+            <div className="partner-portal-settlement-dates">
+              <span><time dateTime={deliveryMonth}>{monthLabel(deliveryMonth)}</time> 배송 예정</span>
+              <span><time dateTime={bucket.month}>{monthLabel(bucket.month)}</time> 중순 정산 예상</span>
+            </div>
+            <div className="partner-portal-settlement-amount"><strong>{won(bucket.expectedCommission)}</strong><small>{count(bucket.customerCount)}명</small></div>
+          </li>
+        })}
         {summary.undatedCustomerCount > 0 && <li className="partner-portal-settlement-undated">
-          <div><span>정산월 미정</span><small>{count(summary.undatedCustomerCount)}명</small></div>
-          <strong>{won(summary.undatedExpectedCommission)}</strong>
+          <div><span>정산월 미정</span></div>
+          <div className="partner-portal-settlement-amount"><strong>{won(summary.undatedExpectedCommission)}</strong><small>{count(summary.undatedCustomerCount)}명</small></div>
         </li>}
       </ul>
-      {summary.settlements.length > 0 && <p className="partner-portal-settlement-note">배송예정월의 익익월 중순 정산 예상 · 실제 수령월에 따라 변동</p>}
+      {summary.settlements.length > 0 && <p className="partner-portal-settlement-note">실제 수령월에 따라 정산 시점이 달라질 수 있습니다.</p>}
     </> : <p className="partner-preview-empty">예상 정산 내역이 없습니다.</p>}
     {basisRequiredCount > 0 && <BasisNotice customerCount={basisRequiredCount}/>}
   </section>
