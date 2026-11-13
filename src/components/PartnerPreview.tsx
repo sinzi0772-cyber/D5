@@ -88,16 +88,16 @@ function PortalSettlement({ summary, receiptCount, completedCount, event }: {
         {summary.settlements.map(bucket => {
           const deliveryMonth = scheduledDeliveryMonthForSettlement(bucket.month)
           return <li key={bucket.month}>
+            <div className="partner-portal-settlement-amount"><strong>{won(bucket.expectedCommission)}</strong><small>{count(bucket.customerCount)}명</small></div>
             <div className="partner-portal-settlement-dates">
               <span><time dateTime={deliveryMonth}>{monthLabel(deliveryMonth)}</time> 배송 예정</span>
               <span><time dateTime={bucket.month}>{monthLabel(bucket.month)}</time> 중순 정산 예상</span>
             </div>
-            <div className="partner-portal-settlement-amount"><strong>{won(bucket.expectedCommission)}</strong><small>{count(bucket.customerCount)}명</small></div>
           </li>
         })}
         {summary.undatedCustomerCount > 0 && <li className="partner-portal-settlement-undated">
-          <div><span>정산월 미정</span></div>
           <div className="partner-portal-settlement-amount"><strong>{won(summary.undatedExpectedCommission)}</strong><small>{count(summary.undatedCustomerCount)}명</small></div>
+          <div className="partner-portal-settlement-dates"><span>정산월 미정</span></div>
         </li>}
       </ul>
       {summary.settlements.length > 0 && <p className="partner-portal-settlement-note">실제 수령월에 따라 정산 시점이 달라질 수 있습니다.</p>}
