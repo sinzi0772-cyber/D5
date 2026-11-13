@@ -336,17 +336,12 @@ export default function App() {
     let revision = 0
     let initialAuthEvent = true
     let resumeInProgress = false
-    async function openSession(firebaseUser: User | null, mode: 'restore' | 'sign-in' | 'resume') {
+    async function openSession(firebaseUser: User | null, mode: 'sign-in' | 'resume') {
       const currentRevision = ++revision
       const isCurrentSession = () => active && currentRevision === revision && firebaseAuth.currentUser?.uid === firebaseUser?.uid
       resetWorkspace()
       setPendingAdminSession(null)
       if (!firebaseUser) { setAuthReady(true); return }
-      if (mode === 'restore' && isQuickAdminAccount(firebaseUser)) {
-        setPendingAdminSession(firebaseUser)
-        setAuthReady(true)
-        return
-      }
       setAuthReady(false)
       const baseUser = appUserFromSession(firebaseUser)
       let denialMessage = ''
@@ -383,7 +378,7 @@ export default function App() {
       }
     }
     const unsubscribe = onAuthStateChanged(firebaseAuth, firebaseUser => {
-      const mode = initialAuthEvent ? 'restore' : 'sign-in'
+      const mode = initialAuthEvent && isQuickAdminAccount(firebaseUser) ? 'resume' : 'sign-in'
       initialAuthEvent = false
       void openSession(firebaseUser, mode)
     })
