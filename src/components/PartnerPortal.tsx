@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CircleHelp, LogOut } from 'lucide-react'
+import { CircleHelp, Info, LogOut } from 'lucide-react'
 import { signOut } from 'firebase/auth'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { auth, db } from '../lib/firebase'
@@ -71,7 +71,13 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
       </div>
     </header>
     {loading ? <p role="status">업체 자료를 확인하는 중입니다.</p> : error ? <p className="partner-portal-error" role="alert">{error}</p> : null}
-    {model ? <PartnerPreview model={model} presentation="portal"/> : publication && !loading && !error ? <section className="partner-preview partner-preview-portal"><p>연결 고객 자료가 없습니다.</p></section> : null}
+    {model ? <>
+      <p className="partner-portal-reference">
+        <Info size={16} aria-hidden="true"/>
+        <span><strong>참고용 자료</strong> 표시된 수수료와 정산월은 예상치입니다. 최종 금액과 일정은 실제 정산 시 확정됩니다.</span>
+      </p>
+      <PartnerPreview model={model} presentation="portal"/>
+    </> : publication && !loading && !error ? <section className="partner-preview partner-preview-portal"><p>연결 고객 자료가 없습니다.</p></section> : null}
     {settlementGuideOpen ? <SettlementGuideModal onClose={closeSettlementGuide} audience="partner"/> : null}
   </main>
 }

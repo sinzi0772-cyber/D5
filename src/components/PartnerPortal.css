@@ -13,6 +13,21 @@
 .partner-portal-toolbar .guide-button:hover{background:#e2f2eb;transform:none}
 .partner-portal button:focus-visible,.partner-portal select:focus-visible{outline:3px solid #0d8a8a;outline-offset:3px}
 .partner-portal-error{padding:16px;border:1px solid #e9c7c7;background:#fff7f7;border-radius:10px;color:#a34a4a}
+.partner-portal-reference {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid #dce9e4;
+  border-radius: 10px;
+  background: #f4faf7;
+  color: #365f56;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.partner-portal-reference svg { flex: 0 0 auto; margin-top: 2px; }
+.partner-portal-reference strong { margin-inline-end: 6px; color: #174d43; }
 @media(max-width:600px){.partner-portal{margin:0;padding:24px 18px;min-height:100vh;border:0;border-radius:0}.partner-portal-toolbar{align-items:flex-start;flex-direction:column;gap:18px;padding-bottom:20px}.partner-portal-toolbar>div:first-child{padding-left:14px;border-left-width:3px}.partner-portal-toolbar h1{font-size:28px;letter-spacing:-.8px}.partner-portal-toolbar>div:last-child{width:100%}}
 .partner-portal-settlement {
   margin-bottom: 22px;
