@@ -4,7 +4,7 @@ import { deliveryScheduleFor } from './deliverySchedule'
 import { customerDisplayLabel } from './customerDisplay'
 import { canonicalPartnerName } from './partners'
 import { expectedRebateFor } from './salesFinance'
-import { caseBasisGroupsFor, financialCaseLeadFor } from './caseBasis'
+import { caseBasisGroupsFor, financialCaseLeadFor, verifiedLinkedOrderRoutesFor } from './caseBasis'
 import { isApprovedSubscriptionReviewPartner } from './salesChannelReview'
 import { SUBSCRIPTION_REVIEW_PARTNERS } from './subscriptionPartners'
 import { getStoredSalesChannels } from './salesChannels'
@@ -61,6 +61,7 @@ const ownStatusFor = (members: readonly Lead[]): LeadStatus => members.some(lead
 
 function ownSalesChannels(basis: Lead, members: readonly Lead[], mergeIds: readonly string[] | undefined, partner: string): PartnerSalesChannel[] {
   const selected = mergeIds ? members.filter(member => mergeIds.includes(member.id)) : [basis]
+  const linkedRoutes = mergeIds ? [] : verifiedLinkedOrderRoutesFor(basis, members)
   const routes = new Map<string, PartnerSalesChannel>()
   for (const member of selected) {
     if (canonicalPartnerName(member.partnerName) !== partner) continue
@@ -77,7 +78,9 @@ function ownSalesChannels(basis: Lead, members: readonly Lead[], mergeIds: reado
       if (!mergeIds && ownKinds.length && sourceId && sourceId !== member.id) continue
       const owner = !sourceId || sourceId === member.id ? member : members.find(candidate => candidate.id === sourceId)
       if (!owner || canonicalPartnerName(owner.partnerName) !== partner || owner[sourceKey] && owner[sourceKey] !== owner.id) continue
-      for (const row of getStoredSalesChannels(owner).filter(row => row.kind === kind)) {
+      const approvedRoutes = linkedRoutes.filter(entry => entry.row.kind === kind).map(entry => entry.row)
+      const originalRoutes = approvedRoutes.length ? approvedRoutes : getStoredSalesChannels(owner).filter(row => row.kind === kind)
+      for (const row of originalRoutes) {
         const route: PartnerSalesChannel = { kind: row.kind, period: row.period, status: row.status, channel1: row.channel1, channel2: row.channel2 }
         routes.set(JSON.stringify(route), route)
       }

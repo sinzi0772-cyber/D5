@@ -157,5 +157,45 @@ const mergedRoutes = buildPartnerPreview([{ ...routeLead, caseGroupId: 'route-gr
 assert.equal(mergedRoutes.customers[0].salesChannels?.length, 3, 'Only explicit monetary merge exposes both own originals route evidence')
 const redactedRoutes = buildPartnerPreview([{ ...routeLead, caseGroupId: 'foreign-route', caseBasisLeadId: 'foreign-basis' }, { ...unused, id: 'foreign-basis', partnerName: '다른 업체', caseGroupId: 'foreign-route', caseBasisLeadId: 'foreign-basis' }], '아이웨딩', '2026-09')
 assert.equal(redactedRoutes.customers[0].salesChannels, undefined)
+
+const reviewedRouteBasis: Lead = { ...routeLead, caseGroupId: 'approved-route-case', caseBasisLeadId: routeLead.id,
+  purchaseType: '일시불+구독', subscriptionAmount: 200_000, salesRawPeriods: undefined }
+const reviewedRouteSource: Lead = { ...routeLead, id: 'approved-source', caseGroupId: reviewedRouteBasis.caseGroupId,
+  caseBasisLeadId: reviewedRouteBasis.id, purchaseType: '미선택', lumpSumAmount: undefined,
+  subscriptionRawPeriods: { '2026-09': {
+    period: '2026-09', sourceHash: 'approved-subscription-source', importedAt: '2026-11-14',
+    itemCount: 1, confirmedItemCount: 1, pendingItemCount: 0, confirmedBasisAmount: 200_000, pendingBasisAmount: 0,
+    settlementBasisAmount: 200_000, eligibleConfirmedBasisAmount: 200_000, eligiblePendingBasisAmount: 0,
+    includedStatuses: ['주문확정'], missingBasisItemCount: 0, rejectedProofItemCount: 0,
+    channels: [{ channel1: '고객인증서비스(웨딩)', channel2: '웨딩박람회(내부)', orderCount: 1, amount: 200_000 }],
+  } },
+}
+reviewedRouteBasis.subscriptionSettlementReview = {
+  period: '2026-09', sourceHash: 'approved-subscription-source', enteredAmount: 200_000,
+  confirmedBasisAmount: 200_000, pendingBasisAmount: 0, settlementBasisAmount: 200_000,
+  reviewedAt: '2026-11-14', partnerName: '(주)아이패밀리에스씨',
+  linkedSource: { leadId: reviewedRouteSource.id, caseGroupId: reviewedRouteBasis.caseGroupId!,
+    memberIds: [reviewedRouteBasis.id, reviewedRouteSource.id].sort(),
+    cashRoute: { period: '2026-09', sourceHash: 'verified-lump-sum-fixture', confirmedAmount: 100_000 },
+  },
+}
+const linkedRouteView = (basis: Lead, source: Lead) => buildPartnerPreview([basis, source], '아이웨딩', '2026-09').customers[0]
+const linkedRouteCustomer = linkedRouteView(reviewedRouteBasis, reviewedRouteSource)
+assert.equal(linkedRouteCustomer.expectedCommission, 3_000, 'Cash route confirmation alone cannot change settlement')
+assert.deepEqual(linkedRouteCustomer.salesChannels?.map(row => [row.kind, row.status]), [
+  ['lumpSum', 'eligible'], ['lumpSum', 'mismatch'], ['subscription', 'eligible'],
+])
+for (const forbidden of ['approved-source', 'sourceHash', 'orderCount', '200000']) {
+  assert.equal(JSON.stringify(linkedRouteCustomer.salesChannels).includes(forbidden), false)
+}
+const invalidCash = { ...reviewedRouteBasis, lumpSumAmount: 100_001 }
+assert.deepEqual(linkedRouteView(invalidCash, reviewedRouteSource).salesChannels?.map(row => [row.kind, row.status]), [
+  ['lumpSum', 'unverified'], ['subscription', 'eligible'],
+])
+const invalidSubscription = { ...reviewedRouteBasis, subscriptionAmount: 200_001 }
+assert.deepEqual(linkedRouteView(invalidSubscription, reviewedRouteSource).salesChannels?.map(row => row.status), ['unverified', 'unverified'])
+const foreignSource = { ...reviewedRouteSource, partnerName: '다른 업체' }
+assert.deepEqual(linkedRouteView(reviewedRouteBasis, foreignSource).salesChannels?.map(row => row.status), ['unverified', 'unverified'])
+
 assert.equal(JSON.stringify(redactedRoutes).includes('표시하지 않는 원본 경로'), false, 'Foreign selected route evidence is never disclosed')
 console.log('partnerPreview tests passed: exact tenant scope, selected route evidence, no amounts/foreign paths, preserved fees and originals')

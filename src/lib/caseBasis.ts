@@ -1,5 +1,6 @@
 import type { Lead } from '../types'
 import { canonicalPartnerName } from './partners'
+import { getStoredSalesChannels } from './salesChannels'
 import { commissionVerificationRequiredFor, completedSalesFor, confirmedSalesFor, financialPendingAmountFor, isSubscriptionRebatePartner, purchaseAmountSourceFor, registerCaseFinancialProjection, registerLinkedSubscriptionSettlementBasis, reviewedSubscriptionSettlementBasisFor, salesRawAmountsFor, signedCommissionBasisFor, subscriptionRawAmountsFor } from './salesFinance'
 import type { CaseFinancialProjection, PurchaseAmountSource, SalesRawAmounts, SubscriptionRawAmounts } from './salesFinance'
 
@@ -57,16 +58,42 @@ function normalizeProjectedPurchase(lead: Lead): void {
   lead.purchaseAmount = lumpSum !== undefined || subscription !== undefined ? (lumpSum || 0) + (subscription || 0) : undefined
 }
 
-function applyLinkedSubscriptionReview(projected: Lead, members: readonly Lead[]): void {
-  const linked = projected.subscriptionSettlementReview?.linkedSource
-  if (!linked || projected.caseGroupId !== linked.caseGroupId || members.length < 2
-    || !validMergeRoster(linked.memberIds, members) || projected.subscriptionSourceId !== projected.id
-    || hasRaw(projected, 'subscription') || members.some(member => member.caseGroupId !== linked.caseGroupId
-      || member.caseBasisLeadId !== projected.id || partner(member) !== partner(projected))) return
-  const source = members.find(member => member.id === linked.leadId && member.id !== projected.id)
+function verifiedLinkedSubscriptionSource(basis: Lead, members: readonly Lead[]) {
+  const review = basis.subscriptionSettlementReview
+  const linked = review?.linkedSource
+  if (!review || !linked || basis.caseGroupId !== linked.caseGroupId || !validMergeRoster(linked.memberIds, members)
+    || (basis.subscriptionSourceId && basis.subscriptionSourceId !== basis.id)
+    || hasRaw(basis, 'subscription') || members.some(member => member.caseGroupId !== linked.caseGroupId
+      || member.caseBasisLeadId !== basis.id || partner(member) !== partner(basis))) return
+  const source = members.find(member => member.id === linked.leadId && member.id !== basis.id)
   if (!source || (source.subscriptionSourceId && source.subscriptionSourceId !== source.id)) return
-  const basis = reviewedSubscriptionSettlementBasisFor(projected, source.subscriptionRawPeriods)
-  if (basis > 0) registerLinkedSubscriptionSettlementBasis(projected, basis)
+  const settlementBasis = reviewedSubscriptionSettlementBasisFor(basis, source.subscriptionRawPeriods)
+  if (settlementBasis > 0) return { source, review, linked, settlementBasis }
+}
+
+function applyLinkedSubscriptionReview(projected: Lead, members: readonly Lead[]): void {
+  if (projected.subscriptionSourceId !== projected.id) return
+  const verified = verifiedLinkedSubscriptionSource(projected, members)
+  if (verified) registerLinkedSubscriptionSettlementBasis(projected, verified.settlementBasis)
+}
+
+/** Route evidence follows the approved original in this exact case. */
+export function verifiedLinkedOrderRoutesFor(basis: Lead, members: readonly Lead[]) {
+  const verified = verifiedLinkedSubscriptionSource(basis, members)
+  if (!verified) return []
+  const { source, review, linked } = verified
+  const cash = linked.cashRoute
+  const cashPeriod = cash && source.salesRawPeriods?.[cash.period]
+  const cashMatches = cash && !hasRaw(basis, 'lumpSum') && (!basis.lumpSumSourceId || basis.lumpSumSourceId === basis.id)
+    && (!source.lumpSumSourceId || source.lumpSumSourceId === source.id)
+    && cashPeriod?.period === cash.period && cashPeriod.sourceHash === cash.sourceHash
+    && cashPeriod.confirmedAmount === cash.confirmedAmount && cashPeriod.reservedAmount === 0
+    && (cashPeriod.tentativeAmount ?? 0) === 0 && cashPeriod.returnAmount === 0
+    && cash.confirmedAmount > 1 && enteredAmount(basis, 'lumpSum') === cash.confirmedAmount
+  return getStoredSalesChannels(source).filter(row =>
+    row.kind === 'subscription' ? row.period === review.period : cashMatches && row.period === cash.period,
+  ).map(row => ({ source, row: { ...row, amountCurrent: row.kind === 'lumpSum'
+    || enteredAmount(basis, 'subscription') === review.confirmedBasisAmount + review.pendingBasisAmount } }))
 }
 
 /** A temporary calculation projection only. It never copies RAW into stored rows.

@@ -91,15 +91,22 @@ function SalesChannelRecord({ row, title, target, correction, onSaveRoute }: {
   </article>
 }
 
-export function SalesChannelDetails({ members, editableLeadId, onSaveRoute, initiallyOpen }: {
+export function SalesChannelDetails({ members, basisId, approvedOrderRoutes = [], editableLeadId, onSaveRoute, initiallyOpen }: {
   members: readonly Lead[]
+  basisId?: string
+  approvedOrderRoutes?: ReadonlyArray<{ source: Lead; row: StoredSalesChannel }>
   editableLeadId?: string
   onSaveRoute?: SaveRoute
   initiallyOpen?: boolean
 }) {
   const rows = members.flatMap(member => getStoredSalesChannels(member)
     .filter(row => row.kind === 'lumpSum' || isApprovedSubscriptionReviewPartner(member.partnerName, SUBSCRIPTION_REVIEW_PARTNERS))
-    .map(row => ({ member, row, target: salesRouteTargetFor(member, row) })))
+    .filter(row => member.id !== basisId || row.period !== null || !approvedOrderRoutes.some(approved => approved.row.kind === row.kind))
+    .map(original => {
+      const approved = approvedOrderRoutes.find(({ source, row }) => source.id === member.id && row.kind === original.kind
+        && row.period === original.period && row.channel1 === original.channel1 && row.channel2 === original.channel2)
+      return { member, row: approved?.row ?? original, target: salesRouteTargetFor(member, original) }
+    }))
   if (!rows.length) return null
   const status = rows.some(({ row }) => row.status === 'mismatch') ? 'mismatch'
     : rows.some(({ row }) => row.status === 'unverified') ? 'unverified' : 'eligible'
