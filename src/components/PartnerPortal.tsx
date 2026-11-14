@@ -74,7 +74,7 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
     {model ? <>
       <p className="partner-portal-reference">
         <Info size={16} aria-hidden="true"/>
-        <span><strong>참고용 자료</strong> 표시된 수수료와 정산월은 예상치입니다. 최종 금액과 일정은 실제 정산 시 확정됩니다.</span>
+        <span><strong>참고용 자료</strong> 표시된 수수료와 정산월은 실제 정산 금액 및 일정과 다를 수 있으니 참고 바랍니다.</span>
       </p>
       <PartnerPreview model={model} presentation="portal"/>
     </> : publication && !loading && !error ? <section className="partner-preview partner-preview-portal"><p>연결 고객 자료가 없습니다.</p></section> : null}
