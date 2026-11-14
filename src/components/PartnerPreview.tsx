@@ -106,7 +106,7 @@ function PortalSettlement({ summary, receiptCount, completedCount, event }: {
             <div className="partner-portal-settlement-amount"><strong>{won(bucket.expectedCommission)}</strong><small>{count(bucket.customerCount)}명</small></div>
             <div className="partner-portal-settlement-dates">
               <span><time dateTime={deliveryMonth}>{monthLabel(deliveryMonth)}</time> 배송 예정</span>
-              <span><time dateTime={bucket.month}>{monthLabel(bucket.month)}</time> 중순 정산 예상</span>
+              <span className="partner-portal-settlement-date"><time dateTime={bucket.month}>{monthLabel(bucket.month)}</time> 중순 정산 예상</span>
             </div>
           </li>
         })}

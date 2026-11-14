@@ -109,6 +109,7 @@
 .partner-portal-settlement-months li { min-width: 0; padding: 8px 10px; border: 1px solid #e0ebe6; border-radius: 8px; background: #fff; }
 .partner-portal-settlement-months li > div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; color: #42615a; font-size: 12px; }
 .partner-portal-settlement-months .partner-portal-settlement-dates { display: grid; gap: 2px; margin-top: 6px; color: #59766e; font-size: 11px; line-height: 1.45; }
+.partner-portal-settlement-date { color: #365f56; font-weight: 700; }
 .partner-portal-settlement-months .partner-portal-settlement-amount { align-items: baseline; }
 .partner-portal-settlement-months small { color: #59766e; font-size: 11px; }
 .partner-portal-settlement-months strong { min-width: 0; color: #087970; font-size: clamp(19px, 2vw, 23px); line-height: 1.2; overflow-wrap: anywhere; }
