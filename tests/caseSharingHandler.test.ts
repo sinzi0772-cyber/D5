@@ -164,13 +164,19 @@ try {
   assert.equal(commits, 1)
 
   seed('existing', 120_000)
-  const pair = await save({ operation: 'save', leadId: 'new-customer', targetIds: ['existing'],
+  const linkedRegistration = { operation: 'save', leadId: 'new-customer', targetIds: ['existing'],
     members: await revisionsOf(['existing']), basis: { caseLeadId: 'existing', mergePurchaseAmounts: false },
-    newCustomer: { customerName: '가나다', phoneLast4: '9988', partnerName: '아이웨딩', gender: '미입력', registeredAt: '2026-11-13' },
-    changes: { note: '새 메모', memoHistory: [memo('first-memo', '새 메모')] } })
+    newCustomer: { customerName: '가나다', phoneLast4: '9988', partnerName: '아이웨딩', gender: '미입력', registeredAt: '2026-11-13' } }
+  assert.equal((await save({ ...linkedRegistration, changes: {} })).status, 409)
+  for (const appointmentType of ['미선택', '기타', null]) {
+    assert.equal((await save({ ...linkedRegistration, changes: { appointmentType } })).status, 400)
+  }
+  const pair = await save({ ...linkedRegistration,
+    changes: { appointmentType: '상담예약(이업종)', note: '새 메모', memoHistory: [memo('first-memo', '새 메모')] } })
   assert.equal(pair.status, 200, await pair.clone().text())
   assert.equal(fromStore('new-customer').customerName, '가*다')
   assert.equal(fromStore('new-customer').note, '새 메모')
+  assert.equal(fromStore('new-customer').appointmentType, '상담예약(이업종)')
   assert.equal(fromStore('existing').lumpSumAmount, 120_000)
 
   seed('third', 30_000)

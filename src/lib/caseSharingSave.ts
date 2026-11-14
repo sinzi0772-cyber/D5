@@ -3,6 +3,7 @@ import type { Lead } from '../types'
 import { leadFromDocument } from './leadDocument'
 import { caseSaveDeliveryError } from './commissionSettlement'
 import { canonicalPartnerName } from './partners'
+import { isPartnerAppointmentType } from './partnerAppointments'
 import { CaseSharingError, MAX_CASE_MEMBERS, caseSharingRevisionFor, resolveCaseSharing, wholeCaseBasisId, type CaseGroupGuard, type CaseSharingConflict, type SharingBasis } from './caseSharing'
 
 export { MAX_CASE_MEMBERS } from './caseSharing'
@@ -237,6 +238,10 @@ export async function saveCaseCustomerWithStore(store: CaseSharingStore, input: 
   if (input.linkTargetIds && input.linkTargetId || targetIds.length >= MAX_CASE_MEMBERS
     || new Set(targetIds).size !== targetIds.length || targetIds.some(id => !validId(id) || id === input.original.id)) {
     fail('CASE_SAVE_INVALID_LINK', '묶을 고객과 접수 기록 구성을 다시 확인해주세요.')
+  }
+  if ((input.creating || input.draft.appointmentType !== input.formBaseline.appointmentType)
+    && !isPartnerAppointmentType(input.draft.appointmentType)) {
+    fail('CASE_SAVE_INVALID_APPOINTMENT_TYPE', '이업종제휴 또는 상담예약 (이업종)을 선택해주세요.')
   }
   const deliveryError = caseSaveDeliveryError(input.original, input.draft, linking, input.creating)
   if (deliveryError) fail('CASE_SAVE_INVALID_DELIVERY', deliveryError)

@@ -250,6 +250,33 @@ const priceWrites = (uid: string): Write[] => [
   { path: `caseGroups/${caseId}`, data: guard(['owner', 'alias'], { revision: 6, updatedBy: uid }) },
 ]
 
+const intakeReferral = referral('intake', { caseGroupId: null, caseBasisLeadId: null })
+const { appointmentType: _appointmentType, ...legacyIntakeWithoutType } = intakeReferral
+const intakePath = 'referrals/intake'
+for (const appointmentType of ['이업종제휴', '상담예약(이업종)']) {
+  assertBatch(`admin creates referral with ${appointmentType}`, seed(),
+    [{ path: intakePath, data: { ...intakeReferral, appointmentType } }], admin, true)
+  assertBatch(`manager sets ${appointmentType} on assigned legacy referral`, seed([intakePath, legacyIntakeWithoutType]),
+    [{ path: intakePath, data: { ...legacyIntakeWithoutType, appointmentType, updatedBy: 'manager' } }], manager, true)
+}
+for (const appointmentType of [null, '', '미선택', '일반상담']) {
+  assertBatch(`admin cannot create referral with ${JSON.stringify(appointmentType)}`, seed(),
+    [{ path: intakePath, data: { ...intakeReferral, appointmentType } }], admin, false)
+  for (const actor of [admin, manager]) {
+    assertBatch(`${actor.uid} cannot change referral to ${JSON.stringify(appointmentType)}`, seed([intakePath, intakeReferral]),
+      [{ path: intakePath, data: { ...intakeReferral, appointmentType, updatedBy: actor.uid } }], actor, false)
+  }
+}
+assertBatch('admin cannot create a referral without an intake type', seed(),
+  [{ path: intakePath, data: legacyIntakeWithoutType }], admin, false)
+assertBatch('admin cannot remove an existing intake type', seed([intakePath, intakeReferral]),
+  [{ path: intakePath, data: legacyIntakeWithoutType }], admin, false)
+for (const legacyIntake of [legacyIntakeWithoutType, { ...legacyIntakeWithoutType, appointmentType: '' },
+  { ...legacyIntakeWithoutType, appointmentType: '미선택' }]) {
+  assertBatch('manager can save a memo without changing the legacy intake type', seed([intakePath, legacyIntake]),
+    [{ path: intakePath, data: { ...legacyIntake, note: '개인 메모', updatedBy: 'manager' } }], manager, true)
+}
+
 assertBatch('admin linked atomic share', base, priceWrites('admin'), admin, true)
 assertBatch('same employee guarded finance', base, priceWrites('manager'), manager, true)
 const routeEditId = 'A'.repeat(20)

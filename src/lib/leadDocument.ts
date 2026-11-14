@@ -1,5 +1,6 @@
-import type { AppointmentType, CaseSharingHistory, Lead, LeadStatus, MemoEntry, PurchaseType, SalesRawPeriod, SubscriptionRawPeriod, VisitState } from '../types'
+import type { CaseSharingHistory, Lead, LeadStatus, MemoEntry, PurchaseType, SalesRawPeriod, SubscriptionRawPeriod, VisitState } from '../types'
 import { canonicalPartnerName } from './partners'
+import { isPartnerAppointmentType } from './partnerAppointments'
 import { invitationCampaignFor } from './invitationCampaign'
 import { readSalesRouteCorrectionLedger } from './salesRouteCorrections'
 import { bestCustomerNumberFromRaw } from './bestCustomerNumber'
@@ -64,7 +65,7 @@ export function leadFromDocument(id: string, row: Record<string, unknown>): Lead
     ...(bestCustomerNumber ? { bestCustomerNumber } : {}),
     gender: row.gender === '남' || row.gender === '여' ? row.gender : '미입력',
     visitScheduledDate: optionalText(row.visitScheduledDate), deliveryScheduledDate: optionalText(row.deliveryScheduledDate),
-    appointmentType: ['상담예약(이업종)', '이업종제휴'].includes(text(row.appointmentType)) ? row.appointmentType as AppointmentType : '미선택',
+    appointmentType: isPartnerAppointmentType(row.appointmentType) ? row.appointmentType : '미선택',
     appointmentSourceId: optionalText(row.appointmentSourceId), partnerName,
     ...(invitationCampaign ? { invitationCampaign } : {}),
     billToCode: optionalText(row.billToCode), lgeSubchannel: optionalText(row.lgeSubchannel),

@@ -32,6 +32,10 @@
 .delivery-date-control .delivery-calendar-button{position:absolute;top:1px;right:1px;bottom:1px;display:flex;align-items:center;justify-content:center;width:36px;border:0;border-radius:7px;background:transparent;color:#52636c;cursor:pointer;padding:0}
 .delivery-calendar-button:focus-visible{outline:2px solid #32866a;outline-offset:-3px}
 .delivery-date-control .delivery-native-calendar{position:absolute;right:0;bottom:0;width:1px;height:1px;min-width:0;padding:0;border:0;opacity:0;pointer-events:none}
+.drawer .appointment-method-options{display:flex;flex-wrap:wrap;gap:8px}
+.drawer .appointment-method-options label{display:flex;align-items:center;gap:8px;min-height:36px;margin:0;padding:7px 11px;border:1px solid #dfe7e3;border-radius:8px;cursor:pointer}
+.drawer .appointment-method-options label:has(input:checked){border-color:#539b86;background:#eef7f3;color:#165d4d}
+.drawer .appointment-method-options input[type=radio]{width:15px;height:15px;min-height:0;margin:0;padding:0;accent-color:#22866a}
 .purchase-basis-required strong{color:#996216;font-size:10px}
 .drawer .case-group-summary{margin:0 0 22px;padding:16px;border:1px solid #dbe6e1;border-radius:12px;background:#f8fbfa;color:#2e5146}
 .case-group-summary>header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}

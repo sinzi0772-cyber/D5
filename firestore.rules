@@ -463,6 +463,7 @@ service cloud.firestore {
 
       allow create: if canManageAll()
         && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.get('appointmentType', null) in ['이업종제휴', '상담예약(이업종)']
         && !request.resource.data.keys().hasAny(['salesRouteCorrections'])
         && linkedCreateAllowed(request.resource.data, referralId)
         && changedSourceValid(request.resource.data, referralId, 'lumpSum')
@@ -473,10 +474,6 @@ service cloud.firestore {
           isStaff() && myProfile().role == 'manager'
           && resource.data.managerEmployeeNo == myEmployeeNo()
           && request.resource.data.managerEmployeeNo == myEmployeeNo()
-          && (
-            !request.resource.data.keys().hasAny(['appointmentType'])
-            || request.resource.data.appointmentType in ['미선택', '상담예약(이업종)', '이업종제휴']
-          )
           && (
             !request.resource.data.keys().hasAny(['purchaseType'])
             || request.resource.data.purchaseType in ['미선택', '일시불', '구독', '일시불+구독']
@@ -521,6 +518,8 @@ service cloud.firestore {
             'updatedBy'
           ])
         ))
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['appointmentType'])
+          || request.resource.data.get('appointmentType', null) in ['이업종제휴', '상담예약(이업종)'])
         && linkedUpdateAllowed(resource.data, request.resource.data, referralId)
         && basisChangeAllowed(resource.data, request.resource.data)
         && mergeChangeAllowed(resource.data, request.resource.data)

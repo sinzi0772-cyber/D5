@@ -3,6 +3,7 @@ import { caseSharingDraftFor } from '../../src/lib/caseSharing'
 import { caseEditableFields, caseMemberRevision, caseNewCustomerFields, type CaseSharingRequest } from '../../src/lib/caseSharingRequest'
 import { leadFromDocument } from '../../src/lib/leadDocument'
 import { canonicalPartnerName } from '../../src/lib/partners'
+import { isPartnerAppointmentType } from '../../src/lib/partnerAppointments'
 import { maskCustomerName } from '../../src/lib/salesRaw'
 import { isValidDeliveryDate } from '../../src/lib/deliverySchedule'
 import { accountAccessError } from '../../src/lib/accountAccess'
@@ -14,7 +15,6 @@ import { CaseSharingIdentityError, getCaseSharingAccessToken, verifyFirebaseIdTo
 
 const roles = ['admin', 'store_manager', 'assistant_manager']
 const allowedValues: Record<string, readonly string[]> = {
-  appointmentType: ['미선택', '이업종제휴', '상담예약(이업종)'],
   status: STATUSES,
   visitState: ['미정', '예정', '방문', '미방문', '일정취소'],
   purchaseType: ['미선택', '일시불', '구독', '일시불+구독'],
@@ -27,6 +27,7 @@ const hasOnly = (value: Record<string, unknown>, allowed: readonly string[]) => 
 function validChanges(value: unknown): boolean {
   if (!isRecord(value) || !hasOnly(value, caseEditableFields)) return false
   return Object.entries(value).every(([key, entry]) => {
+    if (key === 'appointmentType') return isPartnerAppointmentType(entry)
     if (key === 'memoHistory') return Array.isArray(entry) && entry.length <= 1000 && entry.every(item =>
       isRecord(item) && hasOnly(item, ['id', 'date', 'manager', 'content'])
       && isId(item.id) && ['date', 'manager', 'content'].every(field => typeof item[field] === 'string'))

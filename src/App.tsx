@@ -17,7 +17,8 @@ import { SettlementGuideModal } from './components/SettlementGuideModal'
 import { UpdateHistoryModal } from './components/UpdateHistoryModal'
 import { NOVEMBER_D5_APPOINTMENTS_THROUGH } from './data/updateHistory'
 import { CaseMergeChoiceModal, type CaseMergeChoice } from './components/CaseMergeChoiceModal'
-import { CaseGroupSummary, caseOriginalIntakeMethod } from './components/CaseGroupSummary'
+import { CaseGroupSummary } from './components/CaseGroupSummary'
+import { isPartnerAppointmentType, partnerAppointmentLabel, partnerAppointmentTypes } from './lib/partnerAppointments'
 import { SalesChannelDetails, type SalesChannelRouteEdit } from './components/SalesChannelDetails'
 import { saveSalesRouteCorrection } from './lib/salesRouteCorrectionSave'
 import { canEditSalesRouteFor } from './lib/salesRouteCorrections'
@@ -55,7 +56,7 @@ import { accountAccessError, checkedPartnerIdentity, SHARED_ACCOUNT_EMPLOYEE_NO,
 import { alternateSameIdPasswordForLogin, firebasePasswordForLogin, loginEmailFor, loginIdInputMessage, normalizeLoginId } from './lib/loginIdentity'
 import { PARTNER_ACCOUNTS } from './lib/partnerIdentity'
 import { loginFailureFor } from './lib/loginError'
-import { STATUSES, type AppointmentType, type Lead, type LeadStatus, type MemoEntry, type PurchaseType, type VisitState } from './types'
+import { STATUSES, type Lead, type LeadStatus, type MemoEntry, type PurchaseType, type VisitState } from './types'
 
 type SortKey = 'customerName' | 'registeredAt' | 'partnerName' | 'manager' | 'visitDate' | 'status' | 'management' | 'updatedAt' | 'purchase'
 type CaseEditorSaveOptions = { formBaseline: Lead; openingMembers: Lead[]; basis: SharingBasis }
@@ -204,7 +205,7 @@ const normalizeStatus = (value: string): LeadStatus => value === '구매완료' 
 const today = new Date().toISOString().slice(0, 10)
 const blankLead = (): Lead => ({
   id: crypto.randomUUID(), registeredAt: today, customerName: '', phoneLast4: '', gender: '미입력',
-  partnerName: '', appointmentType: '미선택', status: '관리중', visitState: '미정', purchaseType: '미선택', manager: '', updatedAt: new Date().toISOString(),
+  partnerName: '', status: '관리중', visitState: '미정', purchaseType: '미선택', manager: '', updatedAt: new Date().toISOString(),
 })
 const maskName = maskCustomerName
 const last4 = (value: string) => value.replace(/\D/g, '').slice(-4)
@@ -894,7 +895,7 @@ export default function App() {
             return <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{customerDisplayName(l.customerName).slice(0,1)}</span><div><strong className="customer-labels">{customerLabels.map(customer => <span key={customer.id}>
               {customer.label}
               {customer.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
-            </span>)}</strong>{l.caseGroupId && <em className="case-badge">{members.length > 1 && customerLabels.length === 1 ? '묶음 접수' : leads.filter(member => member.caseGroupId === l.caseGroupId).length === 2 ? '신랑/신부' : '연결 고객 함께 관리'}</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{l.appointmentType&&l.appointmentType!=='미선택'&&<em className="appointment-type">{l.appointmentType}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${filteredModel.excludedRowIds.has(l.id) ? 'gray' : statusTone[l.status]}`} title={filteredModel.excludedRowIds.has(l.id) ? `원본 상태: ${l.status}` : undefined}><i/>{filteredModel.excludedRowIds.has(l.id) ? '집계 제외' : l.status}</span></td><td>{l.status === '취소' ? <span className="purchase-empty">—</span> : <PurchaseSummary members={members} completeMembers={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]}/>}</td><td><ManagementSummary lead={l} members={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]} onOpenCancellation={member=>{setActive(member);setCreating(false);setOpenMemoOnDrawer(true)}} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>
+            </span>)}</strong>{l.caseGroupId && <em className="case-badge">{members.length > 1 && customerLabels.length === 1 ? '묶음 접수' : leads.filter(member => member.caseGroupId === l.caseGroupId).length === 2 ? '신랑/신부' : '연결 고객 함께 관리'}</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{isPartnerAppointmentType(l.appointmentType) && <em className="appointment-type">{partnerAppointmentLabel(l.appointmentType)}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${filteredModel.excludedRowIds.has(l.id) ? 'gray' : statusTone[l.status]}`} title={filteredModel.excludedRowIds.has(l.id) ? `원본 상태: ${l.status}` : undefined}><i/>{filteredModel.excludedRowIds.has(l.id) ? '집계 제외' : l.status}</span></td><td>{l.status === '취소' ? <span className="purchase-empty">—</span> : <PurchaseSummary members={members} completeMembers={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]}/>}</td><td><ManagementSummary lead={l} members={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]} onOpenCancellation={member=>{setActive(member);setCreating(false);setOpenMemoOnDrawer(true)}} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>
           })}</tbody></table>{visibleRows.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
           <div className="panel-foot"><span>{formatMonth(intakeMonth)} · 접수 {visibleRows.length}건 · 고객 {visibleRows.length}명</span><span><i className="privacy-dot"/>민감정보 최소 수집 적용</span></div>
         </div>
@@ -947,7 +948,7 @@ function PurchaseSummary({members,completeMembers}:{members:Lead[];completeMembe
   const channels = channelSources.flatMap(member => getStoredSalesChannels(member).filter(row => row.kind === 'lumpSum' || isApprovedSubscriptionReviewPartner(member.partnerName, SUBSCRIPTION_REVIEW_PARTNERS)))
   const channelMismatch = channels.some(row => row.status === 'mismatch')
   const channelUnknown = channels.some(row => row.status === 'unverified')
-  const missingAppointmentType = visibleBasis.appointmentType !== '이업종제휴' && visibleBasis.appointmentType !== '상담예약(이업종)' && manualAmount
+  const missingAppointmentType = !isPartnerAppointmentType(visibleBasis.appointmentType) && manualAmount
   return <div className="purchase-summary"><span>{formatWon(total)}</span>{reserved > 0 && <em>예약·출하대기 {formatWon(reserved)} 포함</em>}<small>예상 수수료 {formatWon(expectedCommission)}</small>{channelMismatch && <em className="sales-channel-indicator mismatch">판매경로 불일치</em>}{channelUnknown && !verificationRequired && <em>판매경로 확인 필요</em>}{verificationRequired && <em>판매 원본 확인 필요</em>}{settlementMonth && <em className="purchase-settlement-known">{settlementMonth.replace('-', '.')} 중순 정산 예상{expectedCommission > 0 ? ' ' + formatWon(expectedCommission) : ''}</em>}{schedule && <em>{schedule.length === 7 ? '배송예정월' : '배송예정일'} {schedule.length === 7 ? schedule.slice(0, 4) + '년 ' + Number(schedule.slice(5)) + '월' : schedule.replaceAll('-', '.')}</em>}{!schedule && completed && <em>{differentDeliveryMonths ? '배송월 확인 필요' : '배송일 미입력'} · 정산월 미정</em>}{!completed && expectedCommission > 0 && <em>기준 고객 구매완료 전 {formatWon(expectedCommission)}</em>}{completeMembers.length > 1 && <em>묶음 1명 · {selection.mergeMemberIds ? "구매금액 합산 · " : ""}{customerDisplayLabel(visibleBasis)} 기준 1회 반영</em>}{manualAmount && <em>수기 입력 반영</em>}{missingAppointmentType && <em>제휴 접수 유형 확인 필요</em>}</div>
 }
 
@@ -1114,7 +1115,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
           <input type="checkbox" checked={checked} onChange={() => toggleLinkTarget(target, members)}
             disabled={saving || editorChanged || !checked && !eligibleLinkTarget(target, members.length)}/>
           <span><strong>{customerDisplayLabel(target)}{target.caseGroupId ? ` · 묶음 ${members.length}건` : ''}</strong>
-            <small>{target.partnerName} · {formatDate(target.registeredAt)} · {caseOriginalIntakeMethod(target.appointmentType)}</small></span>
+            <small>{target.partnerName} · {formatDate(target.registeredAt)}{isPartnerAppointmentType(target.appointmentType) && ` · ${partnerAppointmentLabel(target.appointmentType)}`}</small></span>
         </label>
       })}
       {!linkChoices.length && <p>검색 결과가 없습니다.</p>}
@@ -1175,7 +1176,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
         onAddMember={canManageAll && sharedMode && !linkExisting && initial.members.length < MAX_CASE_MEMBERS ? startLink : undefined}
         onSelectMember={sharedMode && !linkExisting ? onSelectLinked : undefined}
         onUnlink={linkedLeads.length > 1 && canManageAll && !linkExisting ? unlinkSelected : undefined} unlinkBusy={unlinkBusy}>
-        {openingMembers.map(member => <div className="case-original-record" key={member.id}><strong>{customerDisplayLabel(member)}</strong><small>접수일 <time dateTime={member.registeredAt}>{formatDate(member.registeredAt)}</time> · {caseOriginalIntakeMethod(member.appointmentType)}</small><span>일시불 {enteredAmountFor(member, 'lumpSum') === undefined ? '미입력' : formatWon(lumpSumAmountFor(member))} · 구독 {enteredAmountFor(member, 'subscription') === undefined ? '미입력' : formatWon(subscriptionAmountFor(member))}</span><small>담당자 {member.manager || '미배정'} · {member.status} · 배송 {formatDate(member.deliveryScheduledDate)}</small></div>)}
+        {openingMembers.map(member => <div className="case-original-record" key={member.id}><strong>{customerDisplayLabel(member)}</strong><small>접수일 <time dateTime={member.registeredAt}>{formatDate(member.registeredAt)}</time>{isPartnerAppointmentType(member.appointmentType) && ` · ${partnerAppointmentLabel(member.appointmentType)}`}</small><span>일시불 {enteredAmountFor(member, 'lumpSum') === undefined ? '미입력' : formatWon(lumpSumAmountFor(member))} · 구독 {enteredAmountFor(member, 'subscription') === undefined ? '미입력' : formatWon(subscriptionAmountFor(member))}</span><small>담당자 {member.manager || '미배정'} · {member.status} · 배송 {formatDate(member.deliveryScheduledDate)}</small></div>)}
       </CaseGroupSummary>}
       {sharedMode && linkPicker}
       {sharingError && <p className="case-share-error" role="alert">{sharingError}</p>}
@@ -1186,7 +1187,15 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
         <CustomerNameField key={`${form.id}-customer-name`} lead={form} creating={creating} onChange={name=>update('customerName',name)}/>
         <label>휴대폰 뒷 4자리<input required disabled={!creating} inputMode="numeric" maxLength={4} pattern="[0-9]{4}" placeholder="4240" value={creating ? form.phoneLast4 : phoneLast4Display(form.phoneLast4)} onChange={e=>update('phoneLast4',last4(e.target.value))}/></label>
       </div></fieldset>
-      <fieldset><legend>약속 유형</legend><label>접수 방식<select value={form.appointmentType||'미선택'} onChange={e=>update('appointmentType',e.target.value as AppointmentType)}><option value="미선택">{creating ? '미선택' : caseOriginalIntakeMethod('미선택')}</option><option value="이업종제휴">이업종제휴</option><option value="상담예약(이업종)">상담예약(이업종)</option></select></label><div className="appointment-help">{form.appointmentType==='상담예약(이업종)'?'고객 직접 접수':form.appointmentType==='이업종제휴'?'업체 소개 접수':creating?'접수 방식을 선택하세요.':'이 접수 기록에 등록된 방식이 없습니다.'}</div></fieldset>
+      <fieldset className="appointment-method"><legend>접수 방식</legend>
+        <div className="appointment-method-options">
+          {partnerAppointmentTypes.map(type => <label key={type}>
+            <input type="radio" name="appointmentType" value={type} checked={form.appointmentType === type}
+              required={creating} onChange={() => update('appointmentType', type)}/>
+            {partnerAppointmentLabel(type)}
+          </label>)}
+        </div>
+      </fieldset>
       {canManageAll && !sharedMode && <fieldset className="case-link-fieldset"><legend>같은 접수건 연결</legend>
         <label className="case-link-check"><input type="checkbox" checked={linkExisting} onChange={event => event.target.checked ? startLink() : cancelLink()}/><span>이 고객을 기존 접수건과 묶기</span></label>
         <small>묶음은 1건으로 집계합니다. 원본 기록은 유지됩니다.</small>{linkPicker}

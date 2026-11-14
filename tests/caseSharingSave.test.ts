@@ -154,6 +154,18 @@ async function rejectsWithoutMutation(store: MemoryStore, run: () => Promise<unk
 }
 
 async function main(): Promise<void> {
+  const unclassified = lead('unclassified', { appointmentType: '미선택', caseGroupId: undefined, note: '이전 메모' })
+  const unclassifiedStore = new MemoryStore([unclassified])
+  await saveCaseCustomerWithStore(unclassifiedStore, saveInput(unclassified, { ...unclassified, note: '추가 메모' }, [unclassified], { canManageAll: false }))
+  assert.equal(unclassifiedStore.leads.get(unclassified.id)?.appointmentType, '미선택')
+  assert.equal(unclassifiedStore.leads.get(unclassified.id)?.note, '추가 메모')
+
+  const unselected = { ...unclassified, id: 'new-appointment' }
+  const appointmentStore = new MemoryStore([])
+  await rejectsWithoutMutation(appointmentStore, () => saveCaseCustomerWithStore(appointmentStore, saveInput(unselected, unselected, [unselected], { creating: true })), 'CASE_SAVE_INVALID_APPOINTMENT_TYPE')
+  await saveCaseCustomerWithStore(appointmentStore, saveInput(unselected, { ...unselected, appointmentType: '이업종제휴' }, [unselected], { creating: true }))
+  assert.equal(appointmentStore.leads.get(unselected.id)?.appointmentType, '이업종제휴')
+
   const a = lead('a', { purchaseType: '일시불+구독', lumpSumAmount: 100, subscriptionAmount: 20, note: 'A 메모', status: '구매완료', deliveryScheduledDate: '2026-11-01' })
   const b = lead('b', { purchaseType: '구독', subscriptionAmount: 80, manager: '담당 B', managerEmployeeNo: '222', note: 'B 메모', deliveryScheduledDate: '2026-12-01' })
   const members = [a, b]
