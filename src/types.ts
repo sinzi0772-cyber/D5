@@ -126,6 +126,11 @@ export interface SubscriptionSettlementReview {
   settlementBasisAmount: number
   reviewedAt: string
   partnerName: string
+  linkedSource?: {
+    leadId: string
+    caseGroupId: string
+    memberIds: string[]
+  }
 }
 
 export interface Lead {

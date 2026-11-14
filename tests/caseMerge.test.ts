@@ -95,6 +95,24 @@ assert.equal(expectedRebateFor(projected([reviewedOwner, reviewedAlias])), 1_350
 assert.equal(expectedRebateFor(financialCaseLeadFor(caseBasisFor([reviewedOwner, reviewedAlias], 'B'), [reviewedOwner, reviewedAlias])!), 0,
   'An alias does not borrow approval for an unreconciled amount')
 
+const linkedReview = { ...reviewedOwner.subscriptionSettlementReview!, linkedSource: {
+  leadId: 'B', caseGroupId: 'synthetic-pair', memberIds: ['A', 'B'],
+} }
+const linkedBasis = { ...reviewedOwner, caseBasisLeadId: 'A', subscriptionRawPeriods: undefined, subscriptionSettlementReview: linkedReview }
+const linkedSource = makeLead('B', { caseBasisLeadId: 'A', partnerName: linkedBasis.partnerName, purchaseType: '미선택',
+  lumpSumAmount: undefined, subscriptionRawPeriods: { '2026-09': reviewedSubscription } })
+const linkedFee = (members: Lead[]) => {
+  const selection = caseBasisFor(members)
+  const projected = financialCaseLeadFor(selection, members)!
+  return expectedRebateFor(projected)
+}
+assert.equal(linkedFee([linkedBasis, linkedSource]), 1_350)
+assert.equal(expectedRebateFor(linkedBasis), 0, 'A linked approval requires the verified source in the selected case')
+assert.equal(linkedFee([{ ...linkedBasis, subscriptionAmount: 200_001 }, linkedSource]), 0)
+assert.equal(linkedFee([linkedBasis, { ...linkedSource, subscriptionRawPeriods: undefined }]), 0)
+assert.equal(linkedFee([{ ...linkedBasis, subscriptionSettlementReview: { ...linkedReview,
+  linkedSource: { ...linkedReview.linkedSource, memberIds: ['A', 'B', 'C'] } } }, linkedSource]), 0)
+
 const refunds = [makeLead('A', { lumpSumAmount: 0, salesRawPeriods: { '2026-09': sales({ confirmedAmount: -100, reservedAmount: 0, eligibleConfirmedAmount: -100, eligibleReservedAmount: 0, returnAmount: 100, settlementBasisAmount: -100 }) } }),
   verified(makeLead('B', { lumpSumAmount: 300 }))]
 assert.equal(expectedRebateBreakdownFor(projected(refunds)).lumpSumBasis, 200)

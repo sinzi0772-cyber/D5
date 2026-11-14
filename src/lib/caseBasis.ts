@@ -1,6 +1,6 @@
 import type { Lead } from '../types'
 import { canonicalPartnerName } from './partners'
-import { commissionVerificationRequiredFor, completedSalesFor, confirmedSalesFor, financialPendingAmountFor, isSubscriptionRebatePartner, purchaseAmountSourceFor, registerCaseFinancialProjection, salesRawAmountsFor, signedCommissionBasisFor, subscriptionRawAmountsFor } from './salesFinance'
+import { commissionVerificationRequiredFor, completedSalesFor, confirmedSalesFor, financialPendingAmountFor, isSubscriptionRebatePartner, purchaseAmountSourceFor, registerCaseFinancialProjection, registerLinkedSubscriptionSettlementBasis, reviewedSubscriptionSettlementBasisFor, salesRawAmountsFor, signedCommissionBasisFor, subscriptionRawAmountsFor } from './salesFinance'
 import type { CaseFinancialProjection, PurchaseAmountSource, SalesRawAmounts, SubscriptionRawAmounts } from './salesFinance'
 
 export interface CaseBasisSelection {
@@ -55,6 +55,18 @@ function normalizeProjectedPurchase(lead: Lead): void {
   lead.subscriptionAmount = subscription
   lead.purchaseType = lumpSum !== undefined && subscription !== undefined ? '일시불+구독' : lumpSum !== undefined ? '일시불' : subscription !== undefined ? '구독' : '미선택'
   lead.purchaseAmount = lumpSum !== undefined || subscription !== undefined ? (lumpSum || 0) + (subscription || 0) : undefined
+}
+
+function applyLinkedSubscriptionReview(projected: Lead, members: readonly Lead[]): void {
+  const linked = projected.subscriptionSettlementReview?.linkedSource
+  if (!linked || projected.caseGroupId !== linked.caseGroupId || members.length < 2
+    || !validMergeRoster(linked.memberIds, members) || projected.subscriptionSourceId !== projected.id
+    || hasRaw(projected, 'subscription') || members.some(member => member.caseGroupId !== linked.caseGroupId
+      || member.caseBasisLeadId !== projected.id || partner(member) !== partner(projected))) return
+  const source = members.find(member => member.id === linked.leadId && member.id !== projected.id)
+  if (!source || (source.subscriptionSourceId && source.subscriptionSourceId !== source.id)) return
+  const basis = reviewedSubscriptionSettlementBasisFor(projected, source.subscriptionRawPeriods)
+  if (basis > 0) registerLinkedSubscriptionSettlementBasis(projected, basis)
 }
 
 /** A temporary calculation projection only. It never copies RAW into stored rows.
@@ -114,6 +126,7 @@ function projectedBasis(lead: Lead, members: readonly Lead[]): { lead?: Lead; re
   // Otherwise an excluded borrowed method could reappear via purchaseAmount.
   projected.purchaseAmount = undefined
   normalizeProjectedPurchase(projected)
+  applyLinkedSubscriptionReview(projected, members)
   return { lead: projected }
 }
 

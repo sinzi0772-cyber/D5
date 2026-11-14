@@ -38,6 +38,11 @@ export interface CaseFinancialProjection {
   commissionVerificationRequired: boolean
 }
 const caseFinancialProjections = new WeakMap<object, CaseFinancialProjection>()
+const linkedSubscriptionSettlementBases = new WeakMap<FinancialLead, number>()
+
+export function registerLinkedSubscriptionSettlementBasis(lead: Lead, basis: number): void {
+  linkedSubscriptionSettlementBases.set(lead, basis)
+}
 export function registerCaseFinancialProjection(lead: Lead, totals: CaseFinancialProjection): Lead {
   caseFinancialProjections.set(lead, totals)
   return lead
@@ -158,13 +163,13 @@ export function commissionVerificationRequiredFor(lead: FinancialLead): boolean 
 const validSubscriptionSettlementBasis = (amount: number | undefined): amount is number => typeof amount === 'number' && Number.isSafeInteger(amount) && amount >= 0
 
 /** A review applies only to its exact entered amount and unchanged original evidence. */
-function reviewedSubscriptionSettlementBasisFor(lead: FinancialLead): number {
+export function reviewedSubscriptionSettlementBasisFor(lead: FinancialLead, sourcePeriods = lead.subscriptionRawPeriods): number {
   const review = lead.subscriptionSettlementReview
   if (!review || typeof review.period !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(review.period)
     || typeof review.sourceHash !== 'string' || !review.sourceHash || typeof review.reviewedAt !== 'string' || !Number.isFinite(Date.parse(review.reviewedAt))
     || review.partnerName !== canonicalPartnerName(lead.partnerName)
     || review.enteredAmount <= 0 || review.enteredAmount !== subscriptionAmountFor(lead)) return 0
-  const period = lead.subscriptionRawPeriods?.[review.period]
+  const period = sourcePeriods?.[review.period]
   if (!period || period.period !== review.period || period.sourceHash !== review.sourceHash
     || period.confirmedBasisAmount !== review.confirmedBasisAmount || period.pendingBasisAmount !== review.pendingBasisAmount
     || !validSubscriptionSettlementBasis(period.settlementBasisAmount) || period.settlementBasisAmount !== review.settlementBasisAmount
@@ -184,7 +189,10 @@ export function signedCommissionBasisFor(lead: FinancialLead, kind: 'lumpSum' | 
       total + (typeof settlementBasisAmount === 'number' && Number.isSafeInteger(settlementBasisAmount) ? settlementBasisAmount : 0), 0)
   }
   if (!isSubscriptionRebatePartner(lead.partnerName)) return 0
-  if (!subscriptionRawAmountsFor(lead).current) return reviewedSubscriptionSettlementBasisFor(lead)
+  if (!subscriptionRawAmountsFor(lead).current) {
+    const linkedBasis = linkedSubscriptionSettlementBases.get(lead)
+    return linkedBasis ?? (lead.subscriptionSettlementReview?.linkedSource ? 0 : reviewedSubscriptionSettlementBasisFor(lead))
+  }
   return Object.values(lead.subscriptionRawPeriods || {}).reduce((total, { settlementBasisAmount }) =>
     total + (validSubscriptionSettlementBasis(settlementBasisAmount) ? settlementBasisAmount : 0), 0)
 }
