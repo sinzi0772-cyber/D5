@@ -403,6 +403,38 @@ async function main(): Promise<void> {
   await assert.rejects(() => saveCaseCustomerWithStore(staleAddition, groupedAddInput(false)), error => error instanceof CaseSaveError && error.code === 'CASE_SAVE_STALE_CUSTOMER')
   assert.equal(staleAddition.committedWrites, 0, 'A concurrent link is never overwritten')
 
+  const originals = Array.from({ length: 8 }, (_, index) => lead(`bulk-${index}`, {
+    caseGroupId: undefined,
+    purchaseType: '일시불',
+    lumpSumAmount: 100 + index,
+    note: `기존 메모 ${index}`,
+  }))
+  const bulkOriginal = originals[0]
+  const bulkBasis = originals[4]
+  const bulkInput = saveInput(bulkOriginal, bulkOriginal, originals, {
+    linkTargetIds: originals.slice(1).map(member => member.id),
+    basis: { caseLeadId: bulkBasis.id, mergePurchaseAmounts: false },
+  })
+  const bulkStore = new MemoryStore(originals)
+  await saveCaseCustomerWithStore(bulkStore, bulkInput)
+  const bulkSaved = [...bulkStore.leads].map(([id, doc]) => leadFromDocument(id, doc))
+  assert.equal(new Set(bulkSaved.map(member => member.caseGroupId)).size, 1)
+  assert.deepEqual(financialCaseLeadsFor(bulkSaved).map(member => member.lumpSumAmount), [104])
+  assert.ok(bulkSaved.every(member => member.caseBasisLeadId === bulkBasis.id))
+  assert.deepEqual(bulkSaved.map(member => [member.lumpSumAmount, member.note]), originals.map(member => [member.lumpSumAmount, member.note]))
+
+  const repeatedTarget = new MemoryStore(originals)
+  await rejectsWithoutMutation(repeatedTarget, () => saveCaseCustomerWithStore(repeatedTarget, {
+    ...bulkInput, linkTargetIds: [originals[1].id, originals[1].id],
+  }), 'CASE_SAVE_INVALID_LINK')
+  const staleBulk = new MemoryStore(originals)
+  staleBulk.beforeTransaction = () => {
+    Object.assign(staleBulk.leads.get(bulkBasis.id)!, { note: '동시에 수정한 메모' })
+  }
+  await assert.rejects(() => saveCaseCustomerWithStore(staleBulk, bulkInput),
+    error => error instanceof CaseSaveError && error.code === 'CASE_SAVE_STALE_CUSTOMER')
+  assert.equal(staleBulk.committedWrites, 0)
+
   const unlinkMerged = new MemoryStore(mergedSaved, [[groupId, guardFor(mergedSaved, { basisLeadId: mergeA.id, mergeMemberIds: [mergeA.id, mergeB.id] })]])
   await unlinkCaseCustomerWithStore(unlinkMerged, unlinkInput(mergedB, mergedSaved))
   for (const data of unlinkMerged.leads.values()) assert.equal(data.caseMergeMemberIds, null)

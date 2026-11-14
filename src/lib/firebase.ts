@@ -1,11 +1,12 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
+import { firebaseProject, firebaseWebApiKey } from './firebasePublicConfig'
 
 const defaultConfig = {
-  apiKey: 'AIzaSyAPpUhiZ2NEBcPtOJxI7faoPQQbelBfkm0',
+  apiKey: firebaseWebApiKey,
   authDomain: 'd5-partner-desk.firebaseapp.com',
-  projectId: 'd5-partner-desk',
+  projectId: firebaseProject,
   storageBucket: 'd5-partner-desk.firebasestorage.app',
   messagingSenderId: '336806163815',
   appId: '1:336806163815:web:614c1d2cff03d2e3352bc2',

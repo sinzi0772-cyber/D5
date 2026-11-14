@@ -41,7 +41,8 @@ import { canonicalPartnerName } from './lib/partners'
 import { commissionVerificationRequiredFor, expectedRebateFor, financialPendingAmountFor, isFinancialOwnerFor, isSubscriptionRebatePartner, lumpSumAmountFor, purchaseAmountSourceFor, salesRawAmountsFor, subscriptionRawAmountsFor, subscriptionAmountFor, totalPurchaseAmountFor } from './lib/salesFinance'
 import { caseSharingDraftFor, caseSharingRevisionFor, resolveCaseSharing, type SharingBasis } from './lib/caseSharing'
 import { caseBasisFor, caseBasisGroupsFor, financialCaseLeadFor, financialCaseLeadsFor } from './lib/caseBasis'
-import { CaseSaveError, MAX_CASE_MEMBERS, caseLinkLeadFor, saveCaseCustomer, unlinkCaseCustomer } from './lib/caseSharingSave'
+import { CaseSaveError, MAX_CASE_MEMBERS, caseLinkLeadFor, saveCaseCustomer, unlinkCaseCustomer, type SaveCaseCustomerInput, type UnlinkCaseCustomerInput } from './lib/caseSharingSave'
+import { saveCaseCustomerOnServer, unlinkCaseCustomerOnServer } from './lib/caseSharingClient'
 import { formatAmountInput, parseAmountInput } from './lib/amountInput'
 import { allMemoEntriesFor, isBestCancellationMemo, managementMemoEntriesFor, memoEntriesForDisplay, memoHistoryRevisionFor } from './lib/memoHistory'
 import { customerDisplayLabel, customerDisplayName, phoneLast4Display } from './lib/customerDisplay'
@@ -688,14 +689,14 @@ export default function App() {
       ? { ...lead, salesRouteCorrections: [...(lead.salesRouteCorrections ?? []), correction] } : lead))
     notify('판매경로를 저장했습니다.')
   }
-  const saveLead = async (lead: Lead, linkTargetId?: string, options?: CaseEditorSaveOptions): Promise<string | null> => {
+  const saveLead = async (lead: Lead, linkTargetIds: readonly string[], options: CaseEditorSaveOptions): Promise<string | null> => {
     const original = active?.id === lead.id ? active : lead
-    const deliveryError = caseSaveDeliveryError(original, lead, Boolean(linkTargetId), creating)
+    const linking = linkTargetIds.length > 0
+    const deliveryError = caseSaveDeliveryError(original, lead, linking, creating)
     if (deliveryError) return deliveryError
-    const openingMembers = options?.openingMembers || (original.caseGroupId ? leads.filter(item => item.caseGroupId === original.caseGroupId) : [original])
-    const formBaseline = options?.formBaseline || original
+    const { openingMembers, formBaseline, basis } = options
     const canonicalPartner = creating ? partners.find(partner => partnerKey(partner) === partnerKey(lead.partnerName)) : undefined
-    const managerBasisId = options?.basis.caseLeadId || options?.basis.managerLeadId
+    const managerBasisId = basis.caseLeadId || basis.managerLeadId
     const managerBasis = managerBasisId ? openingMembers.find(item => item.id === managerBasisId) : undefined
     const managerEmployeeNo = !canManageAll ? original.managerEmployeeNo
       : lead.manager === formBaseline.manager ? formBaseline.managerEmployeeNo
@@ -712,37 +713,44 @@ export default function App() {
         if (!db || !currentUser || !dataReady || !serverConfirmed || dataError) return '서버에서 최신 고객 정보를 불러오는 중입니다. 잠시 뒤 다시 저장해주세요.'
         const actor = currentUser
         const ownSession = sessionKey
-        const result = await saveCaseCustomer(db, {
-          original, draft: sanitized, formBaseline, openingMembers, creating, linkTargetId,
-          actorId: actor.id, actorEmployeeNo: actor.loginId, canManageAll, basis: options?.basis,
+        const input: SaveCaseCustomerInput = {
+          original, draft: sanitized, formBaseline, openingMembers, creating, linkTargetIds,
+          actorId: actor.id, actorEmployeeNo: actor.loginId, canManageAll, basis,
           assertSession: () => {
             if (latestSessionKey.current !== ownSession || auth?.currentUser?.uid !== actor.id) throw new CaseSaveError('CASE_SAVE_SESSION_CHANGED', '로그인 상태가 변경되었습니다. 다시 로그인한 뒤 저장해주세요.')
           },
-        })
+        }
+        const firebaseUser = auth?.currentUser
+        const result = import.meta.env.PROD && firebaseUser && canManageAll && (linking || original.caseGroupId && openingMembers.length > 1)
+          ? await saveCaseCustomerOnServer(firebaseUser, input)
+          : await saveCaseCustomer(db, input)
+        if (latestSessionKey.current !== ownSession) return null
         setActive(null); setCreating(false); setOpenMemoOnDrawer(false)
-        notify(linkTargetId ? original.caseGroupId ? '고객을 묶음에 추가했습니다.' : '접수건이 연결되었습니다.' : result.shared ? '묶음 고객의 담당자·판매금액이 함께 저장되었습니다.' : '고객 정보가 저장되었습니다.')
+        notify(linking ? original.caseGroupId ? '고객을 묶음에 추가했습니다.' : '접수건이 연결되었습니다.' : result.shared ? '묶음 고객의 담당자·판매금액이 함께 저장되었습니다.' : '고객 정보가 저장되었습니다.')
         return null
       }
-      const linkTarget = linkTargetId ? leads.find(item => item.id === linkTargetId) : undefined
-      if (linkTargetId && !linkTarget) throw new Error('연결할 고객을 다시 선택해주세요.')
-      const caseGroupId = original.caseGroupId || (linkTarget ? linkTarget.caseGroupId || `case-${linkTarget.id}` : undefined)
+      const targets = linkTargetIds.map(id => leads.find(member => member.id === id))
+      if (targets.some(member => !member)) throw new Error('연결할 고객을 다시 선택해주세요.')
+      const targetGroupId = targets.find(member => member?.caseGroupId)?.caseGroupId
+      const caseGroupId = original.caseGroupId || targetGroupId || (linking ? `case-${linkTargetIds[0]}` : undefined)
       const now = new Date().toISOString()
       if (caseGroupId) {
         const members = openingMembers
         for (const member of members) {
           const fresh = leads.find(item => item.id === member.id)
-          if (fresh && caseSharingRevisionFor(fresh) !== caseSharingRevisionFor(member)) throw new Error('연결 고객이 변경되었습니다. 다시 열어 확인해주세요.')
+          if (!fresh && !(creating && member.id === original.id) || fresh && caseSharingRevisionFor(fresh) !== caseSharingRevisionFor(member)) {
+            throw new Error('연결 고객이 변경되었습니다. 다시 열어 확인해주세요.')
+          }
         }
-        const selected = linkTarget && !creating ? caseLinkLeadFor(original, sanitized, formBaseline) : sanitized
+        const selected = linking && !creating ? caseLinkLeadFor(original, sanitized, formBaseline) : sanitized
         const linkingMembers = members.map(member => ({
           ...(member.id === selected.id ? { ...selected, updatedAt: now } : member),
           caseGroupId, caseBasisLeadId: undefined, caseMergeMemberIds: undefined,
         }))
         const linkingSelected = linkingMembers.find(member => member.id === sanitized.id)!
-        const plan = linkTarget ? options?.basis.caseLeadId
-          ? resolveCaseSharing({ members: linkingMembers, original: linkingSelected, draft: linkingSelected, formBaseline: linkingSelected, caseGroupId, basis: options.basis, actorId: 'demo', now, canManageAll })
-          : undefined
-          : resolveCaseSharing({ members, original, draft: sanitized, formBaseline, caseGroupId, basis: options?.basis, actorId: 'demo', now, canManageAll })
+        const plan = linking
+          ? resolveCaseSharing({ members: linkingMembers, original: linkingSelected, draft: linkingSelected, formBaseline: linkingSelected, caseGroupId, basis, actorId: 'demo', now, canManageAll })
+          : resolveCaseSharing({ members, original, draft: sanitized, formBaseline, caseGroupId, basis, actorId: 'demo', now, canManageAll })
         if (plan?.conflicts.length) throw new CaseSaveError('CASE_SAVE_CONFLICT', '기존 수기 값이 달라 기준 고객 선택이 필요합니다.', plan.conflicts)
         const linkedMembers = plan?.leads || linkingMembers
         const byId = new Map(linkedMembers.map(member => [member.id, { ...member, caseGroupId }]))
@@ -755,7 +763,7 @@ export default function App() {
           ? previous.map(member => member.id === sanitized.id ? { ...sanitized, updatedAt: now } : member)
           : [{ ...sanitized, updatedAt: now }, ...previous])
       }
-      setActive(null); setCreating(false); setOpenMemoOnDrawer(false); notify(linkTargetId ? original.caseGroupId ? '고객을 묶음에 추가했습니다.' : '접수건이 연결되었습니다.' : '고객 정보가 저장되었습니다.')
+      setActive(null); setCreating(false); setOpenMemoOnDrawer(false); notify(linking ? original.caseGroupId ? '고객을 묶음에 추가했습니다.' : '접수건이 연결되었습니다.' : '고객 정보가 저장되었습니다.')
       return null
     } catch (error) {
       if (error instanceof CaseSaveError || error instanceof Error && !isFirebaseConfigured) return error.message
@@ -779,9 +787,15 @@ export default function App() {
       if (isFirebaseConfigured) {
         if (!db || !currentUser || !dataReady || !serverConfirmed || dataError) throw new Error('서버 확인이 끝난 뒤 다시 시도해주세요.')
         const actor = currentUser, ownSession = sessionKey
-        await unlinkCaseCustomer(db, { lead, openingMembers: members, actorId: actor.id, canManageAll,
-          assertSession: () => { if (latestSessionKey.current !== ownSession || auth?.currentUser?.uid !== actor.id) throw new Error('로그인 상태가 변경되었습니다.') },
-        })
+        const input: UnlinkCaseCustomerInput = { lead, openingMembers: members, actorId: actor.id, canManageAll,
+          assertSession: () => {
+            if (latestSessionKey.current !== ownSession || auth?.currentUser?.uid !== actor.id) throw new CaseSaveError('CASE_SAVE_SESSION_CHANGED', '로그인 상태가 변경되었습니다. 다시 로그인한 뒤 저장해주세요.')
+          },
+        }
+        const firebaseUser = auth?.currentUser
+        if (import.meta.env.PROD && firebaseUser) await unlinkCaseCustomerOnServer(firebaseUser, input)
+        else await unlinkCaseCustomer(db, input)
+        if (latestSessionKey.current !== ownSession) return false
       } else {
         const toUnlink = members.length === 2 ? members : [lead]
         const ids = new Set(toUnlink.map(member => member.id))
@@ -974,7 +988,7 @@ function CustomerNameField({ lead, creating, onChange }: { lead: Lead; creating:
 }
 
 
-function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,openSalesRouteInitially,onSaveSalesRoute,onClose,onSave,onUnlink,remoteChanged}:{lead:Lead,linkedLeads:Lead[],allLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,openSalesRouteInitially:boolean,onSaveSalesRoute?:(edit:SalesChannelRouteEdit)=>Promise<void>,onClose:()=>void,onSave:(l:Lead,linkTargetId?:string,options?:CaseEditorSaveOptions)=>Promise<string | null>,onUnlink:(lead:Lead,openingMembers?:Lead[])=>Promise<boolean>,remoteChanged:boolean}) {
+function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,canManageAll,openMemoInitially,openSalesRouteInitially,onSaveSalesRoute,onClose,onSave,onUnlink,remoteChanged}:{lead:Lead,linkedLeads:Lead[],allLeads:Lead[],onSelectLinked:(lead:Lead)=>void,partners:string[],creating:boolean,canManageAll:boolean,openMemoInitially:boolean,openSalesRouteInitially:boolean,onSaveSalesRoute?:(edit:SalesChannelRouteEdit)=>Promise<void>,onClose:()=>void,onSave:(l:Lead,linkTargetIds:readonly string[],options:CaseEditorSaveOptions)=>Promise<string | null>,onUnlink:(lead:Lead,openingMembers?:Lead[])=>Promise<boolean>,remoteChanged:boolean}) {
   // The parent keys the editor by customer id. These are immutable opening
   // baselines, not live props: a sibling update must not silently reset a draft.
   const [initial] = useState(() => {
@@ -983,7 +997,6 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
     catch (error) { return { draft: lead, conflicts: [], members, error: error instanceof Error ? error.message : '공유 기준 고객을 확인해주세요.' } }
   })
   const [form, setForm] = useState(initial.draft)
-  const [openingMembers, setOpeningMembers] = useState(initial.members)
   const formBaseline = useRef(initial.draft)
   const [basis, setBasis] = useState<SharingBasis>({})
   const [caseChoiceOpen, setCaseChoiceOpen] = useState(false)
@@ -993,33 +1006,49 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
   const [manualManager, setManualManager] = useState(Boolean(initial.draft.manager && !managers.some(m => m.name === initial.draft.manager)))
   const [memoOpen, setMemoOpen] = useState(openMemoInitially)
   const [linkExisting, setLinkExisting] = useState(false)
-  const [linkTargetId, setLinkTargetId] = useState('')
+  const [linkTargets, setLinkTargets] = useState<{ target: Lead; members: Lead[] }[]>([])
   const [linkSearch, setLinkSearch] = useState('')
   const [unlinkBusy, setUnlinkBusy] = useState(false)
   useEffect(() => { if (openMemoInitially) setMemoOpen(true) }, [openMemoInitially])
   const update = (key: keyof Lead, value: string) => setForm(f => ({...f,[key]:value}))
   const sharedMode = Boolean(lead.caseGroupId)
-  const chooseLinkTarget = (id: string) => {
-    setLinkTargetId(''); setBasis({}); setSaveError(''); setOpeningMembers(initial.members)
-    if (!id) return
-    const target = allLeads.find(member => member.id === id)
-    if (!target || initial.members.some(member => member.id === id) || sharedMode && target.caseGroupId) return
-    const linked = target.caseGroupId ? allLeads.filter(member => member.caseGroupId === target.caseGroupId) : [target]
-    const members = [...initial.members, ...linked]
-    if (members.length > MAX_CASE_MEMBERS) {
-      setSaveError(`한 묶음에는 최대 ${MAX_CASE_MEMBERS}건까지 연결할 수 있습니다.`)
-      return
+  const linkTargetIds = linkTargets.map(({ target }) => target.id)
+  const selectedGroupId = linkTargets.find(({ target }) => target.caseGroupId)?.target.caseGroupId
+  const openingMembers = [...initial.members, ...linkTargets.flatMap(({ members }) => members)]
+  const eligibleLinkTarget = (target: Lead, memberCount: number) =>
+    memberCount + openingMembers.length <= MAX_CASE_MEMBERS && (!target.caseGroupId || !selectedGroupId)
+  const toggleLinkTarget = (target: Lead, members: Lead[]) => {
+    if (linkTargetIds.includes(target.id)) {
+      setLinkTargets(linkTargets.filter(selection => selection.target.id !== target.id))
+    } else {
+      if (!eligibleLinkTarget(target, members.length)) return
+      setLinkTargets([...linkTargets, { target, members }])
     }
-    setLinkTargetId(id); setOpeningMembers(members); setCaseChoiceOpen(true)
+    setBasis({}); setSaveError('')
+  }
+  const applySharedPreview = (draft: Lead) => {
+    const pendingEdits: Partial<Lead> = {}
+    const values: Partial<Lead> = {}
+    for (const key of ['manager', 'managerEmployeeNo', 'purchaseType', 'purchaseAmount', 'lumpSumAmount', 'subscriptionAmount'] as const) {
+      if (JSON.stringify(form[key]) !== JSON.stringify(formBaseline.current[key])) Object.assign(pendingEdits, { [key]: form[key] })
+      Object.assign(values, { [key]: draft[key] })
+    }
+    for (const key of ['lumpSumSourceId', 'subscriptionSourceId', 'caseBasisLeadId', 'caseMergeMemberIds'] as const) Object.assign(values, { [key]: draft[key] })
+    formBaseline.current = { ...formBaseline.current, ...values }
+    setForm(current => ({ ...current, ...values, ...pendingEdits }))
+    const manager = Object.prototype.hasOwnProperty.call(pendingEdits, 'manager') ? pendingEdits.manager : draft.manager
+    setManualManager(Boolean(manager && !managers.some(member => member.name === manager)))
   }
   const startLink = () => {
-    setLinkExisting(true); setLinkSearch(''); setSaveError('')
+    // Discard the previous roster's staged basis while retaining edits typed into the form.
+    if (basis.caseLeadId) applySharedPreview(initial.draft)
+    setBasis({}); setLinkExisting(true); setLinkSearch(''); setSaveError('')
   }
   const cancelLink = () => {
-    setLinkExisting(false); setLinkTargetId(''); setOpeningMembers(initial.members); setBasis({}); setSaveError('')
+    setLinkExisting(false); setLinkTargets([]); setBasis({}); setSaveError('')
   }
-  const previewCaseId = lead.caseGroupId || (linkTargetId ? allLeads.find(member => member.id === linkTargetId)?.caseGroupId || `case-${linkTargetId}` : `case-${lead.id}`)
-  const linkingMode = linkExisting && Boolean(linkTargetId)
+  const previewCaseId = lead.caseGroupId || selectedGroupId || `case-${linkTargetIds[0] || lead.id}`
+  const linkingMode = linkExisting && linkTargetIds.length > 0
   const hasCaseChoice = sharedMode || linkingMode
   const choiceMembers = linkingMode ? openingMembers.map(member => member.id === lead.id
     ? creating ? form : caseLinkLeadFor(lead, form, formBaseline.current)
@@ -1049,20 +1078,9 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
       if (linkingMode) {
         setBasis(choice); setSaveError(''); closeCaseChoice(); return
       }
-      const pendingEdits: Partial<Lead> = {}
-      for (const key of ['manager', 'managerEmployeeNo', 'purchaseType', 'purchaseAmount', 'lumpSumAmount', 'subscriptionAmount'] as const) {
-        if (JSON.stringify(form[key]) !== JSON.stringify(formBaseline.current[key])) Object.assign(pendingEdits, { [key]: form[key] })
-      }
       const preview = caseSharingDraftFor(lead, openingMembers, choice.caseLeadId, choice.mergePurchaseAmounts)
       if (preview.conflicts.length) { setSaveError(preview.conflicts[0].message); return }
-      const values: Partial<Lead> = {}
-      for (const key of ['manager', 'managerEmployeeNo', 'purchaseType', 'purchaseAmount', 'lumpSumAmount', 'subscriptionAmount', 'lumpSumSourceId', 'subscriptionSourceId', 'caseBasisLeadId', 'caseMergeMemberIds'] as const) Object.assign(values, { [key]: preview.draft[key] })
-      // Selecting a basis is not a money edit. Keep all personal fields and
-      // original opening rows, and compare later edits to the chosen view.
-      formBaseline.current = { ...formBaseline.current, ...values }
-      setForm(current => ({ ...current, ...values, ...pendingEdits }))
-      const manager = Object.prototype.hasOwnProperty.call(pendingEdits, 'manager') ? pendingEdits.manager : preview.draft.manager
-      setManualManager(Boolean(manager && !managers.some(member => member.name === manager)))
+      applySharedPreview(preview.draft)
       setBasis(choice); setSaveError(''); closeCaseChoice()
     } catch (error) { setSaveError(error instanceof Error ? error.message : '기준 고객을 확인해주세요.') }
   }
@@ -1071,20 +1089,43 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
   const linkQuery = linkSearch.trim().toLowerCase()
   const originalIdentities = new Set(initial.members.map(member => contactKey(member.customerName, member.phoneLast4)).filter(Boolean))
   const linkPriority = (member: Lead) => {
-    if (member.id === linkTargetId) return 3
     if (canonicalPartnerName(member.partnerName) !== canonicalPartnerName(lead.partnerName)) return 0
     return originalIdentities.has(contactKey(member.customerName, member.phoneLast4)) ? 2 : 1
   }
-  const linkChoices = linkExisting ? allLeads.filter(item => !existingMemberIds.has(item.id) && (!sharedMode || !item.caseGroupId)
-    && (item.id === linkTargetId || [customerDisplayLabel(item), item.partnerName].some(value => value?.toLowerCase().includes(linkQuery))))
-    .sort((left, right) => linkPriority(right) - linkPriority(left) || right.registeredAt.localeCompare(left.registeredAt)).slice(0, 30) : []
+  const listedGroupIds = new Set(selectedGroupId ? [selectedGroupId] : [])
+  const availableTargets = linkExisting ? allLeads.filter(item => !existingMemberIds.has(item.id) && (!sharedMode || !item.caseGroupId)
+    && !linkTargetIds.includes(item.id) && [customerDisplayLabel(item), item.partnerName].some(value => value?.toLowerCase().includes(linkQuery)))
+    .sort((left, right) => linkPriority(right) - linkPriority(left) || right.registeredAt.localeCompare(left.registeredAt))
+    .filter(item => {
+      if (!item.caseGroupId) return true
+      if (listedGroupIds.has(item.caseGroupId)) return false
+      listedGroupIds.add(item.caseGroupId)
+      return true
+    }).slice(0, 30) : []
+  const linkChoices = [...linkTargets, ...availableTargets.map(target => ({
+    target, members: target.caseGroupId ? allLeads.filter(member => member.caseGroupId === target.caseGroupId) : [target],
+  }))]
   const linkPicker = linkExisting && <div className="case-link-picker">
     <label>기존 고객 찾기<input placeholder="고객명·휴대폰 뒷자리·제휴업체 검색" value={linkSearch} onChange={event => setLinkSearch(event.target.value)} disabled={saving || editorChanged}/></label>
-    <label>{sharedMode ? '추가할 고객' : '연결할 고객'}<select aria-label={sharedMode ? '추가할 고객' : '연결할 고객'} required value={linkTargetId} onChange={event => chooseLinkTarget(event.target.value)} disabled={saving || editorChanged}>
-      <option value="">{linkChoices.length ? '고객을 선택하세요' : '검색 결과가 없습니다'}</option>
-      {linkChoices.map(item => <option key={item.id} value={item.id}>{customerDisplayLabel(item)} · {item.partnerName} · {formatDate(item.registeredAt)} · {caseOriginalIntakeMethod(item.appointmentType)}{item.caseGroupId ? ' · 묶음' : ''}</option>)}
-    </select></label>
-    {sharedMode && <button type="button" className="btn secondary case-link-cancel" disabled={saving} onClick={cancelLink}>고객 추가 취소</button>}
+    <div className="case-link-list" role="group" aria-label={sharedMode ? '추가할 고객' : '연결할 고객'}>
+      {linkChoices.map(({ target, members }) => {
+        const checked = linkTargetIds.includes(target.id)
+        return <label className="case-link-check case-link-option" key={target.id}>
+          <input type="checkbox" checked={checked} onChange={() => toggleLinkTarget(target, members)}
+            disabled={saving || editorChanged || !checked && !eligibleLinkTarget(target, members.length)}/>
+          <span><strong>{customerDisplayLabel(target)}{target.caseGroupId ? ` · 묶음 ${members.length}건` : ''}</strong>
+            <small>{target.partnerName} · {formatDate(target.registeredAt)} · {caseOriginalIntakeMethod(target.appointmentType)}</small></span>
+        </label>
+      })}
+      {!linkChoices.length && <p>검색 결과가 없습니다.</p>}
+    </div>
+    <div className="case-link-actions">
+      <span aria-live="polite">{openingMembers.length > initial.members.length
+        ? `추가 ${openingMembers.length - initial.members.length}건 · 묶음 ${openingMembers.length}/${MAX_CASE_MEMBERS}건`
+        : `최대 ${MAX_CASE_MEMBERS}건까지 묶을 수 있습니다.`}</span>
+      {sharedMode && <button type="button" className="btn secondary case-link-cancel" disabled={saving} onClick={cancelLink}>고객 추가 취소</button>}
+      <button type="button" className="btn secondary" disabled={!linkingMode || saving || editorChanged} onClick={() => setCaseChoiceOpen(true)}>기준 고객 선택</button>
+    </div>
   </div>
   const unlinkSelected = async () => {
     const scope = linkedLeads.length === 2 ? '두 고객의 연결을 해제' : `${customerDisplayLabel(lead)} 고객만 이 접수건에서 분리`
@@ -1116,11 +1157,20 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
     {!creating && !hasCaseChoice && <div className="identity"><div>{customerDisplayName(lead.customerName).slice(0,1)}</div><section><strong>{customerDisplayLabel(lead)}</strong>{lead.bestCustomerNumber ? <small className="customer-best-number">고객번호 {lead.bestCustomerNumber}</small> : <span>고객 식별정보</span>}</section><span className={`badge ${statusTone[form.status]}`}><i/>{form.status}</span></div>}
     {dualIntake && <div className="duplicate-intake-notice"><CircleHelp size={17}/><div><strong>두 방식 중복 접수</strong><p>이업종제휴 · 상담예약(이업종)</p></div></div>}
     {editorChanged && <div className="drawer-sync-warning" role="alert">다른 사용자가 이 고객 또는 연결 고객 정보를 변경했습니다. 화면을 닫고 다시 열어 최신 내용을 확인해주세요.</div>}
-    <form onSubmit={async e => {e.preventDefault(); if (saving || editorChanged || caseChoiceOpen || linkExisting && !linkTargetId) return; if (needsCaseChoice) { setCaseChoiceOpen(true); return } setSaving(true); setSaveError(''); try { const error = await onSave(form, linkExisting ? linkTargetId : undefined, {formBaseline:formBaseline.current, openingMembers, basis}); if (error) setSaveError(error) } finally {setSaving(false)}}}>
+    <form onSubmit={async event => {
+      event.preventDefault()
+      if (saving || editorChanged || caseChoiceOpen || linkExisting && !linkingMode) return
+      if (needsCaseChoice) { setCaseChoiceOpen(true); return }
+      setSaving(true); setSaveError('')
+      try {
+        const error = await onSave(form, linkTargetIds, { formBaseline: formBaseline.current, openingMembers, basis })
+        if (error) setSaveError(error)
+      } finally { setSaving(false) }
+    }}>
       {hasCaseChoice && <CaseGroupSummary key={lead.id} members={openingMembers} activeLeadId={lead.id}
         basisLabel={wholeCaseSelection?.basis ? customerDisplayLabel(wholeCaseSelection.basis) : undefined} basisLeadId={wholeCaseSelection?.basis?.id}
         amountMode={wholeCaseSelection?.status === 'unresolved' || linkingMode && !basis.caseLeadId ? 'pending' : wholeCaseSelection?.mergeMemberIds ? 'merged' : 'single'}
-        pendingReason={wholeCaseSelection?.reason} staged={Boolean(basis.caseLeadId)} choiceOpen={caseChoiceOpen} disabled={saving || editorChanged || linkExisting && !linkTargetId}
+        pendingReason={wholeCaseSelection?.reason} staged={Boolean(basis.caseLeadId)} choiceOpen={caseChoiceOpen} disabled={saving || editorChanged || linkExisting && !linkingMode}
         onChoose={canManageAll ? () => setCaseChoiceOpen(true) : undefined}
         onAddMember={canManageAll && sharedMode && !linkExisting && initial.members.length < MAX_CASE_MEMBERS ? startLink : undefined}
         onSelectMember={sharedMode && !linkExisting ? onSelectLinked : undefined}
@@ -1147,7 +1197,7 @@ function LeadDrawer({lead,linkedLeads,allLeads,onSelectLinked,partners,creating,
       <SalesChannelDetails members={salesRouteMembers} editableLeadId={!remoteChanged && !saving && onSaveSalesRoute ? lead.id : undefined}
         onSaveRoute={onSaveSalesRoute} initiallyOpen={openSalesRouteInitially}/>
       <fieldset><legend>진행 관리</legend><div className="form-grid"><label>담당 매니저<select disabled={!canManageAll} value={manualManager ? '__manual__' : form.manager||''} onChange={e=>{if(e.target.value==='__manual__'){setManualManager(true);update('manager','')}else{setManualManager(false);update('manager',e.target.value)}}}><option value="__manual__">직접입력</option><option value="">미배정</option>{managers.filter(m=>m.role==='매니저').map(m=><option key={m.employeeNo} value={m.name}>{m.name}</option>)}</select>{manualManager && canManageAll && <input className="manual-manager" autoFocus placeholder="담당자 이름 직접입력" value={form.manager||''} onChange={e=>update('manager',e.target.value)}/>}</label><label>현재 상태<select value={form.status} onChange={e=>update('status',e.target.value)}>{STATUSES.map(s=><option key={s}>{s}</option>)}</select></label><label>방문 여부<select value={form.visitState} onChange={e=>update('visitState',e.target.value as VisitState)}><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label></div><button type="button" className="memo-open" onClick={()=>setMemoOpen(true)}><span><Clock3 size={18}/><b>관리메모</b></span><small>{cancellationMemoCount ? '관리 '+managementMemoCount+'건 · 주문 취소 '+cancellationMemoCount+'건' : managementMemoCount ? managementMemoCount+'건의 관리 이력' : '접촉 내용과 다음 계획을 기록하세요'}</small><i>보기 →</i></button></fieldset>
-      <div className="drawer-actions">{saveError && <p className="case-share-error drawer-save-error" role="alert">{saveError}</p>}<button type="button" className="btn secondary" onClick={onClose}>취소</button><button className="btn primary" type="submit" disabled={editorChanged || saving || unlinkBusy}><Check size={17}/>{saving ? '저장 중...' : creating ? '고객 등록' : '변경사항 저장'}</button></div>
+      <div className="drawer-actions">{saveError && <p className="case-share-error drawer-save-error" role="alert">{saveError}</p>}<button type="button" className="btn secondary" onClick={onClose}>취소</button><button className="btn primary" type="submit" disabled={editorChanged || saving || unlinkBusy || linkExisting && !linkingMode}><Check size={17}/>{saving ? '저장 중...' : creating ? '고객 등록' : '변경사항 저장'}</button></div>
     </form>
   </aside>{caseChoiceOpen && <CaseMergeChoiceModal members={choiceMembers} initialBasisId={basis.caseLeadId || lead.caseBasisLeadId || lead.id} initialMergeMemberIds={wholeCaseSelection?.mergeMemberIds} disabled={editorChanged || saving || !canManageAll} onClose={closeCaseChoice} onConfirm={chooseCaseBasis}/>}
   {memoOpen&&<MemoModal lead={form} manager={form.manager||'미배정'} entries={memoEntries} onChange={entries=>setForm(f=>({...f,memoHistory:entries,note:entries.filter(entry=>!isBestCancellationMemo(entry)).at(-1)?.content??f.note}))} onClose={()=>setMemoOpen(false)}/>}</>

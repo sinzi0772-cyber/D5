@@ -14,6 +14,7 @@ export interface SaveCaseCustomerInput {
   openingMembers: readonly Lead[]
   creating: boolean
   linkTargetId?: string
+  linkTargetIds?: readonly string[]
   actorId: string
   actorEmployeeNo: string
   canManageAll: boolean
@@ -231,17 +232,23 @@ export function saveCaseCustomer(db: Firestore, input: SaveCaseCustomerInput): P
 export async function saveCaseCustomerWithStore(store: CaseSharingStore, input: SaveCaseCustomerInput): Promise<{ changedCount: number; shared: boolean }> {
   input.assertSession()
   if (!validId(input.original.id) || input.draft.id !== input.original.id || input.formBaseline.id !== input.original.id || !validId(input.actorId) || !input.canManageAll && !validId(input.actorEmployeeNo)) fail('CASE_SAVE_INVALID_INPUT', '저장할 고객 정보를 다시 확인해주세요.')
-  const deliveryError = caseSaveDeliveryError(input.original, input.draft, Boolean(input.linkTargetId), input.creating)
+  const targetIds = input.linkTargetIds ?? (input.linkTargetId ? [input.linkTargetId] : [])
+  const linking = targetIds.length > 0
+  if (input.linkTargetIds && input.linkTargetId || targetIds.length >= MAX_CASE_MEMBERS
+    || new Set(targetIds).size !== targetIds.length || targetIds.some(id => !validId(id) || id === input.original.id)) {
+    fail('CASE_SAVE_INVALID_LINK', '묶을 고객과 접수 기록 구성을 다시 확인해주세요.')
+  }
+  const deliveryError = caseSaveDeliveryError(input.original, input.draft, linking, input.creating)
   if (deliveryError) fail('CASE_SAVE_INVALID_DELIVERY', deliveryError)
   for (const value of [input.draft.purchaseAmount, input.draft.lumpSumAmount, input.draft.subscriptionAmount]) {
     if (value !== undefined && value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) fail('CASE_SAVE_INVALID_AMOUNT', '구매 금액은 0 이상의 올바른 숫자로 입력해주세요.')
   }
-  if (input.creating && !input.canManageAll || input.linkTargetId && !input.canManageAll) fail('CASE_SAVE_FORBIDDEN', '고객 등록과 연결에는 관리자 권한이 필요합니다.')
+  if ((input.creating || linking) && !input.canManageAll) fail('CASE_SAVE_FORBIDDEN', '고객 등록과 연결에는 관리자 권한이 필요합니다.')
   if (!input.canManageAll && assignmentChanged(input.draft, input.formBaseline)) fail('CASE_SAVE_MANAGER_FORBIDDEN', '담당자 변경은 관리자 권한이 필요합니다.')
   if (input.basis?.mergePurchaseAmounts !== undefined && (typeof input.basis.mergePurchaseAmounts !== 'boolean' || !input.basis.caseLeadId)) fail('CASE_SHARING_MERGE_BASIS_REQUIRED', '구매금액 합산 여부와 기준 고객을 함께 선택해주세요.')
   if (input.basis?.mergePurchaseAmounts !== undefined && !input.canManageAll) fail('CASE_SHARING_BASIS_FORBIDDEN', '묶음 고객의 구매금액 합산 선택은 관리자 권한이 필요합니다.')
   const now = new Date().toISOString()
-  const personalOnly = !input.linkTargetId && !hasBasis(input.basis) && (!input.original.caseGroupId || !financialChanged(input.draft, input.formBaseline) && !assignmentChanged(input.draft, input.formBaseline))
+  const personalOnly = !linking && !hasBasis(input.basis) && (!input.original.caseGroupId || !financialChanged(input.draft, input.formBaseline) && !assignmentChanged(input.draft, input.formBaseline))
   if (personalOnly) {
     if (!input.original.caseGroupId) assertDetachedAliasEdit(input.original, input.draft, input.formBaseline)
     return store.transaction(async transaction => {
@@ -266,13 +273,17 @@ export async function saveCaseCustomerWithStore(store: CaseSharingStore, input: 
     })
   }
 
-  if (input.linkTargetId === input.original.id) fail('CASE_SAVE_INVALID_LINK', '다른 고객을 연결 대상으로 선택해주세요.')
-  const targetRaw = input.linkTargetId ? await store.getLead(input.linkTargetId) : null
+  const targetRows = await Promise.all(targetIds.map(id => store.getLead(id)))
   input.assertSession()
-  if (input.linkTargetId && !targetRaw) fail('CASE_SAVE_LINK_TARGET_MISSING', '연결할 고객이 삭제되었습니다. 다시 선택해주세요.')
-  const target = targetRaw && input.linkTargetId ? leadFromDocument(input.linkTargetId, targetRaw) : undefined
-  if (target?.caseGroupId && input.original.caseGroupId) fail('CASE_SAVE_ALREADY_LINKED', '다른 묶음에 속한 고객은 해당 연결을 해제한 뒤 추가해주세요.')
-  const caseId = input.original.caseGroupId || (target ? target.caseGroupId || `case-${target.id}` : undefined)
+  const targets = targetRows.map((data, index) => {
+    if (!data) fail('CASE_SAVE_LINK_TARGET_MISSING', '연결할 고객이 삭제되었습니다. 다시 선택해주세요.')
+    return leadFromDocument(targetIds[index], data)
+  })
+  const groupedTargets = targets.filter(target => target.caseGroupId)
+  if (groupedTargets.length > 1 || (groupedTargets.length && input.original.caseGroupId)) {
+    fail('CASE_SAVE_ALREADY_LINKED', '다른 묶음에 속한 고객은 해당 연결을 해제한 뒤 추가해주세요.')
+  }
+  const caseId = input.original.caseGroupId || groupedTargets[0]?.caseGroupId || (targets.length ? `case-${targets[0].id}` : undefined)
   if (!validId(caseId)) fail('CASE_SAVE_INVALID_GROUP', '연결할 접수건 정보를 다시 확인해주세요.')
   const initialGuard = await store.getGuard(caseId)
   input.assertSession()
@@ -292,8 +303,9 @@ export async function saveCaseCustomerWithStore(store: CaseSharingStore, input: 
     if (!sameIds(idsFor(groupMembers), groupIds) || groupMembers.some(member => member.caseGroupId !== caseId || member.managerEmployeeNo !== input.actorEmployeeNo)) fail('CASE_SAVE_GROUP_PERMISSION', '연결 고객 전체가 본인에게 배정된 접수건만 함께 저장할 수 있습니다.')
   }
   persistedBasisFor(groupMembers, initialGuard)
-  if (target && !target.caseGroupId) groupMembers.push(target)
-  const openingGroup = input.openingMembers.filter(member => member.caseGroupId === caseId || member.id === target?.id)
+  groupMembers.push(...targets.filter(target => !target.caseGroupId))
+  const selectedIds = new Set(targetIds)
+  const openingGroup = input.openingMembers.filter(member => member.caseGroupId === caseId || selectedIds.has(member.id))
   if (!sameIds(idsFor(openingGroup), idsFor(groupMembers))) fail('CASE_SAVE_STALE_GROUP', '화면을 연 뒤 연결 고객 구성이 변경되었습니다. 상세 화면을 다시 열어 확인해주세요.')
   const baselineById = new Map(input.openingMembers.map(member => [member.id, member]))
   baselineById.set(input.original.id, input.original)
@@ -324,7 +336,7 @@ export async function saveCaseCustomerWithStore(store: CaseSharingStore, input: 
     })
     const existingGroup = currentMembers.filter(member => member.caseGroupId === caseId)
     const existingBasisId = persistedBasisFor(existingGroup, freshGuard)
-    if (input.linkTargetId) {
+    if (linking) {
       // Apply real selected-record edits first. Basis-prefill values identical
       // to formBaseline are not edits and never overwrite this original.
       assertDetachedAliasEdit(input.original, input.draft, input.formBaseline)
