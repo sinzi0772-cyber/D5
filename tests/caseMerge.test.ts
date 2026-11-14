@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import type { Lead, SalesRawPeriod, SubscriptionRawPeriod } from '../src/types'
-import { caseBasisFor, caseBasisGroupsFor, financialCaseLeadFor, financialCaseLeadsFor } from '../src/lib/caseBasis'
+import { caseBasisFor, caseBasisGroupsFor, financialCaseLeadFor, financialCaseLeadsFor, verifiedLinkedOrderRoutesFor } from '../src/lib/caseBasis'
 import { leadFromDocument } from '../src/lib/leadDocument'
 import { buildCommissionSettlementMetrics } from '../src/lib/commissionSettlement'
 import { buildPartnerPreview } from '../src/lib/partnerPreview'
@@ -112,6 +112,56 @@ assert.equal(linkedFee([{ ...linkedBasis, subscriptionAmount: 200_001 }, linkedS
 assert.equal(linkedFee([linkedBasis, { ...linkedSource, subscriptionRawPeriods: undefined }]), 0)
 assert.equal(linkedFee([{ ...linkedBasis, subscriptionSettlementReview: { ...linkedReview,
   linkedSource: { ...linkedReview.linkedSource, memberIds: ['A', 'B', 'C'] } } }, linkedSource]), 0)
+
+const linkedCashPeriod = sales({ orderCount: 1, confirmedOrderCount: 1, reservedOrderCount: 0,
+  confirmedAmount: 100_000, reservedAmount: 0, settlementBasisAmount: 100_000,
+  channels: [{ channel1: '고객인증서비스(웨딩)', channel2: '웨딩매장행사', orderCount: 1, amount: 100_000 }] })
+const cashOnly = { reviewedAt: '2026-11-14T00:00:00.000Z', partnerName: '(주)아이패밀리에스씨', linkedSource: {
+  leadId: 'B', caseGroupId: 'synthetic-pair', memberIds: ['A', 'B'],
+  cashRoute: { period: linkedCashPeriod.period, sourceHash: linkedCashPeriod.sourceHash,
+    confirmedAmount: 100_000, settlementBasisAmount: 100_000 },
+} }
+const cashBasis = makeLead('A', { caseBasisLeadId: 'A', partnerName: cashOnly.partnerName, subscriptionSettlementReview: { cashOnly } })
+const cashDonor = makeLead('B', { caseBasisLeadId: 'A', partnerName: cashOnly.partnerName, status: '관리중',
+  purchaseType: '미선택', lumpSumAmount: undefined, salesRawPeriods: { '2026-09': linkedCashPeriod } })
+const cashMembers = [cashBasis, cashDonor]
+const cashMembersBefore = JSON.stringify(cashMembers)
+const [linkedCashProjection] = financialCaseLeadsFor(cashMembers)
+assert.equal(financialCaseLeadsFor(cashMembers).length, 1)
+assert.equal(expectedRebateFor(linkedCashProjection), 2_000)
+assert.equal(financialTotalPurchaseAmountFor(linkedCashProjection), 100_000)
+assert.equal(linkedCashProjection.salesRawPeriods, undefined)
+assert.equal(linkedCashProjection.deliveryScheduledDate, cashBasis.deliveryScheduledDate)
+assert.equal(commissionVerificationRequiredFor(linkedCashProjection), false)
+assert.deepEqual(verifiedLinkedOrderRoutesFor(cashBasis, cashMembers).map(({ source, row }) => [source.id, row.kind, row.channel2]),
+  [['B', 'lumpSum', '웨딩매장행사']])
+assert.equal(JSON.stringify(cashMembers), cashMembersBefore)
+assert.equal(expectedRebateFor(cashBasis), 0)
+
+const cashWithDirectSubscription = { ...reviewedOwner, purchaseType: '일시불+구독' as const, lumpSumAmount: 100_000,
+  caseBasisLeadId: 'A', subscriptionSettlementReview: { ...reviewedOwner.subscriptionSettlementReview!, cashOnly } }
+assert.equal(linkedFee([cashWithDirectSubscription, cashDonor]), 3_350,
+  'Independent cash approval can coexist with a verified subscription on the selected basis')
+for (const change of [
+  { sourceHash: 'changed' }, { confirmedAmount: 100_001 }, { reservedAmount: 1 }, { returnAmount: 1 },
+  { orderCount: 2, reservedOrderCount: 1 }, { tentativeOrderCount: 1 }, { settlementBasisAmount: 99_999 },
+]) {
+  const changedDonor = { ...cashDonor, salesRawPeriods: { '2026-09': { ...linkedCashPeriod, ...change } } }
+  assert.equal(linkedFee([cashBasis, changedDonor]), 0)
+  assert.deepEqual(verifiedLinkedOrderRoutesFor(cashBasis, [cashBasis, changedDonor]), [])
+}
+assert.equal(linkedFee([{ ...cashBasis, lumpSumAmount: 100_001 }, cashDonor]), 0)
+assert.equal(linkedFee([cashBasis, { ...cashDonor, partnerName: '다른 업체' }]), 0)
+assert.equal(linkedFee([cashBasis, { ...cashDonor, lumpSumSourceId: 'A' }]), 0)
+assert.equal(linkedFee([cashBasis, cashDonor, makeLead('C', { caseBasisLeadId: 'A', partnerName: cashOnly.partnerName })]), 0)
+const borrowedCashBasis = { ...cashBasis, lumpSumSourceId: 'C', subscriptionSettlementReview: { cashOnly: {
+  ...cashOnly, linkedSource: { ...cashOnly.linkedSource, memberIds: ['A', 'B', 'C'] },
+} } }
+const borrowingMembers = [borrowedCashBasis, cashDonor, makeLead('C', {
+  caseBasisLeadId: 'A', partnerName: cashOnly.partnerName, lumpSumAmount: 100_000,
+})]
+assert.equal(linkedFee(borrowingMembers), 0, 'A normalized projection cannot make an alias eligible for a different RAW source')
+assert.deepEqual(verifiedLinkedOrderRoutesFor(borrowedCashBasis, borrowingMembers), [])
 
 const refunds = [makeLead('A', { lumpSumAmount: 0, salesRawPeriods: { '2026-09': sales({ confirmedAmount: -100, reservedAmount: 0, eligibleConfirmedAmount: -100, eligibleReservedAmount: 0, returnAmount: 100, settlementBasisAmount: -100 }) } }),
   verified(makeLead('B', { lumpSumAmount: 300 }))]

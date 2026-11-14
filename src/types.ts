@@ -116,8 +116,29 @@ export interface SubscriptionRawPeriod {
   channels?: readonly SalesChannelSummary[]
 }
 
+interface LinkedSettlementSource {
+  leadId: string
+  caseGroupId: string
+  memberIds: string[]
+}
+
+export interface LinkedCashReview {
+  period: string
+  sourceHash: string
+  confirmedAmount: number
+  settlementBasisAmount?: number
+}
+
+interface LinkedCashSettlementReview {
+  reviewedAt: string
+  partnerName: string
+  linkedSource: LinkedSettlementSource & {
+    cashRoute: LinkedCashReview & { settlementBasisAmount: number }
+  }
+}
+
 /** A verified portion of subscription RAW when the saved sales amount differs. */
-export interface SubscriptionSettlementReview {
+interface ReviewedSubscriptionAmount {
   period: string
   sourceHash: string
   enteredAmount: number
@@ -126,13 +147,12 @@ export interface SubscriptionSettlementReview {
   settlementBasisAmount: number
   reviewedAt: string
   partnerName: string
-  linkedSource?: {
-    leadId: string
-    caseGroupId: string
-    memberIds: string[]
-    cashRoute?: { period: string; sourceHash: string; confirmedAmount: number; settlementBasisAmount?: number }
-  }
+  linkedSource?: LinkedSettlementSource & { cashRoute?: LinkedCashReview }
 }
+
+/** Both approval methods live under the same protected Firestore field. */
+export type SubscriptionSettlementReview = (ReviewedSubscriptionAmount & { cashOnly?: LinkedCashSettlementReview })
+  | (Partial<Record<keyof ReviewedSubscriptionAmount, never>> & { cashOnly: LinkedCashSettlementReview })
 
 export interface Lead {
   id: string

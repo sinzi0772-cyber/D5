@@ -38,9 +38,9 @@ export interface CaseFinancialProjection {
   commissionVerificationRequired: boolean
 }
 const caseFinancialProjections = new WeakMap<object, CaseFinancialProjection>()
-const linkedSettlementBases = new WeakMap<FinancialLead, { subscription: number; lumpSum?: number }>()
+const linkedSettlementBases = new WeakMap<FinancialLead, { subscription?: number; lumpSum?: number }>()
 
-export function registerLinkedSettlementBasis(lead: Lead, basis: { subscription: number; lumpSum?: number }): void {
+export function registerLinkedSettlementBasis(lead: Lead, basis: { subscription?: number; lumpSum?: number }): void {
   linkedSettlementBases.set(lead, basis)
 }
 export function registerCaseFinancialProjection(lead: Lead, totals: CaseFinancialProjection): Lead {
@@ -170,7 +170,7 @@ export function reviewedSubscriptionSettlementBasisFor(lead: FinancialLead, sour
   if (!review || typeof review.period !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(review.period)
     || typeof review.sourceHash !== 'string' || !review.sourceHash || typeof review.reviewedAt !== 'string' || !Number.isFinite(Date.parse(review.reviewedAt))
     || review.partnerName !== canonicalPartnerName(lead.partnerName)
-    || review.enteredAmount <= 0 || review.enteredAmount !== subscriptionAmountFor(lead)) return 0
+    || typeof review.enteredAmount !== 'number' || review.enteredAmount <= 0 || review.enteredAmount !== subscriptionAmountFor(lead)) return 0
   const period = sourcePeriods?.[review.period]
   if (!period || period.period !== review.period || period.sourceHash !== review.sourceHash
     || period.confirmedBasisAmount !== review.confirmedBasisAmount || period.pendingBasisAmount !== review.pendingBasisAmount

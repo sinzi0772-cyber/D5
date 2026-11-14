@@ -1,4 +1,4 @@
-import type { Lead } from '../types'
+import type { Lead, LinkedCashReview } from '../types'
 import { canonicalPartnerName } from './partners'
 import { getStoredSalesChannels } from './salesChannels'
 import { commissionVerificationRequiredFor, completedSalesFor, confirmedSalesFor, financialPendingAmountFor, isSubscriptionRebatePartner, purchaseAmountSourceFor, registerCaseFinancialProjection, registerLinkedSettlementBasis, reviewedSubscriptionSettlementBasisFor, salesRawAmountsFor, signedCommissionBasisFor, subscriptionRawAmountsFor } from './salesFinance'
@@ -58,23 +58,26 @@ function normalizeProjectedPurchase(lead: Lead): void {
   lead.purchaseAmount = lumpSum !== undefined || subscription !== undefined ? (lumpSum || 0) + (subscription || 0) : undefined
 }
 
+function verifiedLinkedSource(basis: Lead, members: readonly Lead[], linked: { leadId: string; caseGroupId: string; memberIds: string[] }) {
+  const company = partner(basis)
+  if (!company || !validId(linked.caseGroupId) || basis.caseGroupId !== linked.caseGroupId || !validMergeRoster(linked.memberIds, members)
+    || members.some(member => member.caseGroupId !== linked.caseGroupId || member.caseBasisLeadId !== basis.id || partner(member) !== company)) return
+  return members.find(member => member.id === linked.leadId && member.id !== basis.id)
+}
+
 function verifiedLinkedSubscriptionSource(basis: Lead, members: readonly Lead[]) {
   const review = basis.subscriptionSettlementReview
   const linked = review?.linkedSource
-  if (!review || !linked || basis.caseGroupId !== linked.caseGroupId || !validMergeRoster(linked.memberIds, members)
-    || (basis.subscriptionSourceId && basis.subscriptionSourceId !== basis.id)
-    || hasRaw(basis, 'subscription') || members.some(member => member.caseGroupId !== linked.caseGroupId
-      || member.caseBasisLeadId !== basis.id || partner(member) !== partner(basis))) return
-  const source = members.find(member => member.id === linked.leadId && member.id !== basis.id)
+  if (!review || !linked || (basis.subscriptionSourceId && basis.subscriptionSourceId !== basis.id) || hasRaw(basis, 'subscription')) return
+  const source = verifiedLinkedSource(basis, members, linked)
   if (!source || (source.subscriptionSourceId && source.subscriptionSourceId !== source.id)) return
   const settlementBasis = reviewedSubscriptionSettlementBasisFor(basis, source.subscriptionRawPeriods)
   if (settlementBasis > 0) return { source, review, linked, settlementBasis }
 }
 
-type LinkedCashReview = NonNullable<NonNullable<Lead['subscriptionSettlementReview']>['linkedSource']>['cashRoute']
-
-function verifiedLinkedCashPeriod(basis: Lead, source: Lead, cash: LinkedCashReview) {
-  if (!cash || !/^\d{4}-(0[1-9]|1[0-2])$/.test(cash.period) || typeof cash.sourceHash !== 'string' || !cash.sourceHash
+function verifiedLinkedCashPeriod(basis: Lead, source: Lead, cash: LinkedCashReview | undefined) {
+  if (!cash || typeof cash.period !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(cash.period)
+    || typeof cash.sourceHash !== 'string' || !cash.sourceHash
     || hasRaw(basis, 'lumpSum') || (basis.lumpSumSourceId && basis.lumpSumSourceId !== basis.id)
     || (source.lumpSumSourceId && source.lumpSumSourceId !== source.id)) return
   const period = source.salesRawPeriods?.[cash.period]
@@ -83,30 +86,43 @@ function verifiedLinkedCashPeriod(basis: Lead, source: Lead, cash: LinkedCashRev
     && Number.isSafeInteger(cash.confirmedAmount) && cash.confirmedAmount > 1 && enteredAmount(basis, 'lumpSum') === cash.confirmedAmount) return period
 }
 
-function applyLinkedSettlementReview(projected: Lead, members: readonly Lead[]): void {
-  if (projected.subscriptionSourceId !== projected.id) return
-  const verified = verifiedLinkedSubscriptionSource(projected, members)
-  if (!verified) return
-  const { linked, source, settlementBasis } = verified
-  const cash = verifiedLinkedCashPeriod(projected, source, linked.cashRoute)
-  const approvedCash = linked.cashRoute?.settlementBasisAmount
-  const lumpSum = cash && projected.lumpSumSourceId === projected.id
-    && Number.isSafeInteger(cash.confirmedOrderCount) && cash.confirmedOrderCount > 0
-    && cash.orderCount === cash.confirmedOrderCount && cash.reservedOrderCount === 0 && (cash.tentativeOrderCount ?? 0) === 0
-    && cash.settlementBasisAmount === cash.confirmedAmount && approvedCash === cash.settlementBasisAmount ? approvedCash : undefined
-  registerLinkedSettlementBasis(projected, { subscription: settlementBasis, lumpSum })
+function verifiedCashReview(basis: Lead, members: readonly Lead[], subscription: ReturnType<typeof verifiedLinkedSubscriptionSource>) {
+  const cashOnly = basis.subscriptionSettlementReview?.cashOnly
+  const selected = cashOnly ? cashOnly.linkedSource : subscription?.linked
+  const cash = selected?.cashRoute
+  if (!selected || !cash) return
+  if (cashOnly && (typeof cashOnly.reviewedAt !== 'string' || !Number.isFinite(Date.parse(cashOnly.reviewedAt))
+    || cashOnly.partnerName !== partner(basis) || basis.caseMergeMemberIds || members.some(member => member.caseMergeMemberIds))) return
+  const source = cashOnly ? verifiedLinkedSource(basis, members, selected) : subscription?.source
+  if (!source) return
+  const period = verifiedLinkedCashPeriod(basis, source, cash)
+  if (!period) return
+  const approvedAmount = cash.settlementBasisAmount
+  const settlementBasis = Number.isSafeInteger(period.confirmedOrderCount) && period.confirmedOrderCount > 0
+    && period.orderCount === period.confirmedOrderCount && period.reservedOrderCount === 0 && (period.tentativeOrderCount ?? 0) === 0
+    && period.settlementBasisAmount === period.confirmedAmount && approvedAmount === period.settlementBasisAmount ? approvedAmount : undefined
+  if (!cashOnly || settlementBasis !== undefined) return { source, period, settlementBasis }
+}
+
+function applyLinkedSettlementReview(projected: Lead, original: Lead, members: readonly Lead[]): void {
+  const subscription = projected.subscriptionSourceId === projected.id ? verifiedLinkedSubscriptionSource(projected, members) : undefined
+  const cashBasis = original.subscriptionSettlementReview?.cashOnly ? original : projected
+  const lumpSum = projected.lumpSumSourceId === projected.id ? verifiedCashReview(cashBasis, members, subscription)?.settlementBasis : undefined
+  if (subscription || lumpSum !== undefined) registerLinkedSettlementBasis(projected, { subscription: subscription?.settlementBasis, lumpSum })
 }
 
 /** Route evidence follows the approved original in this exact case. */
 export function verifiedLinkedOrderRoutesFor(basis: Lead, members: readonly Lead[]) {
-  const verified = verifiedLinkedSubscriptionSource(basis, members)
-  if (!verified) return []
-  const { source, review, linked } = verified
-  const cash = verifiedLinkedCashPeriod(basis, source, linked.cashRoute)
-  return getStoredSalesChannels(source).filter(row =>
-    row.kind === 'subscription' ? row.period === review.period : cash !== undefined && row.period === cash.period,
-  ).map(row => ({ source, row: { ...row, amountCurrent: row.kind === 'lumpSum'
-    || enteredAmount(basis, 'subscription') === review.confirmedBasisAmount + review.pendingBasisAmount } }))
+  const subscription = verifiedLinkedSubscriptionSource(basis, members)
+  const cash = verifiedCashReview(basis, members, subscription)
+  const cashRoutes = cash ? getStoredSalesChannels(cash.source).filter(row => row.kind === 'lumpSum' && row.period === cash.period.period)
+    .map(row => ({ source: cash.source, row: { ...row, amountCurrent: true } })) : []
+  if (!subscription) return cashRoutes
+  const { source, review } = subscription
+  const amountCurrent = enteredAmount(basis, 'subscription') === review.confirmedBasisAmount + review.pendingBasisAmount
+  const subscriptionRoutes = getStoredSalesChannels(source).filter(row => row.kind === 'subscription' && row.period === review.period)
+    .map(row => ({ source, row: { ...row, amountCurrent } }))
+  return [...cashRoutes, ...subscriptionRoutes]
 }
 
 /** A temporary calculation projection only. It never copies RAW into stored rows.
@@ -166,7 +182,7 @@ function projectedBasis(lead: Lead, members: readonly Lead[]): { lead?: Lead; re
   // Otherwise an excluded borrowed method could reappear via purchaseAmount.
   projected.purchaseAmount = undefined
   normalizeProjectedPurchase(projected)
-  applyLinkedSettlementReview(projected, members)
+  applyLinkedSettlementReview(projected, lead, members)
   return { lead: projected }
 }
 
