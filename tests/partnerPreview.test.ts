@@ -182,6 +182,31 @@ reviewedRouteBasis.subscriptionSettlementReview = {
 const linkedRouteView = (basis: Lead, source: Lead) => buildPartnerPreview([basis, source], '아이웨딩', '2026-09').customers[0]
 const linkedRouteCustomer = linkedRouteView(reviewedRouteBasis, reviewedRouteSource)
 assert.equal(linkedRouteCustomer.expectedCommission, 3_000, 'Cash route confirmation alone cannot change settlement')
+const review = reviewedRouteBasis.subscriptionSettlementReview!
+const linkedSource = review.linkedSource!
+const cashReviewedBasis = { ...reviewedRouteBasis, deliveryScheduledDate: '2026-12-04',
+  subscriptionSettlementReview: { ...review, linkedSource: { ...linkedSource,
+    cashRoute: { ...linkedSource.cashRoute!, settlementBasisAmount: 100_000 },
+  } },
+}
+const reviewedCashCustomer = linkedRouteView(cashReviewedBasis, reviewedRouteSource)
+assert.equal(reviewedCashCustomer.expectedCommission, 5_000)
+assert.equal(reviewedCashCustomer.expectedSettlementMonth, '2027-02')
+assert.equal(linkedRouteView({ ...cashReviewedBasis, lumpSumAmount: 100_001 }, reviewedRouteSource).expectedCommission, 3_000)
+const cashPeriod = reviewedRouteSource.salesRawPeriods!['2026-09']
+for (const failedEvidence of [
+  { ...cashPeriod, sourceHash: 'another-workbook' },
+  { ...cashPeriod, settlementBasisAmount: 90_000 },
+  { ...cashPeriod, returnAmount: 1_000 },
+  { ...cashPeriod, confirmedOrderCount: 0 },
+]) {
+  const failedSource = { ...reviewedRouteSource, salesRawPeriods: { '2026-09': failedEvidence } }
+  assert.equal(linkedRouteView(cashReviewedBasis, failedSource).expectedCommission, 3_000, 'Changed cash evidence cannot enter settlement')
+}
+assert.equal(expectedRebateFor(cashReviewedBasis), 0, 'A protected linked review applies only through its complete chosen case')
+assert.equal(buildPartnerPreview([cashReviewedBasis,reviewedRouteSource, {
+  ...reviewedRouteSource,id:'another-member', salesRawPeriods: undefined, subscriptionRawPeriods: undefined,
+}], '아이웨딩', '2026-09').customers[0].expectedCommission, 0, 'A changed group roster invalidates the approval')
 assert.deepEqual(linkedRouteCustomer.salesChannels?.map(row => [row.kind, row.status]), [
   ['lumpSum', 'eligible'], ['lumpSum', 'mismatch'], ['subscription', 'eligible'],
 ])

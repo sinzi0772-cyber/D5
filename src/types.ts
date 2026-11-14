@@ -130,7 +130,7 @@ export interface SubscriptionSettlementReview {
     leadId: string
     caseGroupId: string
     memberIds: string[]
-    cashRoute?: { period: string; sourceHash: string; confirmedAmount: number }
+    cashRoute?: { period: string; sourceHash: string; confirmedAmount: number; settlementBasisAmount?: number }
   }
 }
 
