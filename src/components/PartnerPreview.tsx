@@ -1,4 +1,5 @@
 import { useId, useMemo, useState } from 'react'
+import { CalendarDays, ChevronDown } from 'lucide-react'
 import { partnerCustomerStatus, summarizePartnerSettlements, type PartnerPreviewModel, type PartnerSalesChannel } from '../lib/partnerPreview'
 import { isApprovedSubscriptionReviewPartner } from '../lib/salesChannelReview'
 import { SUBSCRIPTION_REVIEW_PARTNERS } from '../lib/subscriptionPartners'
@@ -74,14 +75,14 @@ function PortalSettlement({ summary, receiptCount, completedCount, event }: {
   completedCount: number
   event?: boolean
 }) {
-  const [requestedMonth, setRequestedMonth] = useState('')
-  const selectedBucket = summary.settlements.find(bucket => bucket.month === requestedMonth)
-  const showUndated = requestedMonth === 'undated' && summary.undatedCustomerCount > 0
-  const selectedMonth = selectedBucket?.month ?? (showUndated ? 'undated' : '')
-  const visibleSettlements = selectedBucket ? [selectedBucket] : showUndated ? [] : summary.settlements
-  const includeUndated = summary.undatedCustomerCount > 0 && !selectedBucket
-  const total = selectedBucket?.expectedCommission ?? (showUndated ? summary.undatedExpectedCommission : summary.completedExpectedCommission)
-  const hasSettlementMonths = summary.settlements.length > 0 || summary.undatedCustomerCount > 0
+  const [requestedMonth, setRequestedMonth] = useState<string>()
+  const { selection, expectedCommission, options } = getPartnerSettlementCard(summary, requestedMonth)
+  const showAllMonths = requestedMonth === '' || (event && requestedMonth !== selection)
+  const selectedMonth = showAllMonths ? '' : selection
+  const visibleSettlements = showAllMonths ? summary.settlements : summary.settlements.filter(bucket => bucket.month === selectedMonth)
+  const includeUndated = summary.undatedCustomerCount > 0 && (showAllMonths || selectedMonth === 'undated')
+  const total = showAllMonths ? summary.completedExpectedCommission : expectedCommission
+  const hasSettlementMonths = options.length > 0
   const basisRequiredCount = summary.basisRequiredCount ?? 0
   return <section className={event ? 'partner-portal-settlement partner-portal-event-settlement' : 'partner-portal-settlement'}
     aria-label={event ? NOVEMBER_INVITATION_LABEL + ' 예상 수수료' : '월별 예상 수수료'}>
@@ -89,8 +90,7 @@ function PortalSettlement({ summary, receiptCount, completedCount, event }: {
       <span>정산월</span>
       <select aria-label={event ? `${NOVEMBER_INVITATION_LABEL} 정산월` : '정산월'} value={selectedMonth} onChange={event => setRequestedMonth(event.target.value)}>
         <option value="">전체 정산월</option>
-        {summary.settlements.map(bucket => <option key={bucket.month} value={bucket.month}>{monthLabel(bucket.month)}</option>)}
-        {summary.undatedCustomerCount > 0 && <option value="undated">정산월 미정</option>}
+        {options.map(option => <option key={option.value} value={option.value}>{option.month ? monthLabel(option.month) : '정산월 미정'}</option>)}
       </select>
     </label>}
     <dl className="partner-portal-settlement-summary">
@@ -168,6 +168,17 @@ export function PartnerPreview({ model, presentation = 'preview' }: {
     </header>
 
     {model.partnerName ? <>
+      {isPortal && hasInvitations && <div className="partner-portal-event">
+        <button type="button" className="partner-portal-event-button" aria-expanded={filterInvitations} aria-controls={eventDetailsId} onClick={() => setInvitationOnly(value => !value)}>
+          <span className="partner-portal-event-icon"><CalendarDays size={19} aria-hidden="true"/></span>
+          <strong>{NOVEMBER_INVITATION_LABEL}</strong>
+          <span className="partner-portal-event-action">{filterInvitations ? '닫기' : '보기'}<ChevronDown size={16} aria-hidden="true"/></span>
+        </button>
+        <div id={eventDetailsId} hidden={!filterInvitations}>
+          {filterInvitations && <PortalSettlement event summary={settlementSummary} receiptCount={invitedCustomers.length}
+            completedCount={invitedCustomers.filter(customer => !customer.basisRequired && customer.status === '구매완료').length}/>}
+        </div>
+      </div>}
       {isPortal ? <PortalSettlement summary={model} receiptCount={model.receiptCount} completedCount={model.completedCount}/>
         : <>
         <div className="partner-preview-stats">
@@ -207,16 +218,9 @@ export function PartnerPreview({ model, presentation = 'preview' }: {
           <SectionHeading>{isPortal && filterInvitations ? `${NOVEMBER_INVITATION_LABEL} 연결 고객` : '연결 고객'}</SectionHeading>
           <div className="partner-preview-customer-controls">
             {customerFilter}
-            {isPortal && hasInvitations && <button type="button" className="partner-portal-event-button" aria-expanded={filterInvitations} aria-controls={eventDetailsId} onClick={() => setInvitationOnly(value => !value)}>
-              {NOVEMBER_INVITATION_LABEL} {filterInvitations ? '닫기' : '보기'}
-            </button>}
             <small aria-live="polite">{customerSortCaptions[customerSort.key][customerSort.direction]}</small>
           </div>
         </div>
-        {isPortal && hasInvitations && <div id={eventDetailsId} hidden={!filterInvitations}>
-          {filterInvitations && <PortalSettlement event summary={settlementSummary} receiptCount={invitedCustomers.length}
-            completedCount={invitedCustomers.filter(customer => !customer.basisRequired && customer.status === '구매완료').length}/>}
-        </div>}
         {customers.length > 0 ? <div className="partner-preview-table-scroll"><table aria-label="연결 고객 목록">
           <thead><tr>{customerColumns.map(column => <SortColumn key={column.key} label={column.label} direction={customerSort.key === column.key ? customerSort.direction : null} nextDirection={nextPartnerCustomerSort(customerSort, column.key).direction} onSort={() => setCustomerSort(current => nextPartnerCustomerSort(current, column.key))}/>)}</tr></thead>
           <tbody>{customers.map(customer => <tr key={customer.key}><td className="partner-preview-customer-label">
