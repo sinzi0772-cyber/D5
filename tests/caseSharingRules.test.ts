@@ -125,6 +125,12 @@ function translated(source: string): string {
     .replace(new RegExp(`(${expression})\\s+is\\s+(string|number|int|list|map)\\b`, 'g'), (_all, value: string, type: string) => `isType(${value}, '${type}')`)
     .replace(new RegExp(`(${expression})\\s+in\\s+(\\[[^\\]]*\\])`, 'g'), (_all, value: string, list: string) => `includes(${list}, ${value})`)
     .replace(/\.replace\(/g, '.rulesReplace(')
+    // Firestore compares lists structurally. JavaScript compares array identity.
+    .replace(/\bleft == right && \(left == null/g, 'equal(left, right) && (left == null')
+    .replace(/\boldMerge != newMerge/g, '!equal(oldMerge, newMerge)')
+    .replace(/\b(member\.get\('caseMergeMemberIds', null\)) == mergeIds/g, 'equal($1, mergeIds)')
+    .replace(/\b(newMerge) ==\s*(getAfter\(path\('caseGroups', after\.caseGroupId\)\)\.data\.get\('mergeMemberIds', null\))/g, 'equal($1, $2)')
+    .replace(/\b(previousMerge|nextMerge) == (nextMerge|(?:previousGuard|nextGuard)\.get\('mergeMemberIds', null\))/g, 'equal($1, $2)')
 }
 
 const source = readFileSync(resolve('firestore.rules'), 'utf8')
@@ -159,7 +165,7 @@ function evaluate(database: Database, after: Database, documentPath: string, ope
     return snapshot.has(key) ? { data: wrapped(snapshot.get(key)) } : null
   }
   const context: Data = {
-    database: 'synthetic', path: (name: string, key: string) => `${name}/${key}`, isType,
+    database: 'synthetic', path: (name: string, key: string) => `${name}/${key}`, isType, equal,
     includes: (values: unknown[], value: unknown) => values.some(item => equal(item, value)),
     request: wrapped({ auth, time: now, resource: { data: after.get(documentPath) || {} } }),
     resource: wrapped({ data: database.get(documentPath) || {} }),
@@ -567,6 +573,13 @@ const clearMergeWrites = mergeWrites.map(write => ({ ...write, data: { ...write.
   ...(write.path.startsWith('referrals/') ? { caseMergeMemberIds: null } : { revision: 7, mergeMemberIds: null }) } }))
 assertBatch('admin may explicitly return sum to one primary without changing prices', merged, clearMergeWrites, admin, true)
 assertBatch('manager cannot clear established sum mode', merged, clearMergeWrites.map(write => ({ ...write, data: { ...write.data, updatedBy: 'manager' } })), manager, false)
+const malformedMerge = ['owner', 'alias']
+const malformedMerged = seed(['referrals/owner', { ...legacyA, caseBasisLeadId: 'owner', caseMergeMemberIds: malformedMerge }],
+  ['referrals/alias', { ...legacyB, caseBasisLeadId: 'owner', caseMergeMemberIds: malformedMerge }],
+  ['caseGroups/' + caseId, guard(mergedIds, { basisLeadId: 'owner', mergeMemberIds: malformedMerge })])
+assertBatch('unchanged malformed merge does not authorize an admin personal edit', malformedMerged, [
+  { path: 'referrals/owner', data: { ...malformedMerged.get('referrals/owner')!, note: '합성 수정' } },
+], admin, false)
 assertBatch('guard only silent sum-clear denied', merged, [clearMergeWrites[2]], admin, false)
 const memberExpanded = referral('new-member', { caseBasisLeadId: 'owner', lumpSumAmount: 400, purchaseAmount: 400 })
 assertBatch('roster expansion cannot reuse old merge approval', merged, [

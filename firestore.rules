@@ -62,8 +62,7 @@ service cloud.firestore {
     }
 
     function validCaseId(value) {
-      return value is string && value.size() > 0 && value.size() <= 200
-        && value.trim() == value && !value.matches('.*[/].*');
+      return value is string && value.size() <= 200 && value.trim() == value && value.matches('[^/]+');
     }
 
     function grouped(data) {
@@ -114,17 +113,16 @@ service cloud.firestore {
     }
 
     function sameCaseMergeIds(left, right) {
-      return (left == null && right == null)
-        || (validCaseMergeIds(left) && validCaseMergeIds(right) && left.size() == right.size() && left.hasAll(right));
+      return left == right && (left == null || validCaseMergeIds(left));
     }
 
     function mergeChangeAllowed(before, after) {
       let oldMerge = before.get('caseMergeMemberIds', null);
       let newMerge = after.get('caseMergeMemberIds', null);
-      return sameCaseMergeIds(oldMerge, newMerge) || (canManageAll()
+      return sameCaseMergeIds(oldMerge, newMerge) || (oldMerge != newMerge && canManageAll()
         && ((!grouped(after) && newMerge == null)
-          || (grouped(after) && sameCaseMergeIds(newMerge,
-            getAfter(/databases/$(database)/documents/caseGroups/$(after.caseGroupId)).data.get('mergeMemberIds', null)))));
+          || (grouped(after) && newMerge ==
+            getAfter(/databases/$(database)/documents/caseGroups/$(after.caseGroupId)).data.get('mergeMemberIds', null))));
     }
 
     function basisChangeAllowed(before, after) {
@@ -163,7 +161,7 @@ service cloud.firestore {
       let leftName = left.get('partnerName', null);
       let rightName = right.get('partnerName', null);
       return leftName is string && rightName is string && leftName.trim().size() > 0
-        && canonicalCasePartner(leftName) == canonicalCasePartner(rightName);
+        && (leftName == rightName || canonicalCasePartner(leftName) == canonicalCasePartner(rightName));
     }
 
     function sourceField(kind) {
@@ -190,33 +188,33 @@ service cloud.firestore {
         && sourceHasEvidence(owner, kind) && caseAmount(recipient, kind) == caseAmount(owner, kind);
     }
 
-    function guardSourceValid(groupId, memberIds, referralId, data, kind) {
-      let source = data.get(sourceField(kind), null);
-      // An unchanged source may remain outside the group after an unlink.
-      // Referral write checks below reject newly injected external pointers.
-      return source == null || source == referralId
-        || (validCaseId(source) && (!memberIds.hasAny([source])
-          || sourceMatches(groupId, memberIds, data, source, kind)));
+    function guardSourceValid(groupId, memberIds, data, source, kind) {
+      // An existing source may sit outside the case after an unlink.
+      // Referral writes still reject a newly assigned external source.
+      return validCaseId(source) && (!memberIds.hasAny([source])
+        || sourceMatches(groupId, memberIds, data, source, kind));
     }
 
-    function guardMemberValid(groupId, guard, referralId) {
+    function guardMemberValid(groupId, memberIds, basisId, mergeIds, managerNo, referralId) {
       let member = getAfter(/databases/$(database)/documents/referrals/$(referralId)).data;
-      return member.get('caseGroupId', null) == groupId
-        && member.get('caseBasisLeadId', null) == guard.get('basisLeadId', null)
-        && sameCaseMergeIds(member.get('caseMergeMemberIds', null), guard.get('mergeMemberIds', null))
-        && (guard.get('mergeMemberIds', null) == null || sameCasePartner(member,
-          getAfter(/databases/$(database)/documents/referrals/$(guard.basisLeadId)).data))
-        && (guard.managerEmployeeNo == null || member.get('managerEmployeeNo', null) == guard.managerEmployeeNo)
-        && guardSourceValid(groupId, guard.memberIds, referralId, member, 'lumpSum')
-        && guardSourceValid(groupId, guard.memberIds, referralId, member, 'subscription');
-    }
-
-    function guardMemberAtValid(groupId, guard, index) {
-      return guard.memberIds.size() <= index
-        || (validCaseId(guard.memberIds[index]) && guardMemberValid(groupId, guard, guard.memberIds[index]));
+      let lumpSumSource = member.get('lumpSumSourceId', null);
+      let subscriptionSource = member.get('subscriptionSourceId', null);
+      return validCaseId(referralId) && member.get('caseGroupId', null) == groupId
+        && member.get('caseBasisLeadId', null) == basisId
+        && member.get('caseMergeMemberIds', null) == mergeIds
+        && (mergeIds == null || sameCasePartner(member,
+          getAfter(/databases/$(database)/documents/referrals/$(basisId)).data))
+        && (managerNo == null || member.get('managerEmployeeNo', null) == managerNo)
+        && (lumpSumSource == null || lumpSumSource == referralId || guardSourceValid(groupId, memberIds, member, lumpSumSource, 'lumpSum'))
+        && (subscriptionSource == null || subscriptionSource == referralId || guardSourceValid(groupId, memberIds, member, subscriptionSource, 'subscription'));
     }
 
     function validCaseGuard(groupId, guard) {
+      let memberIds = guard.memberIds;
+      let count = memberIds.size();
+      let basisId = guard.get('basisLeadId', null);
+      let mergeIds = guard.get('mergeMemberIds', null);
+      let managerNo = guard.managerEmployeeNo;
       return validCaseId(groupId)
         && guard.keys().hasOnly(['memberIds', 'revision', 'managerEmployeeNo', 'basisLeadId', 'mergeMemberIds', 'updatedAt', 'updatedBy'])
         && guard.keys().hasAll(['memberIds', 'revision', 'managerEmployeeNo', 'updatedAt', 'updatedBy'])
@@ -230,10 +228,14 @@ service cloud.firestore {
           && guard.mergeMemberIds.hasAll(guard.memberIds)))
         && guard.updatedAt is string && guard.updatedBy == request.auth.uid
         && (guard.memberIds.size() > 0 || (guard.managerEmployeeNo == null && guard.get('basisLeadId', null) == null))
-        && guardMemberAtValid(groupId, guard, 0) && guardMemberAtValid(groupId, guard, 1)
-        && guardMemberAtValid(groupId, guard, 2) && guardMemberAtValid(groupId, guard, 3)
-        && guardMemberAtValid(groupId, guard, 4) && guardMemberAtValid(groupId, guard, 5)
-        && guardMemberAtValid(groupId, guard, 6) && guardMemberAtValid(groupId, guard, 7);
+        && (count <= 0 || guardMemberValid(groupId, memberIds, basisId, mergeIds, managerNo, memberIds[0]))
+        && (count <= 1 || guardMemberValid(groupId, memberIds, basisId, mergeIds, managerNo, memberIds[1]))
+        && (count <= 2 || guardMemberValid(groupId, memberIds, basisId, mergeIds, managerNo, memberIds[2]))
+        && (count <= 3 || guardMemberValid(groupId, memberIds, basisId, mergeIds, managerNo, memberIds[3]))
+        && (count <= 4 || guardMemberValid(groupId, memberIds, basisId, mergeIds, managerNo, memberIds[4]))
+        && (count <= 5 || guardMemberValid(groupId, memberIds, basisId, mergeIds, managerNo, memberIds[5]))
+        && (count <= 6 || guardMemberValid(groupId, memberIds, basisId, mergeIds, managerNo, memberIds[6]))
+        && (count <= 7 || guardMemberValid(groupId, memberIds, basisId, mergeIds, managerNo, memberIds[7]));
     }
 
     function removedMemberUnlinked(groupId, referralId) {
@@ -249,10 +251,10 @@ service cloud.firestore {
     function guardRemovalsValid(groupId, before, after) {
       return before.memberIds is list && before.memberIds.size() <= 8
         && before.memberIds.toSet().union(after.memberIds.toSet()).size() <= 8
-        && removedMemberAtValid(groupId, before, after, 0) && removedMemberAtValid(groupId, before, after, 1)
+        && (after.memberIds.hasAll(before.memberIds) || (removedMemberAtValid(groupId, before, after, 0) && removedMemberAtValid(groupId, before, after, 1)
         && removedMemberAtValid(groupId, before, after, 2) && removedMemberAtValid(groupId, before, after, 3)
         && removedMemberAtValid(groupId, before, after, 4) && removedMemberAtValid(groupId, before, after, 5)
-        && removedMemberAtValid(groupId, before, after, 6) && removedMemberAtValid(groupId, before, after, 7);
+        && removedMemberAtValid(groupId, before, after, 6) && removedMemberAtValid(groupId, before, after, 7)));
     }
 
     function changedSourceValid(after, referralId, kind) {
@@ -288,9 +290,9 @@ service cloud.firestore {
       return grouped(before) && grouped(after) && before.caseGroupId == after.caseGroupId
         && validCaseId(previousBasis) && previousBasis == nextBasis && nextSource == nextBasis && nextSource != referralId
         && previousGuard.get('basisLeadId', null) == previousBasis && nextGuard.get('basisLeadId', null) == nextBasis
-        && validCaseMergeIds(previousMerge) && sameCaseMergeIds(previousMerge, nextMerge)
-        && sameCaseMergeIds(previousMerge, previousGuard.get('mergeMemberIds', null))
-        && sameCaseMergeIds(nextMerge, nextGuard.get('mergeMemberIds', null))
+        && validCaseMergeIds(previousMerge) && previousMerge == nextMerge
+        && previousMerge == previousGuard.get('mergeMemberIds', null)
+        && nextMerge == nextGuard.get('mergeMemberIds', null)
         && previousMerge.size() == previousGuard.memberIds.size() && previousMerge.hasAll(previousGuard.memberIds)
         && nextMerge.size() == nextGuard.memberIds.size() && nextMerge.hasAll(nextGuard.memberIds)
         && previousMerge.hasAny([referralId]) && guardBumped(after.caseGroupId);
