@@ -17,3 +17,4 @@ firebase-admin-key*.json
 /src/data.ts
 
 /private-output/
+/server/generated/
