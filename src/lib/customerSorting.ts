@@ -1,5 +1,5 @@
 import type { Lead } from '../types'
-import { financialTotalPurchaseAmountFor, salesRawAmountsFor, subscriptionRawAmountsFor } from './salesFinance'
+import { expectedRebateFor, financialTotalPurchaseAmountFor, salesRawAmountsFor, subscriptionRawAmountsFor } from './salesFinance'
 import { caseBasisGroupsFor, financialCaseLeadFor } from './caseBasis'
 import { canonicalPartnerName } from './partners'
 
@@ -21,6 +21,25 @@ export function purchaseSortValue(lead: Lead, visibleLeads: Lead[], completeLead
   if (!basis || basis.status === '취소') return null
   const total = financialTotalPurchaseAmountFor(basis)
   return total > 0 || salesRawAmountsFor(basis).current || subscriptionRawAmountsFor(basis).current ? total : null
+}
+
+/** Resolve each complete case once, then attribute fees only to a visible row of its company. */
+export function expectedCommissionByCustomer(visibleRows: readonly Lead[], completeLeads: readonly Lead[]): Map<string, number> {
+  const visible = new Map(visibleRows.map(lead => [lead.id, lead]))
+  const amounts = new Map<string, number>()
+  for (const group of caseBasisGroupsFor(completeLeads)) {
+    if (!group.members.some(member => visible.has(member.id))) continue
+    const basis = financialCaseLeadFor(group.selection, group.members)
+    if (!basis || basis.status === '취소' || (!financialTotalPurchaseAmountFor(basis)
+      && !salesRawAmountsFor(basis).current && !subscriptionRawAmountsFor(basis).current)) continue
+    const commission = expectedRebateFor(basis)
+    const company = canonicalPartnerName(basis.partnerName)
+    for (const member of group.members) {
+      const row = visible.get(member.id)
+      if (row && row.status !== '취소' && canonicalPartnerName(row.partnerName) === company) amounts.set(row.id, commission)
+    }
+  }
+  return amounts
 }
 
 /** Missing values remain at the bottom in both directions; equal amounts retain row order. */

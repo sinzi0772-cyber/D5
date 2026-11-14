@@ -37,10 +37,8 @@ import { buildPartnerPreview, canPreviewPartner, getPartnerPreviewMonths } from 
 import { getDefaultExecutiveMonth, getExecutiveMonthLeads, getExecutiveMonths } from './lib/executiveMetrics'
 import './AppView.css'
 import { customerIdentityKey, maskCustomerName } from './lib/salesRaw'
-import { getStoredSalesChannels } from './lib/salesChannels'
-import { isApprovedSubscriptionReviewPartner } from './lib/salesChannelReview'
 import { canonicalPartnerName } from './lib/partners'
-import { commissionVerificationRequiredFor, expectedRebateFor, financialPendingAmountFor, isFinancialOwnerFor, isSubscriptionRebatePartner, lumpSumAmountFor, purchaseAmountSourceFor, salesRawAmountsFor, subscriptionRawAmountsFor, subscriptionAmountFor, totalPurchaseAmountFor } from './lib/salesFinance'
+import { commissionVerificationRequiredFor, expectedRebateFor, isFinancialOwnerFor, isSubscriptionRebatePartner, lumpSumAmountFor, purchaseAmountSourceFor, subscriptionAmountFor } from './lib/salesFinance'
 import { caseSharingDraftFor, caseSharingRevisionFor, resolveCaseSharing, type SharingBasis } from './lib/caseSharing'
 import { caseBasisFor, caseBasisGroupsFor, financialCaseLeadFor, financialCaseLeadsFor, verifiedLinkedOrderRoutesFor } from './lib/caseBasis'
 import { CaseSaveError, MAX_CASE_MEMBERS, caseLinkLeadFor, saveCaseCustomer, unlinkCaseCustomer, type SaveCaseCustomerInput, type UnlinkCaseCustomerInput } from './lib/caseSharingSave'
@@ -49,7 +47,7 @@ import { formatAmountInput, parseAmountInput } from './lib/amountInput'
 import { allMemoEntriesFor, isBestCancellationMemo, managementMemoEntriesFor, memoEntriesForDisplay, memoHistoryRevisionFor } from './lib/memoHistory'
 import { customerDisplayLabel, customerDisplayName, phoneLast4Display } from './lib/customerDisplay'
 import { buildCommissionSettlementMetrics, caseSaveDeliveryError } from './lib/commissionSettlement'
-import { comparePurchaseAmounts, getVisiblePurchaseMembers, purchaseSortValue } from './lib/customerSorting'
+import { comparePurchaseAmounts, expectedCommissionByCustomer, getVisiblePurchaseMembers } from './lib/customerSorting'
 import { buildCustomerCaseList, customerCaseLabelsFor } from './lib/customerCaseList'
 import { buildSeptemberSyncPlan, canStartSeptemberSync, septemberExistingPatch } from './lib/septemberSync'
 import { accountAccessError, checkedPartnerIdentity, SHARED_ACCOUNT_EMPLOYEE_NO, SHARED_ACCOUNT_MESSAGE } from './lib/accountAccess'
@@ -58,7 +56,7 @@ import { PARTNER_ACCOUNTS } from './lib/partnerIdentity'
 import { loginFailureFor } from './lib/loginError'
 import { STATUSES, type Lead, type LeadStatus, type MemoEntry, type PurchaseType, type VisitState } from './types'
 
-type SortKey = 'customerName' | 'registeredAt' | 'partnerName' | 'manager' | 'visitDate' | 'status' | 'management' | 'updatedAt' | 'purchase'
+type SortKey = 'customerName' | 'registeredAt' | 'partnerName' | 'manager' | 'visitDate' | 'status' | 'management' | 'updatedAt' | 'commission'
 type CaseEditorSaveOptions = { formBaseline: Lead; openingMembers: Lead[]; basis: SharingBasis }
 type Staff = { employeeNo: string; name: string; role: '매니저' | '지점장' | '부지점장' }
 const managers: Staff[] = [
@@ -610,16 +608,16 @@ export default function App() {
       manager: managerFilter === '전체 담당자' ? undefined : managerFilter,
       visitState: visitFilter,
     })
-    if (sort.key === 'purchase') {
-      const amounts = new Map(model.rows.map(lead => [lead.id, purchaseSortValue(lead, model.members, leads)]))
-      return { ...model, rows: model.rows.sort((a, b) => comparePurchaseAmounts(amounts.get(a.id) ?? null, amounts.get(b.id) ?? null, sort.direction)) }
+    const commissions = expectedCommissionByCustomer(model.rows, leads)
+    if (sort.key === 'commission') {
+      return { ...model, commissions, rows: model.rows.sort((a, b) => comparePurchaseAmounts(commissions.get(a.id) ?? null, commissions.get(b.id) ?? null, sort.direction)) }
     }
     const stringSortKey = sort.key
     const value = (lead: Lead) => {
-      const values: Record<Exclude<SortKey, 'purchase'>, string> = { customerName: lead.customerName, registeredAt: lead.registeredAt, partnerName: lead.partnerName, manager: lead.manager || '', visitDate: lead.visitScheduledDate || '', status: lead.status, management: managementMemoEntriesFor(lead).at(-1)?.date || '', updatedAt: lead.updatedAt }
+      const values: Record<Exclude<SortKey, 'commission'>, string> = { customerName: lead.customerName, registeredAt: lead.registeredAt, partnerName: lead.partnerName, manager: lead.manager || '', visitDate: lead.visitScheduledDate || '', status: lead.status, management: managementMemoEntriesFor(lead).at(-1)?.date || '', updatedAt: lead.updatedAt }
       return values[stringSortKey]
     }
-    return { ...model, rows: model.rows.sort((a, b) => value(a).localeCompare(value(b), 'ko', { numeric: true }) * (sort.direction === 'asc' ? 1 : -1)) }
+    return { ...model, commissions, rows: model.rows.sort((a, b) => value(a).localeCompare(value(b), 'ko', { numeric: true }) * (sort.direction === 'asc' ? 1 : -1)) }
   }, [intakeLeads, leads, query, statusFilter, partnerFilter, managerFilter, visitFilter, sort])
   const filtered = filteredModel.members
   const visibleRows = filteredModel.rows
@@ -674,7 +672,7 @@ export default function App() {
     })
   }
   const selectedManager = managerFilter !== '전체 담당자' && managerFilter !== '미배정' ? managerFilter : null
-  const sortBy = (key: SortKey) => setSort(current => ({ key, direction: current.key === key ? (current.direction === 'asc' ? 'desc' : 'asc') : key === 'purchase' ? 'desc' : 'asc' }))
+  const sortBy = (key: SortKey) => setSort(current => ({ key, direction: current.key === key ? (current.direction === 'asc' ? 'desc' : 'asc') : key === 'commission' ? 'desc' : 'asc' }))
   const saveLeadSalesRoute = async (leadId: string, edit: SalesChannelRouteEdit) => {
     const actor = currentUser
     if (!actor || !db || !dataReady || !serverConfirmed || dataError || creating || active?.id !== leadId) {
@@ -890,15 +888,15 @@ export default function App() {
             <label className="filter-field"><span>방문 여부</span><select aria-label="방문 여부 필터" value={visitFilter} onChange={e => setVisitFilter(e.target.value as typeof visitFilter)}><option>전체</option><option>미정</option><option>예정</option><option>방문</option><option>미방문</option><option>일정취소</option></select></label>
           </div>
           <div className="filter-summary"><div className="active-filters">{!query && partnerFilter === '전체 제휴업체' && managerFilter === '전체 담당자' && statusFilter === '전체' && visitFilter === '전체' && <span className="filter-hint">선택한 접수월의 고객을 표시합니다</span>}{query && <button onClick={() => setQuery('')}>검색: {query}<X size={12}/></button>}{partnerFilter !== '전체 제휴업체' && <button onClick={() => setPartnerFilter('전체 제휴업체')}>{partnerFilter}<X size={12}/></button>}{managerFilter !== '전체 담당자' && <button onClick={() => setManagerFilter('전체 담당자')}>{managerFilter}<X size={12}/></button>}{statusFilter !== '전체' && <button onClick={() => setStatusFilter('전체')}>{statusFilter}<X size={12}/></button>}{visitFilter !== '전체' && <button onClick={() => setVisitFilter('전체')}>{visitFilter}<X size={12}/></button>}</div><div className="filter-result"><strong>{visibleRows.length}</strong>건 · 고객 {visibleRows.length}명{(query || partnerFilter !== '전체 제휴업체' || managerFilter !== '전체 담당자' || statusFilter !== '전체' || visitFilter !== '전체') && <button onClick={resetCustomerFilters}>전체 초기화</button>}</div></div>
-          <div className="table-wrap"><table><thead><tr><th><SortHeader label="고객" column="customerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="등록일" column="registeredAt" sort={sort} onSort={sortBy}/></th><th><SortHeader label="제휴업체" column="partnerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="담당 매니저" column="manager" sort={sort} onSort={sortBy}/></th><th><SortHeader label="방문 일정" column="visitDate" sort={sort} onSort={sortBy}/></th><th><SortHeader label="현재 상태" column="status" sort={sort} onSort={sortBy}/></th><th aria-sort={sort.key === 'purchase' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}><SortHeader label="구매 정보" column="purchase" sort={sort} onSort={sortBy}/></th><th><SortHeader label="관리 내용" column="management" sort={sort} onSort={sortBy}/></th><th/></tr></thead><tbody>{visibleRows.map(l => {
-            // Financial totals use only members visible under the current access scope and filters.
+          <div className="table-wrap"><table><thead><tr><th><SortHeader label="고객" column="customerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="등록일" column="registeredAt" sort={sort} onSort={sortBy}/></th><th><SortHeader label="제휴업체" column="partnerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="담당 매니저" column="manager" sort={sort} onSort={sortBy}/></th><th><SortHeader label="방문 일정" column="visitDate" sort={sort} onSort={sortBy}/></th><th><SortHeader label="현재 상태" column="status" sort={sort} onSort={sortBy}/></th><th aria-sort={sort.key === 'commission' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}><SortHeader label="예상 수수료" column="commission" sort={sort} onSort={sortBy}/></th><th><SortHeader label="관리 내용" column="management" sort={sort} onSort={sortBy}/></th><th/></tr></thead><tbody>{visibleRows.map(l => {
             const members = getVisiblePurchaseMembers(l, filtered)
+            const commission = filteredModel.commissions.get(l.id)
             const displayedMembers = l.caseGroupId ? [l, ...members.filter(member => member.id !== l.id)] : [l]
             const customerLabels = customerCaseLabelsFor(displayedMembers).slice(0, 2)
             return <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{customerDisplayName(l.customerName).slice(0,1)}</span><div><strong className="customer-labels">{customerLabels.map(customer => <span key={customer.id}>
               {customer.label}
               {customer.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
-            </span>)}</strong>{l.caseGroupId && <em className="case-badge">묶음 고객</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{isPartnerAppointmentType(l.appointmentType) && <em className="appointment-type">{partnerAppointmentLabel(l.appointmentType)}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${filteredModel.excludedRowIds.has(l.id) ? 'gray' : statusTone[l.status]}`} title={filteredModel.excludedRowIds.has(l.id) ? `원본 상태: ${l.status}` : undefined}><i/>{filteredModel.excludedRowIds.has(l.id) ? '집계 제외' : l.status}</span></td><td>{l.status === '취소' ? <span className="purchase-empty">—</span> : <PurchaseSummary members={members} completeMembers={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]}/>}</td><td><ManagementSummary lead={l} members={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]} onOpenCancellation={member=>{setActive(member);setCreating(false);setOpenMemoOnDrawer(true)}} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>
+            </span>)}</strong>{l.caseGroupId && <em className="case-badge">묶음 고객</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{isPartnerAppointmentType(l.appointmentType) && <em className="appointment-type">{partnerAppointmentLabel(l.appointmentType)}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${filteredModel.excludedRowIds.has(l.id) ? 'gray' : statusTone[l.status]}`} title={filteredModel.excludedRowIds.has(l.id) ? `원본 상태: ${l.status}` : undefined}><i/>{filteredModel.excludedRowIds.has(l.id) ? '집계 제외' : l.status}</span></td><td>{commission === undefined ? <span className="purchase-empty">—</span> : <span className="customer-expected-commission">{formatWon(commission)}</span>}</td><td><ManagementSummary lead={l} members={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]} onOpenCancellation={member=>{setActive(member);setCreating(false);setOpenMemoOnDrawer(true)}} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>
           })}</tbody></table>{visibleRows.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
           <div className="panel-foot"><span>{formatMonth(intakeMonth)} · 접수 {visibleRows.length}건 · 고객 {visibleRows.length}명</span><span><i className="privacy-dot"/>민감정보 최소 수집 적용</span></div>
         </div>
@@ -921,37 +919,11 @@ export default function App() {
 
 function SortHeader({label,column,sort,onSort}:{label:string,column:SortKey,sort:{key:SortKey;direction:'asc'|'desc'},onSort:(key:SortKey)=>void}) {
   const active = sort.key === column
-  const nextDirection = active ? (sort.direction === 'asc' ? 'desc' : 'asc') : column === 'purchase' ? 'desc' : 'asc'
+  const nextDirection = active ? (sort.direction === 'asc' ? 'desc' : 'asc') : column === 'commission' ? 'desc' : 'asc'
   return <button className={`sort-header ${active ? 'active' : ''}`} onClick={() => onSort(column)} aria-label={`${label} ${nextDirection === 'desc' ? '내림차순' : '오름차순'} 정렬`}>{label}<span>{active ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span></button>
 }
 function UsageMetric({label,value,suffix,note}:{label:string,value:number,suffix:string,note:string}) {
   return <div className="usage-metric"><span>{label}</span><strong>{value}<small>{suffix}</small></strong><p>{note}</p></div>
-}
-
-function PurchaseSummary({members,completeMembers}:{members:Lead[];completeMembers:Lead[]}) {
-  const selection = caseBasisFor(completeMembers)
-  const financial = financialCaseLeadFor(selection, completeMembers)
-  const visibleBasis = financial && members.some(member => canonicalPartnerName(member.partnerName) === canonicalPartnerName(financial.partnerName)) ? financial : undefined
-  if (selection.status === 'unresolved' || financial && !visibleBasis) return <div className="purchase-summary purchase-basis-required"><strong>기준 고객 선택 필요</strong><em>묶음 1명 · 금액·수수료 미합산</em></div>
-  if (!visibleBasis || visibleBasis.status === '취소') return <span className="purchase-empty">—</span>
-  const raw = salesRawAmountsFor(visibleBasis), subscription = subscriptionRawAmountsFor(visibleBasis)
-  const total = totalPurchaseAmountFor(visibleBasis)
-  const expectedCommission = expectedRebateFor(visibleBasis)
-  if (!total && !raw.current && !subscription.current) return <span className="purchase-empty">—</span>
-  const completed = visibleBasis.status === '구매완료'
-  const reserved = financialPendingAmountFor(visibleBasis)
-  const manualAmount = (['lumpSum', 'subscription'] as const).some(kind => purchaseAmountSourceFor(visibleBasis, kind).kind === 'manual' && purchaseAmountSourceFor(visibleBasis, kind).amount > 0)
-  const verificationRequired = commissionVerificationRequiredFor(visibleBasis)
-  const channelSources = selection.mergeMemberIds ? completeMembers.filter(member => selection.mergeMemberIds!.includes(member.id)) : [visibleBasis]
-  const approvedRoutes = selection.basis && !selection.mergeMemberIds
-    ? verifiedLinkedOrderRoutesFor(selection.basis, completeMembers).map(entry => entry.row) : []
-  const channels = [...approvedRoutes, ...channelSources.flatMap(member => getStoredSalesChannels(member)
-    .filter(row => !approvedRoutes.some(approved => approved.kind === row.kind)
-      && (row.kind === 'lumpSum' || isApprovedSubscriptionReviewPartner(member.partnerName, SUBSCRIPTION_REVIEW_PARTNERS))))]
-  const channelMismatch = channels.some(row => row.status === 'mismatch')
-  const channelUnknown = channels.some(row => row.status === 'unverified')
-  const missingAppointmentType = !isPartnerAppointmentType(visibleBasis.appointmentType) && manualAmount
-  return <div className="purchase-summary"><span>{formatWon(total)}</span>{reserved > 0 && <em>예약·출하대기 {formatWon(reserved)} 포함</em>}<small>예상 수수료 {formatWon(expectedCommission)}</small><CommissionCalculationHelp lead={visibleBasis}/>{channelMismatch && <em className="sales-channel-indicator mismatch">판매경로 불일치</em>}{channelUnknown && (!verificationRequired || approvedRoutes.length > 0) && <em>판매경로 확인 필요</em>}{approvedRoutes.length > 0 && !channelMismatch && !channelUnknown && <em>판매경로 일치</em>}{verificationRequired && <em>{approvedRoutes.length ? '수수료 근거 확인 필요' : '판매 원본 확인 필요'}</em>}{!completed && expectedCommission > 0 && <em>기준 고객 구매완료 전 {formatWon(expectedCommission)}</em>}{completeMembers.length > 1 && <em>묶음 1명 · {selection.mergeMemberIds ? "구매금액 합산 · " : ""}{customerDisplayLabel(visibleBasis)} 기준 1회 반영</em>}{manualAmount && <em>수기 입력 반영</em>}{missingAppointmentType && <em>제휴 접수 유형 확인 필요</em>}</div>
 }
 
 function ManagementSummary({lead,members,onOpen,onOpenCancellation}:{lead:Lead;members:Lead[];onOpen:()=>void;onOpenCancellation:(member:Lead)=>void}) {

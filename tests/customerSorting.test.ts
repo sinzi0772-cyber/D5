@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { comparePurchaseAmounts, getVisiblePurchaseMembers, purchaseSortValue } from '../src/lib/customerSorting.ts'
+import { comparePurchaseAmounts, expectedCommissionByCustomer, getVisiblePurchaseMembers, purchaseSortValue } from '../src/lib/customerSorting.ts'
 import type { Lead } from '../src/types.ts'
 
 const lead = (id: string, changes: Partial<Lead> = {}): Lead => ({
@@ -46,5 +46,26 @@ assert.equal(comparePurchaseAmounts(null, null, 'desc'), 0)
 assert.equal(comparePurchaseAmounts(100, 100, 'asc'), 0)
 assert.equal(comparePurchaseAmounts(100, null, 'desc'), -1)
 assert.equal(comparePurchaseAmounts(null, 100, 'asc'), 1)
+
+
+const feeLead = (id: string, amount: number, settlementBasisAmount: number) => lead(id, {
+  purchaseType: '일시불', lumpSumAmount: amount,
+  salesRawPeriods: { '2026-09': { ...zero.salesRawPeriods!['2026-09'], confirmedAmount: amount, settlementBasisAmount } },
+})
+const highSale = feeLead('high-sale', 10_000, 2_000)
+const highFee = feeLead('high-fee', 5_000, 5_000)
+const feeRows = [highSale, highFee, zero, missing, canceled, coupleA, coupleB]
+const fees = expectedCommissionByCustomer(feeRows, feeRows)
+assert.deepEqual([...fees], [['high-sale', 40], ['high-fee', 100], ['raw-zero', 0]])
+const orderedFees = (direction: 'asc' | 'desc') => [...feeRows]
+  .sort((a, b) => comparePurchaseAmounts(fees.get(a.id) ?? null, fees.get(b.id) ?? null, direction))
+  .map(row => row.id)
+assert.deepEqual(orderedFees('desc'), ['high-fee', 'high-sale', 'raw-zero', 'missing', 'canceled', 'couple-a', 'couple-b'])
+assert.deepEqual(orderedFees('asc'), ['raw-zero', 'high-sale', 'high-fee', 'missing', 'canceled', 'couple-a', 'couple-b'])
+const chosenFeeOwner = { ...highFee, caseGroupId: 'commission-case', caseBasisLeadId: highFee.id }
+const chosenFeeMember = { ...missing, caseGroupId: 'commission-case', caseBasisLeadId: highFee.id }
+assert.deepEqual([...expectedCommissionByCustomer([chosenFeeMember], [chosenFeeOwner, chosenFeeMember])], [[missing.id, 100]])
+const differentPartner = { ...chosenFeeMember, partnerName: '다른 업체' }
+assert.equal(expectedCommissionByCustomer([differentPartner], [chosenFeeOwner, differentPartner]).size, 0)
 
 console.log('customerSorting: numeric amounts, missing-last, valid RAW zero and filtered couple totals passed')

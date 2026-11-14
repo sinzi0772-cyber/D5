@@ -168,14 +168,10 @@
   .insight-metric,.usage-metric,.manager-stats-details,.usage-insight,.partner-stats-details{break-inside:avoid}
 }
 
-/* Purchase amount and expected partner rebate */
+/* Expected commission and purchase fields */
 .table-wrap>table{min-width:1320px}
 .table-wrap>table th:nth-child(1){width:12%}.table-wrap>table th:nth-child(2){width:8%}.table-wrap>table th:nth-child(3){width:15%}.table-wrap>table th:nth-child(4){width:10%}.table-wrap>table th:nth-child(5){width:9%}.table-wrap>table th:nth-child(6){width:9%}.table-wrap>table th:nth-child(7){width:12%}.table-wrap>table th:nth-child(8){width:21%}.table-wrap>table th:nth-child(9){width:4%}
-.purchase-summary{display:grid;min-width:0;max-width:100%;gap:2px;line-height:1.35}
-.purchase-summary strong{color:#2a3938;font-size:9px}
-.purchase-summary>span{color:#566361;font-size:8px;overflow-wrap:anywhere}
-.purchase-summary small{color:#16816c;font-size:8px;font-weight:700;overflow-wrap:anywhere}
-.purchase-summary em{color:#a36f32;font-size:7px;font-style:normal;line-height:1.35}
+.customer-expected-commission{color:#16816c;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .customer .customer-labels{display:grid;gap:2px}
 .customer .customer-best-number,.identity .customer-best-number{display:block;margin-top:2px;color:#5d6675;font-size:11px;font-weight:400;font-variant-numeric:tabular-nums;line-height:1.35;overflow-wrap:anywhere}
 .drawer .customer-name-field .customer-name-help{display:block;margin:5px 0 0;color:#6e7e76;font-size:9px;line-height:1.5;font-weight:400}
