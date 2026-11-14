@@ -47,8 +47,7 @@ import { saveCaseCustomerOnServer, unlinkCaseCustomerOnServer } from './lib/case
 import { formatAmountInput, parseAmountInput } from './lib/amountInput'
 import { allMemoEntriesFor, isBestCancellationMemo, managementMemoEntriesFor, memoEntriesForDisplay, memoHistoryRevisionFor } from './lib/memoHistory'
 import { customerDisplayLabel, customerDisplayName, phoneLast4Display } from './lib/customerDisplay'
-import { buildCommissionSettlementMetrics, caseSaveDeliveryError, expectedSettlementMonthFor } from './lib/commissionSettlement'
-import { deliveryScheduleFor, rawDeliveryRequestDatesFor } from './lib/deliverySchedule'
+import { buildCommissionSettlementMetrics, caseSaveDeliveryError } from './lib/commissionSettlement'
 import { comparePurchaseAmounts, getVisiblePurchaseMembers, purchaseSortValue } from './lib/customerSorting'
 import { buildCustomerCaseList, customerCaseLabelsFor } from './lib/customerCaseList'
 import { buildSeptemberSyncPlan, canStartSeptemberSync, septemberExistingPatch } from './lib/septemberSync'
@@ -934,14 +933,9 @@ function PurchaseSummary({members,completeMembers}:{members:Lead[];completeMembe
   const raw = salesRawAmountsFor(visibleBasis), subscription = subscriptionRawAmountsFor(visibleBasis)
   const total = totalPurchaseAmountFor(visibleBasis)
   const expectedCommission = expectedRebateFor(visibleBasis)
-  const deliveryBasis = selection.basis ?? visibleBasis
-  const schedule = deliveryScheduleFor(deliveryBasis)
+  if (!total && !raw.current && !subscription.current) return <span className="purchase-empty">—</span>
   const completed = visibleBasis.status === '구매완료'
-  const settlementMonth = completed ? expectedSettlementMonthFor(deliveryBasis) : null
-  const requestedDates = rawDeliveryRequestDatesFor(deliveryBasis)
-  const differentDeliveryMonths = new Set([...requestedDates.lumpSum, ...requestedDates.subscription].map(date => date.slice(0, 7))).size > 1
   const reserved = financialPendingAmountFor(visibleBasis)
-  if (!total && !raw.current && !subscription.current && !settlementMonth) return <span className="purchase-empty">—</span>
   const manualAmount = (['lumpSum', 'subscription'] as const).some(kind => purchaseAmountSourceFor(visibleBasis, kind).kind === 'manual' && purchaseAmountSourceFor(visibleBasis, kind).amount > 0)
   const verificationRequired = commissionVerificationRequiredFor(visibleBasis)
   const channelSources = selection.mergeMemberIds ? completeMembers.filter(member => selection.mergeMemberIds!.includes(member.id)) : [visibleBasis]
@@ -949,7 +943,7 @@ function PurchaseSummary({members,completeMembers}:{members:Lead[];completeMembe
   const channelMismatch = channels.some(row => row.status === 'mismatch')
   const channelUnknown = channels.some(row => row.status === 'unverified')
   const missingAppointmentType = !isPartnerAppointmentType(visibleBasis.appointmentType) && manualAmount
-  return <div className="purchase-summary"><span>{formatWon(total)}</span>{reserved > 0 && <em>예약·출하대기 {formatWon(reserved)} 포함</em>}<small>예상 수수료 {formatWon(expectedCommission)}</small>{channelMismatch && <em className="sales-channel-indicator mismatch">판매경로 불일치</em>}{channelUnknown && !verificationRequired && <em>판매경로 확인 필요</em>}{verificationRequired && <em>판매 원본 확인 필요</em>}{settlementMonth && <em className="purchase-settlement-known">{settlementMonth.replace('-', '.')} 중순 정산 예상{expectedCommission > 0 ? ' ' + formatWon(expectedCommission) : ''}</em>}{schedule && <em>{schedule.length === 7 ? '배송예정월' : '배송예정일'} {schedule.length === 7 ? schedule.slice(0, 4) + '년 ' + Number(schedule.slice(5)) + '월' : schedule.replaceAll('-', '.')}</em>}{!schedule && completed && <em>{differentDeliveryMonths ? '배송월 확인 필요' : '배송일 미입력'} · 정산월 미정</em>}{!completed && expectedCommission > 0 && <em>기준 고객 구매완료 전 {formatWon(expectedCommission)}</em>}{completeMembers.length > 1 && <em>묶음 1명 · {selection.mergeMemberIds ? "구매금액 합산 · " : ""}{customerDisplayLabel(visibleBasis)} 기준 1회 반영</em>}{manualAmount && <em>수기 입력 반영</em>}{missingAppointmentType && <em>제휴 접수 유형 확인 필요</em>}</div>
+  return <div className="purchase-summary"><span>{formatWon(total)}</span>{reserved > 0 && <em>예약·출하대기 {formatWon(reserved)} 포함</em>}<small>예상 수수료 {formatWon(expectedCommission)}</small>{channelMismatch && <em className="sales-channel-indicator mismatch">판매경로 불일치</em>}{channelUnknown && !verificationRequired && <em>판매경로 확인 필요</em>}{verificationRequired && <em>판매 원본 확인 필요</em>}{!completed && expectedCommission > 0 && <em>기준 고객 구매완료 전 {formatWon(expectedCommission)}</em>}{completeMembers.length > 1 && <em>묶음 1명 · {selection.mergeMemberIds ? "구매금액 합산 · " : ""}{customerDisplayLabel(visibleBasis)} 기준 1회 반영</em>}{manualAmount && <em>수기 입력 반영</em>}{missingAppointmentType && <em>제휴 접수 유형 확인 필요</em>}</div>
 }
 
 function ManagementSummary({lead,members,onOpen,onOpenCancellation}:{lead:Lead;members:Lead[];onOpen:()=>void;onOpenCancellation:(member:Lead)=>void}) {
