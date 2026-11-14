@@ -82,6 +82,19 @@ assert.equal(expectedRebateFor(rawSubSum), 1500, 'Only closed BEST subscription 
 assert.equal(subscriptionRawAmountsFor(rawSubSum).pending, 100000)
 assert.equal(financialPendingAmountFor(rawSubSum), 100000)
 
+const reviewedSubscription = subscription({ confirmedBasisAmount: 120_000, pendingBasisAmount: 0, settlementBasisAmount: 90_000 })
+const reviewedOwner = makeLead('A', {
+  partnerName: '(주)아이패밀리에스씨', purchaseType: '구독', lumpSumAmount: undefined, subscriptionAmount: 200_000,
+  subscriptionRawPeriods: { '2026-09': reviewedSubscription },
+  subscriptionSettlementReview: { period: reviewedSubscription.period, sourceHash: reviewedSubscription.sourceHash,
+    confirmedBasisAmount: 120_000, pendingBasisAmount: 0, settlementBasisAmount: 90_000, enteredAmount: 200_000,
+    partnerName: '(주)아이패밀리에스씨', reviewedAt: '2026-11-14T00:00:00.000Z' },
+})
+const reviewedAlias = { ...reviewedOwner, id: 'B', subscriptionSettlementReview: undefined, subscriptionSourceId: reviewedOwner.id }
+assert.equal(expectedRebateFor(projected([reviewedOwner, reviewedAlias])), 1_350, 'A reviewed RAW basis is counted once even with a shared alias')
+assert.equal(expectedRebateFor(financialCaseLeadFor(caseBasisFor([reviewedOwner, reviewedAlias], 'B'), [reviewedOwner, reviewedAlias])!), 0,
+  'An alias does not borrow approval for an unreconciled amount')
+
 const refunds = [makeLead('A', { lumpSumAmount: 0, salesRawPeriods: { '2026-09': sales({ confirmedAmount: -100, reservedAmount: 0, eligibleConfirmedAmount: -100, eligibleReservedAmount: 0, returnAmount: 100, settlementBasisAmount: -100 }) } }),
   verified(makeLead('B', { lumpSumAmount: 300 }))]
 assert.equal(expectedRebateBreakdownFor(projected(refunds)).lumpSumBasis, 200)

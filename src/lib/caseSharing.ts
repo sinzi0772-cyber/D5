@@ -53,7 +53,7 @@ export const MAX_CASE_MEMBERS = 8
 
 const financeKinds = ['lumpSum', 'subscription'] as const
 const sharedKeys = ['manager', 'managerEmployeeNo', 'purchaseType', 'purchaseAmount', 'lumpSumAmount', 'subscriptionAmount', 'lumpSumSourceId', 'subscriptionSourceId'] as const
-const protectedDraftKeys = new Set<string>([...sharedKeys, 'salesRawPeriods', 'subscriptionRawPeriods', 'salesRouteCorrections', 'bestCustomerNumber', 'caseSharingHistory', 'caseGroupId', 'caseBasisLeadId', 'caseMergeMemberIds', 'updatedAt'])
+const protectedDraftKeys = new Set<string>([...sharedKeys, 'salesRawPeriods', 'subscriptionRawPeriods', 'subscriptionSettlementReview', 'salesRouteCorrections', 'bestCustomerNumber', 'caseSharingHistory', 'caseGroupId', 'caseBasisLeadId', 'caseMergeMemberIds', 'updatedAt'])
 const amountKey = (kind: FinanceKind) => kind === 'lumpSum' ? 'lumpSumAmount' : 'subscriptionAmount'
 const sourceKey = (kind: FinanceKind) => kind === 'lumpSum' ? 'lumpSumSourceId' : 'subscriptionSourceId'
 const validAmount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0

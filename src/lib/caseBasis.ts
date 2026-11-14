@@ -129,6 +129,7 @@ function economicSignature(lead: Lead): string {
     partner(lead), enteredAmount(lead, 'lumpSum') ?? null, enteredAmount(lead, 'subscription') ?? null,
     lead.status, lead.deliveryScheduledDate || '', lead.managerEmployeeNo || lead.manager || '',
     cashEvidence, subscriptionEvidence,
+    lead.subscriptionSettlementReview && !subscription.current ? signedCommissionBasisFor(lead, 'subscription') : 0,
     confirmedSalesFor(lead), completedSalesFor(lead), financialPendingAmountFor(lead),
     currentRefund,
   ])

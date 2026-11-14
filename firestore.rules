@@ -464,7 +464,7 @@ service cloud.firestore {
       allow create: if canManageAll()
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.get('appointmentType', null) in ['이업종제휴', '상담예약(이업종)']
-        && !request.resource.data.keys().hasAny(['salesRouteCorrections'])
+        && !request.resource.data.keys().hasAny(['salesRouteCorrections', 'subscriptionSettlementReview'])
         && linkedCreateAllowed(request.resource.data, referralId)
         && changedSourceValid(request.resource.data, referralId, 'lumpSum')
         && changedSourceValid(request.resource.data, referralId, 'subscription');
@@ -529,7 +529,7 @@ service cloud.firestore {
         && detachedAliasAmountPreserved(resource.data, request.resource.data, referralId, 'lumpSum')
         && detachedAliasAmountPreserved(resource.data, request.resource.data, referralId, 'subscription')
         && sharingHistoryPreserved(resource.data, request.resource.data)
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['salesRouteCorrections']);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['salesRouteCorrections', 'subscriptionSettlementReview']);
 
       allow update: if salesRouteCorrectionAppendAllowed(resource.data, request.resource.data, referralId);
 

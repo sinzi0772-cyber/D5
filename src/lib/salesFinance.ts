@@ -1,10 +1,11 @@
 import type { Lead } from '../types'
 import { isSubscriptionRebatePartner } from './subscriptionPartners'
 import { financialCaseLeadsFor } from './caseBasis'
+import { canonicalPartnerName } from './partners'
 
 export { isSubscriptionRebatePartner } from './subscriptionPartners'
 
-type FinancialLead = Pick<Lead, 'id' | 'purchaseType' | 'purchaseAmount' | 'lumpSumAmount' | 'subscriptionAmount' | 'lumpSumSourceId' | 'subscriptionSourceId' | 'caseBasisLeadId' | 'partnerName' | 'appointmentType' | 'salesRawPeriods' | 'subscriptionRawPeriods'>
+type FinancialLead = Pick<Lead, 'id' | 'purchaseType' | 'purchaseAmount' | 'lumpSumAmount' | 'subscriptionAmount' | 'lumpSumSourceId' | 'subscriptionSourceId' | 'caseBasisLeadId' | 'partnerName' | 'appointmentType' | 'salesRawPeriods' | 'subscriptionRawPeriods' | 'subscriptionSettlementReview'>
 export interface SalesRawAmounts {
   current: boolean
   confirmed: number
@@ -156,6 +157,22 @@ export function commissionVerificationRequiredFor(lead: FinancialLead): boolean 
 
 const validSubscriptionSettlementBasis = (amount: number | undefined): amount is number => typeof amount === 'number' && Number.isSafeInteger(amount) && amount >= 0
 
+/** A review applies only to its exact entered amount and unchanged original evidence. */
+function reviewedSubscriptionSettlementBasisFor(lead: FinancialLead): number {
+  const review = lead.subscriptionSettlementReview
+  if (!review || typeof review.period !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(review.period)
+    || typeof review.sourceHash !== 'string' || !review.sourceHash || typeof review.reviewedAt !== 'string' || !Number.isFinite(Date.parse(review.reviewedAt))
+    || review.partnerName !== canonicalPartnerName(lead.partnerName)
+    || review.enteredAmount <= 0 || review.enteredAmount !== subscriptionAmountFor(lead)) return 0
+  const period = lead.subscriptionRawPeriods?.[review.period]
+  if (!period || period.period !== review.period || period.sourceHash !== review.sourceHash
+    || period.confirmedBasisAmount !== review.confirmedBasisAmount || period.pendingBasisAmount !== review.pendingBasisAmount
+    || !validSubscriptionSettlementBasis(period.settlementBasisAmount) || period.settlementBasisAmount !== review.settlementBasisAmount
+    || !validSubscriptionSettlementBasis(review.confirmedBasisAmount) || !validSubscriptionSettlementBasis(review.pendingBasisAmount)
+    || review.settlementBasisAmount > review.confirmedBasisAmount) return 0
+  return period.settlementBasisAmount
+}
+
 /** Preserve signed cash RAW subtotals until the logical case is totaled. */
 export function signedCommissionBasisFor(lead: FinancialLead, kind: 'lumpSum' | 'subscription'): number {
   const projection = caseFinancialProjections.get(lead)
@@ -166,7 +183,8 @@ export function signedCommissionBasisFor(lead: FinancialLead, kind: 'lumpSum' | 
     return Object.values(lead.salesRawPeriods || {}).reduce((total, { settlementBasisAmount }) =>
       total + (typeof settlementBasisAmount === 'number' && Number.isSafeInteger(settlementBasisAmount) ? settlementBasisAmount : 0), 0)
   }
-  if (!isSubscriptionRebatePartner(lead.partnerName) || !subscriptionRawAmountsFor(lead).current) return 0
+  if (!isSubscriptionRebatePartner(lead.partnerName)) return 0
+  if (!subscriptionRawAmountsFor(lead).current) return reviewedSubscriptionSettlementBasisFor(lead)
   return Object.values(lead.subscriptionRawPeriods || {}).reduce((total, { settlementBasisAmount }) =>
     total + (validSubscriptionSettlementBasis(settlementBasisAmount) ? settlementBasisAmount : 0), 0)
 }

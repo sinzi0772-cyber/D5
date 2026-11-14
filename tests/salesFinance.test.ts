@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { commissionVerificationRequiredFor, completedSalesFor, confirmedSalesFor, expectedLumpSumRebateFor, expectedRebateBreakdownFor, expectedRebateFor, expectedSubscriptionRebateFor, isSubscriptionRebatePartner, purchaseAmountSourceFor, salesRawAmountsFor, totalPurchaseAmountFor } from '../src/lib/salesFinance.ts'
 import { getStoredSalesChannels } from '../src/lib/salesChannels'
+import { canonicalPartnerName } from '../src/lib/partners'
+import { leadFromDocument } from '../src/lib/leadDocument'
+import { buildCommissionSettlementMetrics } from '../src/lib/commissionSettlement'
+import { buildPartnerPublication, parsePartnerPublication } from '../src/lib/partnerPublication'
 
 const lead = { id: 'fixture', customerName: '가*나', phoneLast4: '0001', registeredAt: '2026-09-01', updatedAt: '2026-10-04', gender: '미입력', partnerName: '(주)아이니웨딩네트웍스', appointmentType: '이업종제휴', status: '관리중', visitState: '미정', purchaseType: '일시불+구독', lumpSumAmount: 150000, subscriptionAmount: 10000, salesRawPeriods: { '2026-09': { period: '2026-09', sourceHash: 'fixture', importedAt: '2026-10-04', orderCount: 2, confirmedOrderCount: 1, reservedOrderCount: 1, confirmedAmount: 100000, reservedAmount: 50000, eligibleConfirmedAmount: 80000, eligibleReservedAmount: 40000, returnAmount: 0, settlementBasisAmount: 100000 } } } as const
 assert.equal(expectedRebateFor(lead), 2000)
@@ -157,4 +161,35 @@ for (const appointmentType of ['이업종제휴', '상담예약(이업종)'] as 
   assert.deepEqual(purchaseAmountSourceFor(manualFixture, 'subscription'), { kind: 'manual', amount: 1891000, rawAmount: null })
   assert.equal(JSON.stringify(manualFixture), before, 'Calculation and provenance checks must not replace manually entered amounts')
 }
+const reviewedRaw = { ...subscription.subscriptionRawPeriods['2026-09'], confirmedBasisAmount: 500_000,
+  pendingBasisAmount: 100_000, settlementBasisAmount: 450_000 }
+const review = { period: reviewedRaw.period, sourceHash: reviewedRaw.sourceHash, enteredAmount: 800_000,
+  confirmedBasisAmount: reviewedRaw.confirmedBasisAmount, pendingBasisAmount: reviewedRaw.pendingBasisAmount,
+  settlementBasisAmount: reviewedRaw.settlementBasisAmount, reviewedAt: '2026-11-14T00:00:00.000Z',
+  partnerName: canonicalPartnerName(subscription.partnerName) }
+const reviewedRecord = {
+  ...subscription, customerName: '가**', status: '구매완료', deliveryScheduledDate: '2026-11-20', subscriptionAmount: review.enteredAmount,
+  subscriptionRawPeriods: { '2026-09': reviewedRaw }, subscriptionSettlementReview: review,
+}
+const reviewed = leadFromDocument('fixture-reviewed', reviewedRecord)
+assert.equal(expectedRebateFor(reviewed), 8_750)
+assert.equal(expectedRebateBreakdownFor(reviewed).subscriptionCommission, 6_750)
+assert.equal(expectedSubscriptionRebateFor({ ...reviewed, subscriptionSettlementReview: undefined }), 0)
+assert.equal(expectedSubscriptionRebateFor({ ...reviewed, subscriptionAmount: review.enteredAmount + 1 }), 0)
+assert.equal(expectedSubscriptionRebateFor({ ...reviewed, subscriptionSourceId: 'other-original' }), 0)
+assert.equal(expectedSubscriptionRebateFor({ ...reviewed, partnerName: '아이웨딩' }), 0)
+assert.equal(expectedSubscriptionRebateFor({ ...reviewed, subscriptionAmount: 600_000 }), 6_750, 'Current RAW wins; the review is never an additional fee')
+for (const changedRaw of [{ sourceHash: 'new-import' }, { confirmedBasisAmount: 510_000 }, { pendingBasisAmount: 0 }, { settlementBasisAmount: 10 }]) {
+  assert.equal(expectedSubscriptionRebateFor({ ...reviewed, subscriptionRawPeriods: { '2026-09': { ...reviewedRaw, ...changedRaw } } }), 0)
+}
+assert.equal(commissionVerificationRequiredFor(reviewed), true, 'The rest of the entered amount still does not reconcile')
+assert.deepEqual(purchaseAmountSourceFor(reviewed, 'subscription'), { kind: 'manual', amount: 800_000, rawAmount: 600_000 })
+assert.equal(buildCommissionSettlementMetrics([reviewed]).months[0]?.expectedCommission, 8_750)
+const publication = buildPartnerPublication([reviewed], 'iniwedding', review.reviewedAt)
+const published = parsePartnerPublication(publication, 'iniwedding')
+assert(published)
+assert.equal(published.months[0].customers[0].expectedCommission, 8_750)
+assert.equal(published.months[0].customers[0].expectedSettlementMonth, '2027-01')
+assert(!JSON.stringify(published).includes('subscriptionSettlementReview'))
+
 console.log('salesFinance tests passed')

@@ -277,6 +277,22 @@ for (const legacyIntake of [legacyIntakeWithoutType, { ...legacyIntakeWithoutTyp
     [{ path: intakePath, data: { ...legacyIntake, note: '개인 메모', updatedBy: 'manager' } }], manager, true)
 }
 
+const subscriptionSettlementReview = { period: '2026-09', sourceHash: '4'.repeat(64), settlementBasisAmount: 100 }
+const reviewedReferral = { ...intakeReferral, subscriptionSettlementReview }
+assertBatch('admin cannot create a referral with a settlement review', seed(),
+  [{ path: intakePath, data: reviewedReferral }], admin, false)
+assertBatch('admin cannot add a settlement review to an existing referral', seed([intakePath, intakeReferral]),
+  [{ path: intakePath, data: reviewedReferral }], admin, false)
+for (const actor of [admin, manager, authFor('store'), authFor('assistant')]) {
+  const reviewedSeed = seed([intakePath, reviewedReferral])
+  assertBatch(`${actor.uid} can edit an ordinary field on a reviewed referral`, reviewedSeed,
+    [{ path: intakePath, data: { ...reviewedReferral, note: '개인 메모', updatedBy: actor.uid } }], actor, true)
+  assertBatch(`${actor.uid} cannot change a review's basis`, reviewedSeed,
+    [{ path: intakePath, data: { ...reviewedReferral, subscriptionSettlementReview: { ...subscriptionSettlementReview, settlementBasisAmount: 200 } } }], actor, false)
+  assertBatch(`${actor.uid} cannot delete a review`, reviewedSeed,
+    [{ path: intakePath, data: intakeReferral }], actor, false)
+}
+
 assertBatch('admin linked atomic share', base, priceWrites('admin'), admin, true)
 assertBatch('same employee guarded finance', base, priceWrites('manager'), manager, true)
 const routeEditId = 'A'.repeat(20)
@@ -285,6 +301,8 @@ const routeEdit = { kind: 'lumpSum', period: null, channel1: '', channel2: '', s
 const routeLedger = { revision: 1, latestId: routeEditId, entries: { [routeEditId]: routeEdit } }
 const routeWrite = { path: 'referrals/owner', data: { ...owner, salesRouteCorrections: routeLedger } }
 assertBatch('assigned manager appends route correction without editing group', base, [routeWrite], manager, true)
+assertBatch('route correction cannot also update settlement review', base,
+  [{ ...routeWrite, data: { ...routeWrite.data, subscriptionSettlementReview } }], admin, false)
 assertBatch('manager cannot append route correction to another assignee',
   seed(['referrals/owner', { ...owner, managerEmployeeNo: '222' }]),
   [{ ...routeWrite, data: { ...routeWrite.data, managerEmployeeNo: '222' } }], manager, false)

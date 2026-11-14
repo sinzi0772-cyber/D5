@@ -116,6 +116,18 @@ export interface SubscriptionRawPeriod {
   channels?: readonly SalesChannelSummary[]
 }
 
+/** A verified portion of subscription RAW when the saved sales amount differs. */
+export interface SubscriptionSettlementReview {
+  period: string
+  sourceHash: string
+  enteredAmount: number
+  confirmedBasisAmount: number
+  pendingBasisAmount: number
+  settlementBasisAmount: number
+  reviewedAt: string
+  partnerName: string
+}
+
 export interface Lead {
   id: string
   registeredAt: string
@@ -151,6 +163,7 @@ export interface Lead {
   caseSharingHistory?: CaseSharingHistory[]
   salesRawPeriods?: Record<string, SalesRawPeriod>
   subscriptionRawPeriods?: Record<string, SubscriptionRawPeriod>
+  subscriptionSettlementReview?: SubscriptionSettlementReview
   salesRouteCorrections?: SalesRouteCorrection[]
   note?: string
   memoHistory?: MemoEntry[]
