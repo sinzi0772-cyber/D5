@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { SalesChannelReviewModal } from '../src/components/SalesChannelReviewModal.tsx'
-import type { SalesChannelReviewItem } from '../src/lib/salesChannelReview.ts'
+import { groupSalesChannelReviewItems, type SalesChannelReviewItem } from '../src/lib/salesChannelReview.ts'
 
 const mismatch: SalesChannelReviewItem = {
   key: 'mismatch', caseKey: 'case:fixture', leadId: 'a', status: 'mismatch',
@@ -19,7 +19,7 @@ const multipleMonths: SalesChannelReviewItem = {
   intakeDate: '2026-09-27', period: null, periods: ['2026-09', '2026-10'],
 }
 
-const markup = renderToStaticMarkup(<SalesChannelReviewModal items={[unknown, mismatch, multipleMonths]} onClose={() => undefined} onSelectLead={() => undefined}/>)
+const markup = renderToStaticMarkup(<SalesChannelReviewModal cards={groupSalesChannelReviewItems([unknown, mismatch, multipleMonths])} onClose={() => undefined} onSelectLead={() => undefined}/>)
 assert.ok(markup.includes('role="dialog"') && markup.includes('판매경로 점검 · 3개'))
 const mismatchGroup = markup.match(/<section[^>]+aria-label="경로 불일치">([\s\S]+?)<\/section>/)?.[1] || ''
 const unverifiedGroup = markup.match(/<section[^>]+aria-label="경로 확인 필요">([\s\S]+?)<\/section>/)?.[1] || ''
@@ -33,6 +33,24 @@ assert.ok(markup.includes('제휴업체가 연결한 구매완료 고객의 확�
 assert.ok(unverifiedGroup.includes('일시불 · 2026.09, 2026.10') && unverifiedGroup.includes('미확인'))
 assert.ok(!unverifiedGroup.includes('class="different"') && !unverifiedGroup.includes('가** / 3101'))
 assert.equal((markup.match(/고객 상세 확인/g) || []).length, 3)
-const onlyUnverified = renderToStaticMarkup(<SalesChannelReviewModal items={[unknown]} onClose={() => undefined} onSelectLead={() => undefined}/>)
+const onlyUnverified = renderToStaticMarkup(<SalesChannelReviewModal cards={groupSalesChannelReviewItems([unknown])} onClose={() => undefined} onSelectLead={() => undefined}/>)
 assert.ok(!onlyUnverified.includes('경로 불일치') && onlyUnverified.includes('경로 확인 필요 1건'))
-console.log('Sales route popup distinguishes confirmed routes from missing proof and keeps receipt dates separate')
+const sameRoute = { ...mismatch, key: 'same-cash-route', kind: 'lumpSum' as const }
+const pairs = Object.freeze([Object.freeze(mismatch), Object.freeze(sameRoute)])
+const combined = groupSalesChannelReviewItems(pairs)
+const combinedMarkup = renderToStaticMarkup(<SalesChannelReviewModal cards={combined} onClose={() => undefined} onSelectLead={() => undefined}/>)
+assert.equal(combined.length, 1)
+assert.ok(combinedMarkup.includes('판매경로 점검 · 1개') && combinedMarkup.includes('경로 불일치 1건'))
+assert.ok(combinedMarkup.includes('일시불·구독 · 2026.10'))
+assert.equal((combinedMarkup.match(/고객 상세 확인/g) ?? []).length, 1)
+assert.equal((combinedMarkup.match(/웨딩매장행사/g) ?? []).length, 1)
+
+for (const other of [
+  { ...sameRoute, leadId: 'another-saved-record' },
+  { ...sameRoute, period: '2026-11' },
+  { ...sameRoute, channel2: '다른 판매경로' },
+  { ...sameRoute, staffRoute: { channel1: '직원 경로 1', channel2: '직원 경로 2' } },
+]) assert.equal(groupSalesChannelReviewItems([mismatch, other]).length, 2)
+assert.equal(groupSalesChannelReviewItems([unknown, { ...unknown, key: 'unknown-subscription', kind: 'subscription' }]).length, 2)
+
+console.log('Sales route popup combines matching cash and subscription cards and preserves separate findings')

@@ -30,6 +30,26 @@ export interface SalesChannelReviewItem {
   staffRoute?: { channel1: string; channel2: string }
 }
 
+export interface SalesChannelReviewCard extends Omit<SalesChannelReviewItem, 'kind' | 'period' | 'periods'> {
+  kinds: SalesChannelReviewItem['kind'][]
+  saleMonths: string[]
+}
+
+/** Group identical display findings for the same original customer across purchase methods. */
+export function groupSalesChannelReviewItems(items: readonly SalesChannelReviewItem[]): SalesChannelReviewCard[] {
+  const cards = new Map<string, SalesChannelReviewCard>()
+  for (const { kind, period, periods, ...item } of items) {
+    const saleMonths = [...new Set(periods ?? (period ? [period] : []))].sort()
+    const groupKey = item.status === 'mismatch' && saleMonths.length
+      ? JSON.stringify([item.leadId, saleMonths, item.channel1, item.channel2, item.staffRoute?.channel1, item.staffRoute?.channel2])
+      : JSON.stringify([item.key])
+    const card = cards.get(groupKey)
+    if (!card) cards.set(groupKey, { ...item, key: groupKey, kinds: [kind], saleMonths })
+    else if (!card.kinds.includes(kind)) card.kinds.push(kind)
+  }
+  return [...cards.values()]
+}
+
 const administrators = new Set(['admin', 'store_manager', 'assistant_manager'])
 const text = (value: unknown) => typeof value === 'string' ? value.trim() : ''
 const partnerKey = (value: string) => canonicalPartnerName(value).normalize('NFKC').trim().toLowerCase()
