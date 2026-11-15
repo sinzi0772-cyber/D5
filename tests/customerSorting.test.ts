@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { comparePurchaseAmounts, customerPurchaseSummaries, getVisiblePurchaseMembers, purchaseSortValue } from '../src/lib/customerSorting.ts'
+import { comparePurchaseAmounts, customerPurchaseSummaries, getVisiblePurchaseMembers, purchaseSortValue, sortCustomerRows } from '../src/lib/customerSorting.ts'
 import type { Lead } from '../src/types.ts'
 
 const lead = (id: string, changes: Partial<Lead> = {}): Lead => ({
@@ -57,11 +57,25 @@ const highFee = feeLead('high-fee', 5_000, 5_000)
 const feeRows = [highSale, highFee, zero, missing, canceled, coupleA, coupleB]
 const fees = customerPurchaseSummaries(feeRows, feeRows)
 assert.deepEqual([...fees], [['high-sale', { salesAmount: 10_000, commission: 40 }], ['high-fee', { salesAmount: 5_000, commission: 100 }], ['raw-zero', { salesAmount: 0, commission: 0 }]])
-const orderedFees = (direction: 'asc' | 'desc') => [...feeRows]
-  .sort((a, b) => comparePurchaseAmounts(fees.get(a.id)?.commission ?? null, fees.get(b.id)?.commission ?? null, direction))
+const orderedFees = (direction: 'asc' | 'desc') => sortCustomerRows(feeRows, new Set(), (a, b) => comparePurchaseAmounts(fees.get(a.id)?.commission ?? null, fees.get(b.id)?.commission ?? null, direction))
   .map(row => row.id)
-assert.deepEqual(orderedFees('desc'), ['high-fee', 'high-sale', 'raw-zero', 'missing', 'canceled', 'couple-a', 'couple-b'])
-assert.deepEqual(orderedFees('asc'), ['raw-zero', 'high-sale', 'high-fee', 'missing', 'canceled', 'couple-a', 'couple-b'])
+assert.deepEqual(orderedFees('desc'), ['high-fee', 'high-sale', 'raw-zero', 'missing', 'couple-a', 'couple-b', 'canceled'])
+assert.deepEqual(orderedFees('asc'), ['raw-zero', 'high-sale', 'high-fee', 'missing', 'couple-a', 'couple-b', 'canceled'])
+const registrationRows = [
+  lead('closed', { status: '상담 마감', registeredAt: '2026-09-05' }),
+  lead('visit-canceled', { visitState: '일정취소', registeredAt: '2026-09-03' }),
+  lead('excluded', { status: '취소', registeredAt: '2026-09-04' }),
+  lead('canceled', { status: '취소', registeredAt: '2026-09-02' }),
+  lead('purchased', { status: '구매완료', registeredAt: '2026-09-01' }),
+]
+const byRegistration = (direction: number) =>
+  sortCustomerRows(registrationRows, new Set(['excluded']), (a, b) =>
+    a.registeredAt.localeCompare(b.registeredAt) * direction,
+  ).map(row => row.id)
+assert.deepEqual(byRegistration(-1), ['excluded', 'visit-canceled', 'purchased', 'closed', 'canceled'])
+assert.deepEqual(byRegistration(1), ['purchased', 'visit-canceled', 'excluded', 'canceled', 'closed'])
+assert.deepEqual(registrationRows.map(row => row.id), ['closed', 'visit-canceled', 'excluded', 'canceled', 'purchased'])
+
 const chosenFeeOwner = { ...highFee, caseGroupId: 'commission-case', caseBasisLeadId: highFee.id }
 const chosenFeeMember = { ...missing, caseGroupId: 'commission-case', caseBasisLeadId: highFee.id }
 assert.deepEqual([...customerPurchaseSummaries([chosenFeeMember], [chosenFeeOwner, chosenFeeMember])], [[missing.id, { salesAmount: 5_000, commission: 100 }]])

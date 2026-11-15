@@ -48,7 +48,7 @@ import { formatAmountInput, parseAmountInput } from './lib/amountInput'
 import { allMemoEntriesFor, isBestCancellationMemo, managementMemoEntriesFor, memoEntriesForDisplay, memoHistoryRevisionFor } from './lib/memoHistory'
 import { customerDisplayLabel, customerDisplayName, phoneLast4Display } from './lib/customerDisplay'
 import { buildCommissionSettlementMetrics, caseSaveDeliveryError } from './lib/commissionSettlement'
-import { comparePurchaseAmounts, customerPurchaseSummaries, getVisiblePurchaseMembers } from './lib/customerSorting'
+import { comparePurchaseAmounts, customerPurchaseSummaries, getVisiblePurchaseMembers, sortCustomerRows } from './lib/customerSorting'
 import { buildCustomerCaseList, customerCaseLabelsFor } from './lib/customerCaseList'
 import { buildSeptemberSyncPlan, canStartSeptemberSync, septemberExistingPatch } from './lib/septemberSync'
 import { accountAccessError, checkedPartnerIdentity, SHARED_ACCOUNT_EMPLOYEE_NO, SHARED_ACCOUNT_MESSAGE } from './lib/accountAccess'
@@ -611,14 +611,14 @@ export default function App() {
     })
     const purchases = customerPurchaseSummaries(model.rows, leads)
     if (sort.key === 'commission') {
-      return { ...model, purchases, rows: model.rows.sort((a, b) => comparePurchaseAmounts(purchases.get(a.id)?.commission ?? null, purchases.get(b.id)?.commission ?? null, sort.direction)) }
+      return { ...model, purchases, rows: sortCustomerRows(model.rows, model.excludedRowIds, (a, b) => comparePurchaseAmounts(purchases.get(a.id)?.commission ?? null, purchases.get(b.id)?.commission ?? null, sort.direction)) }
     }
     const stringSortKey = sort.key
     const value = (lead: Lead) => {
       const values: Record<Exclude<SortKey, 'commission'>, string> = { customerName: lead.customerName, registeredAt: lead.registeredAt, partnerName: lead.partnerName, manager: lead.manager || '', visitDate: lead.visitScheduledDate || '', status: lead.status, management: managementMemoEntriesFor(lead).at(-1)?.date || '', updatedAt: lead.updatedAt }
       return values[stringSortKey]
     }
-    return { ...model, purchases, rows: model.rows.sort((a, b) => value(a).localeCompare(value(b), 'ko', { numeric: true }) * (sort.direction === 'asc' ? 1 : -1)) }
+    return { ...model, purchases, rows: sortCustomerRows(model.rows, model.excludedRowIds, (a, b) => value(a).localeCompare(value(b), 'ko', { numeric: true }) * (sort.direction === 'asc' ? 1 : -1)) }
   }, [intakeLeads, leads, query, statusFilter, partnerFilter, managerFilter, visitFilter, sort])
   const salesRouteStatuses = useMemo(() => new Map(leads.map(lead => [lead.id, storedSalesChannelStatusFor(lead)])), [leads])
   const filtered = filteredModel.members
@@ -895,7 +895,7 @@ export default function App() {
             return <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{customerDisplayName(l.customerName).slice(0,1)}</span><div><strong className="customer-labels">{customerLabels.map(customer => <span key={customer.id}>
               {customer.label}
               {customer.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
-            </span>)}</strong>{l.caseGroupId && <em className="case-badge">묶음 고객</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{isPartnerAppointmentType(l.appointmentType) && <em className="appointment-type">{partnerAppointmentLabel(l.appointmentType)}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${filteredModel.excludedRowIds.has(l.id) ? 'gray' : statusTone[l.status]}`} title={filteredModel.excludedRowIds.has(l.id) ? `원본 상태: ${l.status}` : undefined}><i/>{filteredModel.excludedRowIds.has(l.id) ? '집계 제외' : l.status}</span></td><td>
+            </span>)}</strong>{l.caseGroupId && <em className="case-badge">묶음 고객</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{isPartnerAppointmentType(l.appointmentType) && <em className="appointment-type">{partnerAppointmentLabel(l.appointmentType)}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small className={l.visitState === '일정취소' ? 'date-cell-canceled' : undefined}>{l.visitState}</small></div></td><td><span className={`badge ${filteredModel.excludedRowIds.has(l.id) ? 'gray' : statusTone[l.status]}`} title={filteredModel.excludedRowIds.has(l.id) ? `원본 상태: ${l.status}` : undefined}><i/>{filteredModel.excludedRowIds.has(l.id) ? '집계 제외' : l.status}</span></td><td>
               {purchase ? <>
                 <small className="customer-sales-amount">판매금액 {formatWon(purchase.salesAmount)}</small>
                 <span className="customer-expected-commission">예상금액 {formatWon(purchase.commission)}</span>

@@ -5,6 +5,19 @@ import { canonicalPartnerName } from './partners'
 
 export type PurchaseSortDirection = 'asc' | 'desc'
 
+export function sortCustomerRows(
+  rows: readonly Lead[],
+  excludedRowIds: ReadonlySet<string>,
+  compare: (left: Lead, right: Lead) => number,
+): Lead[] {
+  const isClosed = (row: Lead) => !excludedRowIds.has(row.id) &&
+    (row.status === '취소' || row.status === '상담 마감')
+
+  return [...rows].sort((left, right) =>
+    Number(isClosed(left)) - Number(isClosed(right)) || compare(left, right),
+  )
+}
+
 /** Never pull linked customer amounts from outside the caller's visible/filter scope. */
 export function getVisiblePurchaseMembers(lead: Lead, visibleLeads: Lead[]): Lead[] {
   return visibleLeads.filter(member => lead.caseGroupId
