@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import type { Lead, SalesChannelSummary } from '../src/types'
-import { getSalesChannelReviewItems, isApprovedSubscriptionReviewPartner } from '../src/lib/salesChannelReview'
+import { getSalesChannelReviewItems, groupSalesChannelReviewItems, isApprovedSubscriptionReviewPartner } from '../src/lib/salesChannelReview'
 
 const approved = ['(주) 합성웨딩', '합성2', '합성3', '합성4', '합성5', '합성6', '합성7']
 const admin = { role: 'admin' }
@@ -126,4 +126,36 @@ assert.deepEqual(getSalesChannelReviewItems([original], admin, approved).map(ite
 assert.notDeepEqual(getSalesChannelReviewItems([lead('source', { managerEmployeeNo: 'M2' })], admin, approved).map(item => item.key), items.map(item => item.key))
 assert.notDeepEqual(getSalesChannelReviewItems([replaceRoutes(original, [route(200000)])], admin, approved).map(item => item.key), items.map(item => item.key))
 assert.equal(JSON.stringify(original), before)
+const reservedCash = lead('reserved-management', {
+  status: '관리중',
+  salesRawPeriods: { '2026-10': { ...cash, confirmedOrderCount: 0, reservedOrderCount: 1, confirmedAmount: 0, reservedAmount: 100000,
+    channels: [route(100000, { channel1: '오픈', channel2: '신규오픈' })] } },
+})
+const reservation = getSalesChannelReviewItems([reservedCash], manager, approved)
+assert.equal(reservation.length, 1)
+assert.deepEqual([reservation[0].kind, reservation[0].period, reservation[0].status, reservation[0].orderStage, reservation[0].channel2],
+  ['lumpSum', '2026-10', 'mismatch', 'reservation', '신규오픈'])
+assert.equal(groupSalesChannelReviewItems(reservation)[0].orderStage, 'reservation')
+assert.equal(getSalesChannelReviewItems([reservedCash], { ...manager, employeeNo: 'M2' }, approved).length, 0)
+assert.equal(getSalesChannelReviewItems([reservedCash], admin, approved).length, 0)
+assert.equal(getSalesChannelReviewItems([{ ...reservedCash, status: '취소' }], manager, approved).length, 0)
+assert.equal(getSalesChannelReviewItems([{ ...reservedCash, status: '상담 마감' }], manager, approved).length, 0)
+assert.equal(getSalesChannelReviewItems([{ ...reservedCash, lumpSumSourceId: 'other-owner' }], manager, approved).length, 0)
+assert.equal(getSalesChannelReviewItems([{ ...reservedCash, salesRawPeriods: undefined }], manager, approved).length, 0)
+const booked = reservedCash.salesRawPeriods!['2026-10']
+for (const changes of [
+  { channels: [route(100000, { channel2: '' })] },
+  { channels: [route(100000, { channel2: '웨딩업체연결(수수료지급)' })] },
+  { channels: [route(1)], reservedAmount: 1 },
+  { reservedOrderCount: 0, reservedAmount: 0, tentativeOrderCount: 1, tentativeAmount: 100000 },
+  { sourceHash: '' },
+]) {
+  assert.equal(getSalesChannelReviewItems([{ ...reservedCash, salesRawPeriods: { '2026-10': { ...booked, ...changes } } }], manager, approved).length, 0)
+}
+const combined = { ...booked, orderCount: 2, confirmedOrderCount: 1, confirmedAmount: 50000 }
+const mixedSharedPath = { ...reservedCash, salesRawPeriods: { '2026-10': { ...combined, channels: [route(150000, { orderCount: 2 })] } } }
+assert.equal(getSalesChannelReviewItems([mixedSharedPath], manager, approved).length, 1)
+const mixedDifferentPaths = { ...reservedCash, salesRawPeriods: { '2026-10': { ...combined, channels: mixedRoutes } } }
+assert.equal(getSalesChannelReviewItems([mixedDifferentPaths], manager, approved).length, 0, 'Mixed stages need a path that can be attributed to reservations')
+
 console.log('salesChannelReview: explicit subscription scope, real route mismatches, one-won exclusion, assigned staff, source-owner deduplication, safe dismissal keys and immutable originals passed')

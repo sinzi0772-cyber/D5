@@ -21,6 +21,7 @@ export interface SalesChannelReviewItem {
   partnerName: string
   kind: 'lumpSum' | 'subscription'
   status: 'mismatch' | 'unverified'
+  orderStage?: 'reservation'
   period: string | null
   periods?: readonly string[]
   unverifiedReason?: 'missing-route' | 'confirmed-route-unclear'
@@ -41,7 +42,7 @@ export function groupSalesChannelReviewItems(items: readonly SalesChannelReviewI
   for (const { kind, period, periods, ...item } of items) {
     const saleMonths = [...new Set(periods ?? (period ? [period] : []))].sort()
     const groupKey = item.status === 'mismatch' && saleMonths.length
-      ? JSON.stringify([item.leadId, saleMonths, item.channel1, item.channel2, item.staffRoute?.channel1, item.staffRoute?.channel2])
+      ? JSON.stringify([item.leadId, item.orderStage, saleMonths, item.channel1, item.channel2, item.staffRoute?.channel1, item.staffRoute?.channel2])
       : JSON.stringify([item.key])
     const card = cards.get(groupKey)
     if (!card) cards.set(groupKey, { ...item, key: groupKey, kinds: [kind], saleMonths })
@@ -97,6 +98,23 @@ function confirmedCohortFor(lead: Lead, kind: SalesChannelReviewItem['kind'], pe
   return { mixed, allConfirmedEligible }
 }
 
+/** A monthly channel summary combines all order stages. A reservation's path
+ * is identifiable if the period consists of reservations or shares one path. */
+function reservationMismatchesFor(lead: Lead, period: string, routes: readonly StoredSalesChannel[]) {
+  const cash = lead.salesRawPeriods?.[period]
+  if (!cash || !text(cash.sourceHash) || !Number.isSafeInteger(cash.reservedOrderCount) || cash.reservedOrderCount <= 0
+    || !Number.isSafeInteger(cash.reservedAmount) || cash.reservedAmount <= 1 || cash.returnAmount !== 0) return []
+  const tentativeCount = cash.tentativeOrderCount ?? 0
+  const tentativeAmount = cash.tentativeAmount ?? 0
+  const reservationOnly = cash.orderCount === cash.reservedOrderCount && cash.confirmedOrderCount === 0
+    && cash.confirmedAmount === 0 && tentativeCount === 0 && tentativeAmount === 0
+  const [first] = routes
+  const commonPath = routes.length === 1 && first.orderCount === cash.orderCount
+    && first.amount === cash.confirmedAmount + cash.reservedAmount + tentativeAmount
+  if (!reservationOnly && !commonPath) return []
+  return routes.filter(route => route.status === 'mismatch' && route.orderCount > 0 && route.amount !== null && route.amount > 1)
+}
+
 function commonPath(routes: readonly StoredSalesChannel[], key: 'channel1' | 'channel2'): string {
   const path = routes[0]?.[key] ?? ''
   return routes.every(route => route[key] === path) ? path : ''
@@ -128,7 +146,8 @@ export function getSalesChannelReviewItems(
   const candidates = new Map<string, { item: Omit<SalesChannelReviewItem, 'key'>; facts: unknown[] }>()
   for (const lead of byId.values()) {
     const partner = partnerKey(lead.partnerName)
-    if (lead.status !== '구매완료' || !partner || partner === '제휴사' || partner === '제휴업체확인필요'
+    const reviewReservation = lead.status === '관리중' && viewer.role === 'manager'
+    if ((lead.status !== '구매완료' && !reviewReservation) || !partner || partner === '제휴사' || partner === '제휴업체확인필요'
       || !viewerCanReview(lead, viewer)
       || lead.appointmentType !== '이업종제휴' && lead.appointmentType !== '상담예약(이업종)') continue
     const routes = getStoredSalesChannels(lead)
@@ -141,7 +160,7 @@ export function getSalesChannelReviewItems(
       managerLabel: text(lead.manager) || '미배정',
     }
     for (const kind of ['lumpSum', 'subscription'] as const) {
-      if (kind === 'subscription' && !isApprovedSubscriptionReviewPartner(lead.partnerName, approvedSubscriptionPartners)) continue
+      if (kind === 'subscription' && (reviewReservation || !isApprovedSubscriptionReviewPartner(lead.partnerName, approvedSubscriptionPartners))) continue
       const sourceId = kind === 'lumpSum' ? lead.lumpSumSourceId : lead.subscriptionSourceId
       if (sourceId !== undefined && sourceId !== lead.id) continue
       const ownRoutes = routes.filter(route => route.kind === kind && !isOneWonSaleAmount(route.amount))
@@ -160,6 +179,10 @@ export function getSalesChannelReviewItems(
       const missingRoutes: StoredSalesChannel[] = []
       let confirmedRouteUnclear = false
       for (const [period, periodRoutes] of routesByPeriod) {
+        if (reviewReservation) {
+          mismatches.push(...reservationMismatchesFor(lead, period, periodRoutes))
+          continue
+        }
         const cohort = confirmedCohortFor(lead, kind, period)
         if (!cohort) continue
         const problems = periodRoutes.filter(route => route.status !== 'eligible')
@@ -175,10 +198,11 @@ export function getSalesChannelReviewItems(
         for (const route of problems) (route.status === 'mismatch' ? mismatches : missingRoutes).push(route)
       }
       for (const route of mismatches) {
-        const identity = JSON.stringify([lead.id, kind, route.period, route.channel1, route.channel2])
+        const identity = JSON.stringify([lead.id, kind, reviewReservation, route.period, route.channel1, route.channel2])
         let candidate = candidates.get(identity)
         if (!candidate) {
           candidate = { item: { ...common, kind, status: 'mismatch', period: route.period,
+            ...(reviewReservation ? { orderStage: 'reservation' as const } : {}),
             channel1: route.channel1, channel2: route.channel2, staffRoute: staffRouteFor(lead, [route]) }, facts: [] }
           candidates.set(identity, candidate)
         }
