@@ -1,7 +1,7 @@
 import type { InvitationCampaign, Lead, LeadStatus } from '../types'
 import { expectedSettlementMonthFor, isValidDeliveryDate } from './commissionSettlement'
 import { deliveryScheduleFor } from './deliverySchedule'
-import { customerDisplayLabel } from './customerDisplay'
+import { customerDisplayLabel, customerStatusLabel } from './customerDisplay'
 import { canonicalPartnerName } from './partners'
 import { expectedRebateFor } from './salesFinance'
 import { caseBasisGroupsFor, financialCaseLeadFor, verifiedLinkedOrderRoutesFor } from './caseBasis'
@@ -53,7 +53,7 @@ export interface PartnerPreviewModel {
   customers: PartnerPreviewCustomer[]
 }
 export const partnerCustomerStatus = (customer: Pick<PartnerPreviewCustomer, 'status' | 'visitState'>) =>
-  customer.status === '취소' && customer.visitState === '일정취소' ? customer.visitState : customer.status
+  customer.status === '취소' && customer.visitState === '일정취소' ? customer.visitState : customerStatusLabel(customer.status)
 
 const validMonth = (month: string) => /^(?!0000)\d{4}-(0[1-9]|1[0-2])$/.test(month)
 const safeDate = (value?: string) => { const date = typeof value === 'string' ? value.slice(0, 10) : ''; return isValidDeliveryDate(date) ? date : null }

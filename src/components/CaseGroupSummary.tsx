@@ -2,7 +2,7 @@ import { useId, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import type { Lead } from '../types'
 import { isPartnerAppointmentType, partnerAppointmentLabel } from '../lib/partnerAppointments'
-import { customerDisplayLabel } from '../lib/customerDisplay'
+import { customerDisplayLabel, customerStatusLabel } from '../lib/customerDisplay'
 
 interface CaseGroupSummaryProps {
   members: readonly Lead[]
@@ -29,15 +29,16 @@ export function CaseGroupSummary({ members, activeLeadId, basisLabel, basisLeadI
   const originals = useRef<HTMLDetailsElement>(null)
   const originalsToggle = useRef<HTMLElement>(null)
   const pending = amountMode === 'pending'
-  const memberStatus = (member: Lead) => !pending && basisLeadId && member.id !== basisLeadId ? '집계 제외' : member.status
   return <section className={`linked-case case-group-summary${pending ? ' case-group-pending' : ''}`} aria-label="묶음 고객 요약">
     <header><h3>묶음 고객</h3><div className="case-group-heading-actions"><span>1명으로 집계</span><button type="button" className="case-group-toggle" aria-label={expanded ? '묶음 고객 접기' : '묶음 고객 펼치기'} aria-expanded={expanded} aria-controls={contentId} onClick={() => setExpanded(!expanded)}>{expanded ? '접기' : '펼치기'}{expanded ? <ChevronUp size={14} aria-hidden="true"/> : <ChevronDown size={14} aria-hidden="true"/>}</button></div></header>
     <div id={contentId} className="case-group-content" hidden={!expanded}>
     <div className="case-group-members" aria-label="묶인 고객">
       {members.map(member => {
+        const statusLabel = customerStatusLabel(member.status)
+        const excluded = !pending && basisLeadId && member.id !== basisLeadId
         const details = <>
           <small>접수일 {member.registeredAt ? <time dateTime={member.registeredAt}>{member.registeredAt.replaceAll('-', '.')}</time> : '—'}{isPartnerAppointmentType(member.appointmentType) && ` · ${partnerAppointmentLabel(member.appointmentType)}`}</small>
-          <small title={`원본 상태: ${member.status}`}>{memberStatus(member)}</small>
+          <small title={`원본 상태: ${statusLabel}`}>{excluded ? '집계 제외' : statusLabel}</small>
         </>
         return onSelectMember
           ? <button type="button" key={member.id} className={member.id === activeLeadId ? 'active' : ''} aria-pressed={member.id === activeLeadId} disabled={disabled || unlinkBusy} onClick={() => onSelectMember(member)}><span>{customerDisplayLabel(member)}</span>{details}</button>

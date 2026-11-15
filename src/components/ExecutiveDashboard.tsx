@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ArrowUpRight, CheckCircle2, Clock3, Printer, UsersRound, X } from 'lucide-react'
 import { buildExecutiveMetrics, executiveTotalSalesFor, getExecutiveMonthCaseLeads, getTopCommissionPartners, getTopReferralPartners, type ExecutivePeriodSummary } from '../lib/executiveMetrics'
-import { customerDisplayLabel } from '../lib/customerDisplay'
+import { customerDisplayLabel, customerStatusLabel } from '../lib/customerDisplay'
 import type { Lead } from '../types'
 import { latestManagementMemoDateFor } from '../lib/memoHistory'
 import { MonthlyCommissionPanel } from './MonthlyCommissionPanel'
@@ -21,12 +21,13 @@ const performanceColumnHelp = (key: SortColumn) => key === 'completed'
   : undefined
 const monthLabel = (month: string) => `${month.slice(0, 4)}년 ${Number(month.slice(5))}월`
 const koreanToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+const consultationClosedLabel = customerStatusLabel('상담 마감')
 const queueInfo: Record<Queue, { title: string; note: string }> = {
   unassigned: { title: '담당자 미배정', note: '담당자가 없는 관리중 고객' },
   overdue: { title: '방문일 경과 · 미처리', note: '방문 예정일이 지났으나 처리되지 않은 고객' },
   stale: { title: '7일 이상 관리 공백', note: '마지막 메모 후 7일 경과 · 메모가 없으면 등록일 기준' },
   canceled: { title: '취소 고객 확인', note: '고객을 누르면 종료 사유를 확인합니다.' },
-  closed: { title: '상담마감 고객 확인', note: '상담마감은 구매 실패와 구분합니다.' },
+  closed: { title: `${consultationClosedLabel} 고객 확인`, note: `${consultationClosedLabel}는 구매 실패와 구분합니다.` },
 }
 
 export function ExecutiveDashboard({ leads, partnerLabel, month, onSelectLead, onSelectManager }: { leads: Lead[]; partnerLabel: string; month: string; onSelectLead: (lead: Lead) => void; onSelectManager: (name: string) => void }) {
@@ -62,7 +63,7 @@ export function ExecutiveDashboard({ leads, partnerLabel, month, onSelectLead, o
     </div>
     {current.basisRequiredCount > 0 ? <p className="exec-footnote" role="status">묶음 기준 미선택 {current.basisRequiredCount}명 · 선택 전 매출·수수료 제외</p> : null}
     <div className="exec-status-note" aria-label="선택 접수월 종료 상태">
-      <button type="button" onClick={() => showQueue('closed')}>상담마감 <strong>{current.closed}건</strong><ArrowUpRight size={13} aria-hidden="true"/></button>
+      <button type="button" onClick={() => showQueue('closed')}>{consultationClosedLabel} <strong>{current.closed}건</strong><ArrowUpRight size={13} aria-hidden="true"/></button>
       <button type="button" onClick={() => showQueue('canceled')}>취소 <strong>{current.canceled}건</strong><ArrowUpRight size={13} aria-hidden="true"/></button>
     </div>
 
@@ -139,7 +140,7 @@ function PerformanceTable({ title, rows, month, kind, onSelectManager }: { title
   const columns: { key: SortColumn; label: string }[] = [
     { key: 'name', label: kind === 'partner' ? '제휴업체' : '담당자' }, { key: 'cases', label: kind === 'partner' ? '접수' : '배정 접수' },
     ...(kind === 'partner' ? [{ key: 'expectedCommission' as const, label: '예상 수수료' }] : []),
-    { key: 'active', label: '관리중' }, { key: 'completed', label: '구매완료' }, { key: 'closed', label: '상담마감' }, { key: 'canceled', label: '취소' }, { key: 'salesProgress', label: kind === 'partner' ? '판매 / 접수' : '판매 / 배정' }, { key: 'sales', label: '총판매금액' }, { key: 'managementRecords', label: '관리기록' },
+    { key: 'active', label: '관리중' }, { key: 'completed', label: '구매완료' }, { key: 'closed', label: consultationClosedLabel }, { key: 'canceled', label: '취소' }, { key: 'salesProgress', label: kind === 'partner' ? '판매 / 접수' : '판매 / 배정' }, { key: 'sales', label: '총판매금액' }, { key: 'managementRecords', label: '관리기록' },
   ]
   const totalCommission = rows.reduce((total, row) => total + row.expectedCommission, 0)
   const hasPendingBasis = rows.some(row => row.basisRequiredCount > 0)

@@ -1,4 +1,8 @@
-import type { Lead } from '../types'
+import type { Lead, LeadStatus } from '../types'
+
+export function customerStatusLabel(status: LeadStatus) {
+  return status === '상담 마감' ? '상담종료' : status
+}
 
 /** Display-only masking. Stored names and RAW matching keys must remain unchanged. */
 export function customerDisplayName(value: unknown): string {

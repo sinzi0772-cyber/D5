@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Check, X } from 'lucide-react'
 import type { Lead } from '../types'
 import { caseBasisFor, financialCaseLeadFor } from '../lib/caseBasis'
-import { customerDisplayLabel } from '../lib/customerDisplay'
+import { customerDisplayLabel, customerStatusLabel } from '../lib/customerDisplay'
 import { totalPurchaseAmountFor } from '../lib/salesFinance'
 import './CaseMergeChoiceModal.css'
 
@@ -127,7 +127,7 @@ export function CaseMergeChoiceModal({ members, initialMergeMemberIds, disabled 
                 <span>
                   <strong>{customerDisplayLabel(member)}</strong>
                   <small id={`${radioName}-${index}`}>
-                    접수일 {member.registeredAt ? <time dateTime={member.registeredAt}>{member.registeredAt.replaceAll('-', '.')}</time> : '—'} · {member.manager || '담당자 미지정'} · {member.status}
+                    접수일 {member.registeredAt ? <time dateTime={member.registeredAt}>{member.registeredAt.replaceAll('-', '.')}</time> : '—'} · {member.manager || '담당자 미지정'} · {customerStatusLabel(member.status)}
                   </small>
                 </span>
                 <b>{amountLabel(projection)}</b>

@@ -102,6 +102,7 @@ assert.match(routeMarkup, /<details class="partner-preview-sales-channels has-mi
 assert(!routeMarkup.includes('<details open'), 'Sales route details stay compact until opened')
 assert(!routeMarkup.includes('20,864,000'), 'Showing actual routes must not expose total sales amounts')
 const cancelLabels = buildPartnerPreview([
+  { ...rows[0], id: 'consultation-closed', status: '상담 마감', phoneLast4: '4567' },
   { ...rows[0], id: 'canceled-visit', status: '취소', visitState: '일정취소', phoneLast4: '2345' },
   { ...rows[0], id: 'canceled-sale', status: '취소', visitState: '방문', phoneLast4: '3456' },
 ], model.partnerName, '2026-09')
@@ -109,6 +110,7 @@ const cancelMarkup = renderToStaticMarkup(<PartnerPreview model={cancelLabels} p
 const cancelRows = [...cancelMarkup.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map(match => match[1])
 assert.match(cancelRows.find(row => row.includes('/ 2345'))!, /<span class="partner-preview-status">일정취소<\/span>/)
 assert.match(cancelRows.find(row => row.includes('/ 3456'))!, /<span class="partner-preview-status">취소<\/span>/)
+assert.match(cancelRows.find(row => row.includes('/ 4567'))!, /<span class="partner-preview-status">상담종료<\/span>/)
 const invited = buildPartnerPreview([
   { ...rows[0], partnerName: '(주)아이니웨딩네트웍스', invitationCampaign: '2026-11-iniwedding' },
   { ...rows[1], partnerName: '(주)아이니웨딩네트웍스' },
