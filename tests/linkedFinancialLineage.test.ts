@@ -124,7 +124,7 @@ assert.equal(expectedRebateFor(aliasFinancial), 4250, 'A selected legacy alias u
 assert.equal(buildCommissionSettlementMetrics(chosenAlias).months[0].month, '2027-02', 'Explicit basis date changes settlement; it is not an additional bucket')
 const unlinked = shared.map(member => ({ ...member, caseGroupId: undefined }))
 assert.equal(buildExecutiveMetrics(unlinked, '2026-09', '2026-10-14').current.expectedCommission, 4250, 'Unlinking cannot convert aliases into new purchases')
-assert.equal(expectedRebateFor({ ...owner, lumpSumAmount: 160000 }), 2250, 'A changed cash amount needs BEST verification; the current subscription remains payable')
+assert.equal(expectedRebateFor({ ...owner, lumpSumAmount: 160000 }), 4250, 'A changed cash amount is capped at payable RAW when pending orders remain, without displacing the subscription')
 assert.equal(expectedRebateFor({ ...owner, lumpSumAmount: 0, subscriptionAmount: 0 }), 0)
 assert.equal(confirmedSalesFor({ ...owner, lumpSumAmount: 75000, subscriptionAmount: 0, salesRawPeriods: { '2026-09': { ...owner.salesRawPeriods!['2026-09'], confirmedAmount: -25000, reservedAmount: 100000, eligibleConfirmedAmount: -25000, eligibleReservedAmount: 100000, settlementBasisAmount: -25000 } } }), -25000, 'Signed refund subtotals remain intact')
 for (const member of shared) {

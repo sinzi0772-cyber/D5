@@ -1,7 +1,7 @@
 import type { Lead, LinkedCashReview } from '../types'
 import { canonicalPartnerName } from './partners'
 import { getStoredSalesChannels } from './salesChannels'
-import { commissionVerificationRequiredFor, completedSalesFor, confirmedSalesFor, financialPendingAmountFor, isSubscriptionRebatePartner, purchaseAmountSourceFor, registerCaseFinancialProjection, registerLinkedSettlementBasis, reviewedSubscriptionSettlementBasisFor, salesRawAmountsFor, signedCommissionBasisFor, subscriptionRawAmountsFor } from './salesFinance'
+import { commissionVerificationRequiredFor, completedSalesFor, confirmedSalesFor, financialPendingAmountFor, isSubscriptionRebatePartner, manualCommissionBasisUsedFor, purchaseAmountSourceFor, registerBorrowedPurchaseKinds, registerCaseFinancialProjection, registerLinkedSettlementBasis, reviewedSubscriptionSettlementBasisFor, salesRawAmountsFor, signedCommissionBasisFor, subscriptionRawAmountsFor } from './salesFinance'
 import type { CaseFinancialProjection, PurchaseAmountSource, SalesRawAmounts, SubscriptionRawAmounts } from './salesFinance'
 
 export interface CaseBasisSelection {
@@ -182,6 +182,7 @@ function projectedBasis(lead: Lead, members: readonly Lead[]): { lead?: Lead; re
   // Otherwise an excluded borrowed method could reappear via purchaseAmount.
   projected.purchaseAmount = undefined
   normalizeProjectedPurchase(projected)
+  if (borrowedKinds.length) registerBorrowedPurchaseKinds(projected, borrowedKinds)
   applyLinkedSettlementReview(projected, lead, members)
   return { lead: projected }
 }
@@ -198,7 +199,7 @@ function economicSignature(lead: Lead): string {
     partner(lead), enteredAmount(lead, 'lumpSum') ?? null, enteredAmount(lead, 'subscription') ?? null,
     lead.status, lead.deliveryScheduledDate || '', lead.managerEmployeeNo || lead.manager || '',
     cashEvidence, subscriptionEvidence,
-    lead.subscriptionSettlementReview && !subscription.current ? signedCommissionBasisFor(lead, 'subscription') : 0,
+    lead.subscriptionSettlementReview?.period && !subscription.current && !manualCommissionBasisUsedFor(lead, 'subscription') ? signedCommissionBasisFor(lead, 'subscription') : 0,
     confirmedSalesFor(lead), completedSalesFor(lead), financialPendingAmountFor(lead),
     currentRefund,
   ])
@@ -246,6 +247,7 @@ function mergedProjection(basis: Lead, members: readonly Lead[], ids: readonly s
   const sourceInfo: Record<Kind, PurchaseAmountSource[]> = { lumpSum: [], subscription: [] }
   let pendingAmount = 0, confirmedSales = 0, completedSales = 0
   let commissionVerificationRequired = false
+  const manualCommissionKinds = new Set<Kind>()
   for (const kind of kinds) for (const owner of roots[kind]) {
     // Manual completion follows the chosen primary customer's personal state.
     // RAW stages retain their own factual confirmed/pending/refund evidence.
@@ -270,7 +272,9 @@ function mergedProjection(basis: Lead, members: readonly Lead[], ids: readonly s
     pendingAmount += financialPendingAmountFor(calculation)
     confirmedSales += confirmedSalesFor(calculation)
     completedSales += completedSalesFor(calculation)
-    bases[kind] += signedCommissionBasisFor(calculation, kind)
+    const commissionLead = owner.status === '취소' ? { ...calculation, status: owner.status } : calculation
+    bases[kind] += signedCommissionBasisFor(commissionLead, kind)
+    if (manualCommissionBasisUsedFor(commissionLead, kind)) manualCommissionKinds.add(kind)
     commissionVerificationRequired ||= commissionVerificationRequiredFor(calculation)
     if (kind === 'lumpSum') {
       const raw = salesRawAmountsFor(calculation)
@@ -294,7 +298,7 @@ function mergedProjection(basis: Lead, members: readonly Lead[], ids: readonly s
   }
   const totals: CaseFinancialProjection = {
     lumpSumBasis: Math.max(0, bases.lumpSum), subscriptionBasis: Math.max(0, bases.subscription), salesRaw, subscriptionRaw,
-    pendingAmount, confirmedSales, completedSales, lumpSumSource: summarySource('lumpSum'), subscriptionSource: summarySource('subscription'), commissionVerificationRequired,
+    pendingAmount, confirmedSales, completedSales, lumpSumSource: summarySource('lumpSum'), subscriptionSource: summarySource('subscription'), manualCommissionKinds, commissionVerificationRequired,
   }
   if ((amounts.lumpSum || 0) + (amounts.subscription || 0) > Number.MAX_SAFE_INTEGER) return { reason: '합산 총판매금액이 올바른 계산 범위를 초과합니다. 원본 금액을 확인해주세요.' }
   if (Object.values(totals).some(value => typeof value === 'number' && !Number.isFinite(value))) return { reason: '합산 수수료 근거를 계산할 수 없습니다. 원본 자료를 확인해주세요.' }

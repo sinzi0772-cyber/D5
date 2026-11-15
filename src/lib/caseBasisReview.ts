@@ -1,7 +1,7 @@
 import type { Lead } from '../types'
 import { canonicalPartnerName } from './partners'
 import { isValidDeliveryDate } from './commissionSettlement'
-import { expectedRebateBreakdownFor, salesRawAmountsFor, subscriptionRawAmountsFor } from './salesFinance'
+import { expectedRebateBreakdownFor, manualCommissionBasisUsedFor, salesRawAmountsFor, subscriptionRawAmountsFor } from './salesFinance'
 
 export interface CaseBasisReviewDetails {
   /** Earliest valid original receipt month; empty means the month is unknown. */
@@ -53,7 +53,8 @@ export function getCaseBasisReviewDetails(members: readonly Lead[], reason: stri
     const currentRefund = sales.current ? Object.values(member.salesRawPeriods || {}).reduce((sum, period) => sum + (Number.isFinite(period.returnAmount) ? period.returnAmount : 0), 0) : 0
     return [
       sales.current, subscription.current,
-      rebate.lumpSumBasis, rebate.subscriptionBasis,
+      manualCommissionBasisUsedFor(calculation, 'lumpSum') ? 0 : rebate.lumpSumBasis,
+      manualCommissionBasisUsedFor(calculation, 'subscription') ? 0 : rebate.subscriptionBasis,
       sales.confirmed, sales.reserved, sales.tentative, sales.completed, sales.pending,
       subscription.confirmed, subscription.pending, currentRefund,
     ]

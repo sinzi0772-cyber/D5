@@ -2,10 +2,12 @@ import type { Lead } from '../types'
 import { isSubscriptionRebatePartner } from './subscriptionPartners'
 import { financialCaseLeadsFor } from './caseBasis'
 import { canonicalPartnerName } from './partners'
+import { isPartnerAppointmentType } from './partnerAppointments'
 
 export { isSubscriptionRebatePartner } from './subscriptionPartners'
 
-type FinancialLead = Pick<Lead, 'id' | 'purchaseType' | 'purchaseAmount' | 'lumpSumAmount' | 'subscriptionAmount' | 'lumpSumSourceId' | 'subscriptionSourceId' | 'caseBasisLeadId' | 'partnerName' | 'appointmentType' | 'salesRawPeriods' | 'subscriptionRawPeriods' | 'subscriptionSettlementReview'>
+type FinancialLead = Pick<Lead, 'id' | 'status' | 'purchaseType' | 'purchaseAmount' | 'lumpSumAmount' | 'subscriptionAmount' | 'lumpSumSourceId' | 'subscriptionSourceId' | 'caseBasisLeadId' | 'partnerName' | 'appointmentType' | 'salesRawPeriods' | 'subscriptionRawPeriods' | 'subscriptionSettlementReview'>
+type PurchaseKind = 'lumpSum' | 'subscription'
 export interface SalesRawAmounts {
   current: boolean
   confirmed: number
@@ -35,9 +37,15 @@ export interface CaseFinancialProjection {
   completedSales: number
   lumpSumSource: PurchaseAmountSource
   subscriptionSource: PurchaseAmountSource
+  manualCommissionKinds: ReadonlySet<PurchaseKind>
   commissionVerificationRequired: boolean
 }
 const caseFinancialProjections = new WeakMap<object, CaseFinancialProjection>()
+const borrowedPurchaseKinds = new WeakMap<FinancialLead, ReadonlySet<PurchaseKind>>()
+
+export function registerBorrowedPurchaseKinds(lead: Lead, kinds: readonly PurchaseKind[]): void {
+  borrowedPurchaseKinds.set(lead, new Set(kinds))
+}
 const linkedSettlementBases = new WeakMap<FinancialLead, { subscription?: number; lumpSum?: number }>()
 
 export function registerLinkedSettlementBasis(lead: Lead, basis: { subscription?: number; lumpSum?: number }): void {
@@ -94,7 +102,7 @@ export function salesRawAmountsFor(lead: FinancialLead): SalesRawAmounts {
   }
 }
 
-/** Commission uses current RAW rows in the payable source status. */
+/** Expected fees combine payable RAW and eligible manual purchase estimates. */
 export function expectedRebateFor(lead: FinancialLead): number {
   return expectedRebateBreakdownFor(lead).total
 }
@@ -180,23 +188,55 @@ export function reviewedSubscriptionSettlementBasisFor(lead: FinancialLead, sour
   return period.settlementBasisAmount
 }
 
+function manualBasisFor(lead: FinancialLead, kind: PurchaseKind, amount: number, restrictedRawBasis?: number): { amount: number; manual: boolean } {
+  if (lead.status !== '구매완료' || !isPartnerAppointmentType(lead.appointmentType) || !canonicalPartnerName(lead.partnerName)
+    || borrowedPurchaseKinds.get(lead)?.has(kind) || !Number.isSafeInteger(amount) || amount <= 1) return { amount: 0, manual: false }
+  // A mismatched total cannot turn known pending or non-payable orders into a sale.
+  const basis = restrictedRawBasis === undefined ? amount : Math.min(amount, Math.max(0, restrictedRawBasis))
+  return { amount: basis, manual: basis > 0 && (restrictedRawBasis === undefined || basis < restrictedRawBasis) }
+}
+
+function commissionBasisFor(lead: FinancialLead, kind: PurchaseKind): { amount: number; manual: boolean } {
+  if (!isFinancialOwnerFor(lead, kind) || (kind === 'subscription' && !isSubscriptionRebatePartner(lead.partnerName))) return { amount: 0, manual: false }
+  const linked = linkedSettlementBases.get(lead)
+
+  if (kind === 'lumpSum') {
+    const periods = Object.values(lead.salesRawPeriods || {})
+    const raw = salesRawAmountsFor(lead)
+    const payable = periods.reduce((total, { settlementBasisAmount }) =>
+      total + (typeof settlementBasisAmount === 'number' && Number.isSafeInteger(settlementBasisAmount) ? settlementBasisAmount : 0), 0)
+    if (raw.current) return { amount: payable, manual: false }
+    if (linked?.lumpSum !== undefined) return { amount: linked.lumpSum, manual: false }
+    if (lead.subscriptionSettlementReview?.cashOnly || lead.subscriptionSettlementReview?.linkedSource?.cashRoute) return { amount: 0, manual: false }
+    const restricted = periods.length > 0 && (payable <= 0 || payable !== raw.confirmed + raw.reserved + raw.tentative
+      || raw.reserved !== 0 || raw.tentative !== 0 || periods.some(period => period.returnAmount !== 0))
+    return manualBasisFor(lead, kind, lumpSumAmountFor(lead), restricted ? payable : undefined)
+  }
+
+  const periods = Object.values(lead.subscriptionRawPeriods || {})
+  const raw = subscriptionRawAmountsFor(lead)
+  const payable = periods.reduce((total, { settlementBasisAmount }) =>
+    total + (validSubscriptionSettlementBasis(settlementBasisAmount) ? settlementBasisAmount : 0), 0)
+  if (raw.current) return { amount: payable, manual: false }
+  if (linked?.subscription !== undefined) return { amount: linked.subscription, manual: false }
+  const reviewed = lead.subscriptionSettlementReview?.linkedSource ? 0 : reviewedSubscriptionSettlementBasisFor(lead)
+  if (reviewed > 0) return { amount: reviewed, manual: false }
+  // A previously reviewed mismatch needs a new check when the input or review changes.
+  if (lead.subscriptionSettlementReview?.period !== undefined) return { amount: 0, manual: false }
+  const restricted = periods.length > 0 && (payable <= 0 || payable !== raw.confirmed + raw.pending || raw.pending !== 0)
+  return manualBasisFor(lead, kind, subscriptionAmountFor(lead), restricted ? payable : undefined)
+}
+
 /** Preserve signed cash RAW subtotals until the logical case is totaled. */
-export function signedCommissionBasisFor(lead: FinancialLead, kind: 'lumpSum' | 'subscription'): number {
+export function signedCommissionBasisFor(lead: FinancialLead, kind: PurchaseKind): number {
   const projection = caseFinancialProjections.get(lead)
   if (projection) return kind === 'lumpSum' ? projection.lumpSumBasis : projection.subscriptionBasis
-  if (!isFinancialOwnerFor(lead, kind)) return 0
-  if (kind === 'lumpSum') {
-    if (!salesRawAmountsFor(lead).current) return linkedSettlementBases.get(lead)?.lumpSum ?? 0
-    return Object.values(lead.salesRawPeriods || {}).reduce((total, { settlementBasisAmount }) =>
-      total + (typeof settlementBasisAmount === 'number' && Number.isSafeInteger(settlementBasisAmount) ? settlementBasisAmount : 0), 0)
-  }
-  if (!isSubscriptionRebatePartner(lead.partnerName)) return 0
-  if (!subscriptionRawAmountsFor(lead).current) {
-    const linkedBasis = linkedSettlementBases.get(lead)?.subscription
-    return linkedBasis ?? (lead.subscriptionSettlementReview?.linkedSource ? 0 : reviewedSubscriptionSettlementBasisFor(lead))
-  }
-  return Object.values(lead.subscriptionRawPeriods || {}).reduce((total, { settlementBasisAmount }) =>
-    total + (validSubscriptionSettlementBasis(settlementBasisAmount) ? settlementBasisAmount : 0), 0)
+  return commissionBasisFor(lead, kind).amount
+}
+
+export function manualCommissionBasisUsedFor(lead: FinancialLead, kind: PurchaseKind): boolean {
+  const projection = caseFinancialProjections.get(lead)
+  return projection ? projection.manualCommissionKinds.has(kind) : commissionBasisFor(lead, kind).manual
 }
 
 export interface ExpectedRebateBreakdown {
