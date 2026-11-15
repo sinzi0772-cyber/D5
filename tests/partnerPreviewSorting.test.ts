@@ -68,6 +68,30 @@ for (const direction of ['asc', 'desc'] as const) {
   }
 }
 
+const regularCustomers = Object.freeze([
+  customer('regular-cancellation', { status: '취소', registeredAt: '2026-10-10' }),
+  customer('consultation-closed', { status: '상담 마감', registeredAt: '2026-10-08' }),
+  ...customers,
+])
+const appointmentCancellations = Object.freeze([
+  customer('appointment-canceled-new', { status: '취소', visitState: '일정취소', registeredAt: '2026-11-08' }),
+  customer('appointment-canceled-old', { status: '취소', visitState: '일정취소', registeredAt: '2026-09-01' }),
+])
+const mixedCustomers = Object.freeze([appointmentCancellations[0], ...regularCustomers, appointmentCancellations[1]])
+for (const key of Object.keys(customerFirstDirections) as PartnerCustomerSortKey[]) {
+  for (const direction of ['asc', 'desc'] as const) {
+    const sort = { key, direction }
+    assert.deepEqual(keys(sortPartnerCustomers(mixedCustomers, sort)), [
+      ...keys(sortPartnerCustomers(regularCustomers, sort)),
+      ...keys(sortPartnerCustomers(appointmentCancellations, sort)),
+    ])
+  }
+}
+assert.deepEqual(keys(sortPartnerCustomers(mixedCustomers, DEFAULT_CUSTOMER_SORT).slice(-2)),
+  ['appointment-canceled-new', 'appointment-canceled-old'])
+assert.deepEqual(keys(sortPartnerCustomers(mixedCustomers, { key: 'registeredAt', direction: 'asc' }).slice(-2)),
+  ['appointment-canceled-old', 'appointment-canceled-new'])
+
 const tiedCustomers = Object.freeze([customer('tie-1'), customer('tie-2'), customer('tie-3')])
 for (const key of Object.keys(customerFirstDirections) as PartnerCustomerSortKey[]) {
   for (const direction of ['asc', 'desc'] as const) {
