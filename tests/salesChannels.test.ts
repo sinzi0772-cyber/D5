@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { aggregateSalesChannels, aggregateSubscriptionChannels, getStoredSalesChannels, hasStoredSalesChannelMismatch, salesChannelStatusFor } from '../src/lib/salesChannels'
+import { aggregateSalesChannels, aggregateSubscriptionChannels, getStoredSalesChannels, storedSalesChannelStatusFor, salesChannelStatusFor, summarizeSalesChannelStatuses } from '../src/lib/salesChannels'
 import type { SalesRawOrder } from '../src/lib/salesRaw'
 import type { SubscriptionRawItem } from '../src/lib/subscriptionRaw'
 import type { Lead } from '../src/types'
@@ -74,10 +74,10 @@ const pendingOrderLead = { ...lead, id: 'own-order', status: '관리중', partne
     channels: [{ channel1: '오픈', channel2: '신규오픈', orderCount: 1, amount: 30000 }],
   } }, subscriptionRawPeriods: undefined,
 } as unknown as Lead
-assert(hasStoredSalesChannelMismatch(pendingOrderLead), 'A real reservation can have a known mismatched route before purchase completion')
-assert(!hasStoredSalesChannelMismatch({ ...pendingOrderLead, status: '취소' }))
-assert(!hasStoredSalesChannelMismatch({ ...pendingOrderLead, lumpSumSourceId: 'another-original' }))
-assert(!hasStoredSalesChannelMismatch({ ...pendingOrderLead, salesRawPeriods: undefined }), 'Manual amount alone cannot supply a route')
+assert.equal(storedSalesChannelStatusFor(pendingOrderLead), 'mismatch', 'A real reservation can have a known mismatched route before purchase completion')
+assert.equal(storedSalesChannelStatusFor({ ...pendingOrderLead, status: '취소' }), undefined)
+assert.equal(storedSalesChannelStatusFor({ ...pendingOrderLead, lumpSumSourceId: 'another-original' }), undefined)
+assert.equal(storedSalesChannelStatusFor({ ...pendingOrderLead, salesRawPeriods: undefined }), undefined, 'Manual amount alone cannot supply a route')
 const pendingPeriod = pendingOrderLead.salesRawPeriods!['2026-10']
 for (const channel of [
   { channel1: '오픈', channel2: '', orderCount: 1, amount: 30000 },
@@ -86,9 +86,18 @@ for (const channel of [
   { channel1: '오픈', channel2: '신규오픈', orderCount: 1, amount: -30000 },
   { channel1: '오픈', channel2: '신규오픈', orderCount: 0, amount: 30000 },
 ]) {
-  assert(!hasStoredSalesChannelMismatch({ ...pendingOrderLead, salesRawPeriods: { '2026-10': { ...pendingPeriod, channels: [channel] } } }))
+  assert.notEqual(storedSalesChannelStatusFor({ ...pendingOrderLead, salesRawPeriods: { '2026-10': { ...pendingPeriod, channels: [channel] } } }), 'mismatch')
 }
 const subscriptionMismatch = { ...lead.subscriptionRawPeriods['2026-10'], channels: [{ channel1: '오픈', channel2: '신규오픈', orderCount: 1, itemCount: 1, amount: null }] }
-assert(hasStoredSalesChannelMismatch({ ...pendingOrderLead, salesRawPeriods: undefined, subscriptionRawPeriods: { '2026-10': subscriptionMismatch } }),
+assert.equal(storedSalesChannelStatusFor({ ...pendingOrderLead, salesRawPeriods: undefined, subscriptionRawPeriods: { '2026-10': subscriptionMismatch } }), 'mismatch',
   'An observed subscription path is independent of partner commission eligibility and a blank benefit basis')
+const matchingPeriod = { ...pendingPeriod, channels: [{ channel1: wedding, channel2: fair, orderCount: 1, amount: 30000 }] }
+const matching = { ...pendingOrderLead, salesRawPeriods: { '2026-10': matchingPeriod } }
+assert.equal(storedSalesChannelStatusFor(matching), 'eligible')
+const missing = { ...pendingOrderLead, salesRawPeriods: { '2026-10': { ...pendingPeriod, channels: undefined } } }
+assert.equal(storedSalesChannelStatusFor(missing), 'unverified')
+assert.equal(summarizeSalesChannelStatuses(['eligible', undefined]), 'eligible')
+assert.equal(summarizeSalesChannelStatuses(['eligible', 'unverified']), 'unverified')
+assert.equal(summarizeSalesChannelStatuses(['eligible', 'mismatch', 'unverified']), 'mismatch')
+
 console.log('salesChannels: actual route mixtures, signed amounts, subscription components, missing evidence, stale manual totals, safe stored metadata and immutable inputs passed')

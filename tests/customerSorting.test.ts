@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { comparePurchaseAmounts, expectedCommissionByCustomer, getVisiblePurchaseMembers, purchaseSortValue } from '../src/lib/customerSorting.ts'
+import { comparePurchaseAmounts, customerPurchaseSummaries, getVisiblePurchaseMembers, purchaseSortValue } from '../src/lib/customerSorting.ts'
 import type { Lead } from '../src/types.ts'
 
 const lead = (id: string, changes: Partial<Lead> = {}): Lead => ({
@@ -55,17 +55,17 @@ const feeLead = (id: string, amount: number, settlementBasisAmount: number) => l
 const highSale = feeLead('high-sale', 10_000, 2_000)
 const highFee = feeLead('high-fee', 5_000, 5_000)
 const feeRows = [highSale, highFee, zero, missing, canceled, coupleA, coupleB]
-const fees = expectedCommissionByCustomer(feeRows, feeRows)
-assert.deepEqual([...fees], [['high-sale', 40], ['high-fee', 100], ['raw-zero', 0]])
+const fees = customerPurchaseSummaries(feeRows, feeRows)
+assert.deepEqual([...fees], [['high-sale', { salesAmount: 10_000, commission: 40 }], ['high-fee', { salesAmount: 5_000, commission: 100 }], ['raw-zero', { salesAmount: 0, commission: 0 }]])
 const orderedFees = (direction: 'asc' | 'desc') => [...feeRows]
-  .sort((a, b) => comparePurchaseAmounts(fees.get(a.id) ?? null, fees.get(b.id) ?? null, direction))
+  .sort((a, b) => comparePurchaseAmounts(fees.get(a.id)?.commission ?? null, fees.get(b.id)?.commission ?? null, direction))
   .map(row => row.id)
 assert.deepEqual(orderedFees('desc'), ['high-fee', 'high-sale', 'raw-zero', 'missing', 'canceled', 'couple-a', 'couple-b'])
 assert.deepEqual(orderedFees('asc'), ['raw-zero', 'high-sale', 'high-fee', 'missing', 'canceled', 'couple-a', 'couple-b'])
 const chosenFeeOwner = { ...highFee, caseGroupId: 'commission-case', caseBasisLeadId: highFee.id }
 const chosenFeeMember = { ...missing, caseGroupId: 'commission-case', caseBasisLeadId: highFee.id }
-assert.deepEqual([...expectedCommissionByCustomer([chosenFeeMember], [chosenFeeOwner, chosenFeeMember])], [[missing.id, 100]])
+assert.deepEqual([...customerPurchaseSummaries([chosenFeeMember], [chosenFeeOwner, chosenFeeMember])], [[missing.id, { salesAmount: 5_000, commission: 100 }]])
 const differentPartner = { ...chosenFeeMember, partnerName: '다른 업체' }
-assert.equal(expectedCommissionByCustomer([differentPartner], [chosenFeeOwner, differentPartner]).size, 0)
+assert.equal(customerPurchaseSummaries([differentPartner], [chosenFeeOwner, differentPartner]).size, 0)
 
 console.log('customerSorting: numeric amounts, missing-last, valid RAW zero and filtered couple totals passed')

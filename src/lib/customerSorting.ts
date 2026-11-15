@@ -24,19 +24,20 @@ export function purchaseSortValue(lead: Lead, visibleLeads: Lead[], completeLead
 }
 
 /** Resolve each complete case once, then attribute fees only to a visible row of its company. */
-export function expectedCommissionByCustomer(visibleRows: readonly Lead[], completeLeads: readonly Lead[]): Map<string, number> {
+export function customerPurchaseSummaries(visibleRows: readonly Lead[], completeLeads: readonly Lead[]): Map<string, { salesAmount: number; commission: number }> {
   const visible = new Map(visibleRows.map(lead => [lead.id, lead]))
-  const amounts = new Map<string, number>()
+  const amounts = new Map<string, { salesAmount: number; commission: number }>()
   for (const group of caseBasisGroupsFor(completeLeads)) {
     if (!group.members.some(member => visible.has(member.id))) continue
     const basis = financialCaseLeadFor(group.selection, group.members)
-    if (!basis || basis.status === '취소' || (!financialTotalPurchaseAmountFor(basis)
-      && !salesRawAmountsFor(basis).current && !subscriptionRawAmountsFor(basis).current)) continue
-    const commission = expectedRebateFor(basis)
+    if (!basis || basis.status === '취소') continue
+    const salesAmount = financialTotalPurchaseAmountFor(basis)
+    if (!salesAmount && !salesRawAmountsFor(basis).current && !subscriptionRawAmountsFor(basis).current) continue
+    const summary = { salesAmount, commission: expectedRebateFor(basis) }
     const company = canonicalPartnerName(basis.partnerName)
     for (const member of group.members) {
       const row = visible.get(member.id)
-      if (row && row.status !== '취소' && canonicalPartnerName(row.partnerName) === company) amounts.set(row.id, commission)
+      if (row && row.status !== '취소' && canonicalPartnerName(row.partnerName) === company) amounts.set(row.id, summary)
     }
   }
   return amounts

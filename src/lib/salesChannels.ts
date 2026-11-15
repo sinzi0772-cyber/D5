@@ -122,13 +122,22 @@ export function getStoredSalesChannels(lead: RouteLead): StoredSalesChannel[] {
   return result
 }
 
-/** Staff list warning for a known original path, including reservations. */
-export function hasStoredSalesChannelMismatch(lead: Lead): boolean {
-  return lead.status !== '취소' && getStoredSalesChannels(lead).some(route => {
-    if (route.status !== 'mismatch' || !route.period || !isOwnSalesRoute(lead, route.kind)) return false
+/** A known mismatch wins; incomplete original route data cannot imply a match. */
+export function summarizeSalesChannelStatuses(statuses: readonly (SalesChannelStatus | undefined)[]): SalesChannelStatus | undefined {
+  if (statuses.includes('mismatch')) return 'mismatch'
+  if (statuses.includes('unverified')) return 'unverified'
+  if (statuses.includes('eligible')) return 'eligible'
+}
+
+/** Staff list status for actual original routes, including reservations. */
+export function storedSalesChannelStatusFor(lead: Lead): SalesChannelStatus | undefined {
+  if (lead.status === '취소') return undefined
+  const supportedRoutes = getStoredSalesChannels(lead).filter(route => {
+    if (!route.period || !isOwnSalesRoute(lead, route.kind)) return false
     const periods = route.kind === 'lumpSum' ? lead.salesRawPeriods : lead.subscriptionRawPeriods
     return Boolean(periods?.[route.period]?.sourceHash)
       && (route.orderCount > 0 || (route.itemCount ?? 0) > 0)
       && (route.amount === null || route.amount > 1)
   })
+  return summarizeSalesChannelStatuses(supportedRoutes.map(route => route.status))
 }
