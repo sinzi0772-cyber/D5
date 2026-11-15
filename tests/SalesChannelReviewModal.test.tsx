@@ -29,7 +29,7 @@ assert.ok(mismatchGroup.includes('class="different">웨딩매장행사') && mism
 assert.ok(unverifiedGroup.includes('<h3>경로 확인 필요 2건</h3>') && unverifiedGroup.includes('나** / 3102') && unverifiedGroup.includes('다** / 3103'))
 assert.ok(unverifiedGroup.includes('접수일 <time dateTime="2026-09-24">2026.09.24</time>'))
 assert.ok(unverifiedGroup.includes('확정 주문의 판매경로를 원본에서 확인해주세요.'))
-assert.ok(markup.includes('제휴업체가 연결한 구매완료 고객의 확정 주문을 점검합니다.'))
+assert.ok(markup.includes('제휴업체 연결 고객의 확정·가예약·예약 주문 판매경로를 확인합니다.'))
 assert.ok(unverifiedGroup.includes('일시불 · 2026.09, 2026.10') && unverifiedGroup.includes('미확인'))
 assert.ok(!unverifiedGroup.includes('class="different"') && !unverifiedGroup.includes('가** / 3101'))
 assert.equal((markup.match(/고객 상세 확인/g) || []).length, 3)
@@ -52,5 +52,15 @@ for (const other of [
   { ...sameRoute, staffRoute: { channel1: '직원 경로 1', channel2: '직원 경로 2' } },
 ]) assert.equal(groupSalesChannelReviewItems([mismatch, other]).length, 2)
 assert.equal(groupSalesChannelReviewItems([unknown, { ...unknown, key: 'unknown-subscription', kind: 'subscription' }]).length, 2)
+
+const pendingRows: SalesChannelReviewItem[] = [
+  { ...mismatch, key: 'tentative', kind: 'lumpSum', orderStage: 'tentative' },
+  { ...mismatch, key: 'reserved', kind: 'lumpSum', orderStage: 'reservation' },
+  { ...unknown, key: 'both-pending', orderStage: 'tentative-and-reservation', unverifiedReason: 'pending-route-unclear' },
+]
+const pendingMarkup = renderToStaticMarkup(<SalesChannelReviewModal cards={groupSalesChannelReviewItems(pendingRows)} onClose={() => undefined} onSelectLead={() => undefined}/>)
+assert.ok(pendingMarkup.includes('일시불 · 가예약 주문 · 2026.10'))
+assert.ok(pendingMarkup.includes('일시불 · 예약 주문 · 2026.10'))
+assert.ok(pendingMarkup.includes('가예약·예약 주문의 판매경로를 원본에서 확인해주세요.'))
 
 console.log('Sales route popup combines matching cash and subscription cards and preserves separate findings')

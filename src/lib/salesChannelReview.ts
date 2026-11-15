@@ -21,10 +21,10 @@ export interface SalesChannelReviewItem {
   partnerName: string
   kind: 'lumpSum' | 'subscription'
   status: 'mismatch' | 'unverified'
-  orderStage?: 'reservation'
+  orderStage?: 'tentative' | 'reservation' | 'tentative-and-reservation'
   period: string | null
   periods?: readonly string[]
-  unverifiedReason?: 'missing-route' | 'confirmed-route-unclear'
+  unverifiedReason?: 'missing-route' | 'confirmed-route-unclear' | 'pending-route-unclear'
   channel1: string
   channel2: string
   managerLabel: string
@@ -98,21 +98,39 @@ function confirmedCohortFor(lead: Lead, kind: SalesChannelReviewItem['kind'], pe
   return { mixed, allConfirmedEligible }
 }
 
-/** A monthly channel summary combines all order stages. A reservation's path
- * is identifiable if the period consists of reservations or shares one path. */
-function reservationMismatchesFor(lead: Lead, period: string, routes: readonly StoredSalesChannel[]) {
+/** Monthly RAW totals include all stages, so show a specific path only when
+ * the month has one order stage or every order shares the same path. */
+function pendingCashReviewFor(lead: Lead, period: string, routes: readonly StoredSalesChannel[]) {
   const cash = lead.salesRawPeriods?.[period]
-  if (!cash || !text(cash.sourceHash) || !Number.isSafeInteger(cash.reservedOrderCount) || cash.reservedOrderCount <= 0
-    || !Number.isSafeInteger(cash.reservedAmount) || cash.reservedAmount <= 1 || cash.returnAmount !== 0) return []
+  if (!cash || !text(cash.sourceHash)) return
   const tentativeCount = cash.tentativeOrderCount ?? 0
   const tentativeAmount = cash.tentativeAmount ?? 0
-  const reservationOnly = cash.orderCount === cash.reservedOrderCount && cash.confirmedOrderCount === 0
-    && cash.confirmedAmount === 0 && tentativeCount === 0 && tentativeAmount === 0
+  const hasTentative = Number.isSafeInteger(tentativeCount) && tentativeCount > 0
+    && Number.isSafeInteger(tentativeAmount) && tentativeAmount > 1
+  const hasReservation = Number.isSafeInteger(cash.reservedOrderCount) && cash.reservedOrderCount > 0
+    && Number.isSafeInteger(cash.reservedAmount) && cash.reservedAmount > 1
+  if (!hasTentative && !hasReservation) return
+
+  const stage = hasTentative && hasReservation ? 'tentative-and-reservation' : hasTentative ? 'tentative' : 'reservation'
+  const stageCount = hasTentative ? tentativeCount : cash.reservedOrderCount
+  const otherPendingCount = hasTentative ? cash.reservedOrderCount : tentativeCount
+  const otherPendingAmount = hasTentative ? cash.reservedAmount : tentativeAmount
+  const singleStage = stage !== 'tentative-and-reservation' && cash.orderCount === stageCount
+    && cash.confirmedOrderCount === 0 && cash.confirmedAmount === 0
+    && otherPendingCount === 0 && otherPendingAmount === 0
   const [first] = routes
   const commonPath = routes.length === 1 && first.orderCount === cash.orderCount
     && first.amount === cash.confirmedAmount + cash.reservedAmount + tentativeAmount
-  if (!reservationOnly && !commonPath) return []
-  return routes.filter(route => route.status === 'mismatch' && route.orderCount > 0 && route.amount !== null && route.amount > 1)
+  const mismatches = routes.filter(route => route.status === 'mismatch' && route.orderCount > 0
+    && route.amount !== null && route.amount > 1)
+  if (!mismatches.length) return
+  const attributable = cash.returnAmount === 0 && (singleStage || commonPath)
+  // In a mixed month the known mismatch may belong only to a confirmed order.
+  const allPendingEligible = cash.returnAmount === 0
+    && (!hasTentative || cash.eligibleTentativeAmount === tentativeAmount)
+    && (!hasReservation || cash.eligibleReservedAmount === cash.reservedAmount)
+  if (!attributable && allPendingEligible) return
+  return { stage, mismatches, attributable } as const
 }
 
 function commonPath(routes: readonly StoredSalesChannel[], key: 'channel1' | 'channel2'): string {
@@ -146,8 +164,8 @@ export function getSalesChannelReviewItems(
   const candidates = new Map<string, { item: Omit<SalesChannelReviewItem, 'key'>; facts: unknown[] }>()
   for (const lead of byId.values()) {
     const partner = partnerKey(lead.partnerName)
-    const reviewReservation = lead.status === '관리중' && viewer.role === 'manager'
-    if ((lead.status !== '구매완료' && !reviewReservation) || !partner || partner === '제휴사' || partner === '제휴업체확인필요'
+    const reviewConfirmed = lead.status === '구매완료'
+    if ((!reviewConfirmed && lead.status !== '관리중') || !partner || partner === '제휴사' || partner === '제휴업체확인필요'
       || !viewerCanReview(lead, viewer)
       || lead.appointmentType !== '이업종제휴' && lead.appointmentType !== '상담예약(이업종)') continue
     const routes = getStoredSalesChannels(lead)
@@ -160,7 +178,7 @@ export function getSalesChannelReviewItems(
       managerLabel: text(lead.manager) || '미배정',
     }
     for (const kind of ['lumpSum', 'subscription'] as const) {
-      if (kind === 'subscription' && (reviewReservation || !isApprovedSubscriptionReviewPartner(lead.partnerName, approvedSubscriptionPartners))) continue
+      if (kind === 'subscription' && (!reviewConfirmed || !isApprovedSubscriptionReviewPartner(lead.partnerName, approvedSubscriptionPartners))) continue
       const sourceId = kind === 'lumpSum' ? lead.lumpSumSourceId : lead.subscriptionSourceId
       if (sourceId !== undefined && sourceId !== lead.id) continue
       const ownRoutes = routes.filter(route => route.kind === kind && !isOneWonSaleAmount(route.amount))
@@ -175,14 +193,32 @@ export function getSalesChannelReviewItems(
         stored.push(route)
         routesByPeriod.set(route.period, stored)
       }
-      const mismatches: StoredSalesChannel[] = []
+      const addMismatch = (route: StoredSalesChannel, orderStage?: SalesChannelReviewItem['orderStage']) => {
+        const identity = JSON.stringify([lead.id, kind, orderStage ?? false, route.period, route.channel1, route.channel2])
+        let candidate = candidates.get(identity)
+        if (!candidate) {
+          candidate = { item: { ...common, kind, status: 'mismatch', period: route.period,
+            ...(orderStage ? { orderStage } : {}), channel1: route.channel1, channel2: route.channel2,
+            staffRoute: staffRouteFor(lead, [route]) }, facts: [] }
+          candidates.set(identity, candidate)
+        }
+        candidate.facts.push(factsFor(route))
+      }
+
       const missingRoutes: StoredSalesChannel[] = []
       let confirmedRouteUnclear = false
       for (const [period, periodRoutes] of routesByPeriod) {
-        if (reviewReservation) {
-          mismatches.push(...reservationMismatchesFor(lead, period, periodRoutes))
-          continue
+        const pending = kind === 'lumpSum' ? pendingCashReviewFor(lead, period, periodRoutes) : undefined
+        if (pending?.attributable) {
+          for (const route of pending.mismatches) addMismatch(route, pending.stage)
+        } else if (pending) {
+          candidates.set(JSON.stringify([lead.id, kind, pending.stage, period, 'unverified']), {
+            item: { ...common, kind, status: 'unverified', period, orderStage: pending.stage,
+              unverifiedReason: 'pending-route-unclear', channel1: '', channel2: '' },
+            facts: pending.mismatches.map(route => [route.channel1, route.channel2, ...factsFor(route)]),
+          })
         }
+        if (!reviewConfirmed) continue
         const cohort = confirmedCohortFor(lead, kind, period)
         if (!cohort) continue
         const problems = periodRoutes.filter(route => route.status !== 'eligible')
@@ -195,18 +231,10 @@ export function getSalesChannelReviewItems(
           missingRoutes.push(...problems)
           continue
         }
-        for (const route of problems) (route.status === 'mismatch' ? mismatches : missingRoutes).push(route)
-      }
-      for (const route of mismatches) {
-        const identity = JSON.stringify([lead.id, kind, reviewReservation, route.period, route.channel1, route.channel2])
-        let candidate = candidates.get(identity)
-        if (!candidate) {
-          candidate = { item: { ...common, kind, status: 'mismatch', period: route.period,
-            ...(reviewReservation ? { orderStage: 'reservation' as const } : {}),
-            channel1: route.channel1, channel2: route.channel2, staffRoute: staffRouteFor(lead, [route]) }, facts: [] }
-          candidates.set(identity, candidate)
+        for (const route of problems) {
+          if (route.status === 'mismatch') addMismatch(route)
+          else missingRoutes.push(route)
         }
-        candidate.facts.push(factsFor(route))
       }
 
       if (!missingRoutes.length) continue

@@ -80,7 +80,8 @@ const reservedOnly = { ...original,
   salesRawPeriods: { '2026-10': { ...cash, confirmedOrderCount: 0, reservedOrderCount: 1, confirmedAmount: 0, reservedAmount: 100000 } },
   subscriptionRawPeriods: { '2026-10': { ...sub, confirmedItemCount: 0, pendingItemCount: 1, confirmedBasisAmount: 0, pendingBasisAmount: 100000 } },
 }
-assert.equal(getSalesChannelReviewItems([reservedOnly], admin, approved).length, 0, 'Reserved purchases do not qualify even if the case is marked complete')
+assert.deepEqual(getSalesChannelReviewItems([reservedOnly], admin, approved).map(item => [item.kind, item.orderStage]), [['lumpSum', 'reservation']],
+  'A cash reservation remains a reservation when the customer is marked complete')
 const oneWonOnly = { ...original,
   salesRawPeriods: { '2026-10': { ...cash, confirmedAmount: 1 } },
   subscriptionRawPeriods: { '2026-10': { ...sub, confirmedBasisAmount: 1 } },
@@ -90,18 +91,18 @@ assert.equal(getSalesChannelReviewItems([oneWonOnly], admin, approved).length, 0
 const mixedCash = { ...cash, orderCount: 2, reservedOrderCount: 1, reservedAmount: 50000,
   channels: [route(150000, { orderCount: 2 })] }
 const mixed = { ...original, salesRawPeriods: { '2026-10': mixedCash, '2026-09': { ...reservedOnly.salesRawPeriods['2026-10'], period: '2026-09' } } }
-const mixedItems = getSalesChannelReviewItems([mixed], admin, approved)
+const mixedItems = getSalesChannelReviewItems([mixed], admin, approved).filter(item => !item.orderStage)
 assert.equal(mixedItems.length, 2)
 assert(mixedItems.every(item => item.status === 'mismatch' && item.period === '2026-10'), 'A single path applies to confirmed and pending rows in a mixed month')
 
 const mixedRoutes = [route(), route(50000, { channel2: '웨딩업체연결(수수료지급)' })]
 const mixedMultiPath = { ...original, salesRawPeriods: { '2026-10': { ...mixedCash, channels: mixedRoutes } } }
-const uncertain = getSalesChannelReviewItems([mixedMultiPath], admin, approved).find(item => item.kind === 'lumpSum')
+const uncertain = getSalesChannelReviewItems([mixedMultiPath], admin, approved).find(item => item.kind === 'lumpSum' && !item.orderStage)
 assert.equal(uncertain?.unverifiedReason, 'confirmed-route-unclear')
 assert(!uncertain?.channel1 && !uncertain?.channel2 && uncertain?.period === '2026-10', 'Do not label an unproven path as a confirmed mismatch')
 const pendingMismatch = { ...mixedMultiPath, salesRawPeriods: { '2026-10': { ...mixedCash,
   eligibleConfirmedAmount: 100000, channels: [route(50000), route(100000, { channel2: '웨딩업체연결(수수료지급)' })] } } }
-assert.equal(getSalesChannelReviewItems([pendingMismatch], admin, approved).filter(item => item.kind === 'lumpSum').length, 0, 'A known pending-only mismatch is excluded')
+assert.equal(getSalesChannelReviewItems([pendingMismatch], admin, approved).filter(item => item.kind === 'lumpSum' && !item.orderStage).length, 0, 'A pending-only mismatch remains separate from confirmed orders')
 
 const unknownLumpSum = legacyMetadata.salesRawPeriods['2026-10']
 const multipleMonths = { ...legacyMetadata, salesRawPeriods: { '2026-10': unknownLumpSum,
@@ -137,7 +138,7 @@ assert.deepEqual([reservation[0].kind, reservation[0].period, reservation[0].sta
   ['lumpSum', '2026-10', 'mismatch', 'reservation', '신규오픈'])
 assert.equal(groupSalesChannelReviewItems(reservation)[0].orderStage, 'reservation')
 assert.equal(getSalesChannelReviewItems([reservedCash], { ...manager, employeeNo: 'M2' }, approved).length, 0)
-assert.equal(getSalesChannelReviewItems([reservedCash], admin, approved).length, 0)
+assert.equal(getSalesChannelReviewItems([reservedCash], admin, approved)[0]?.orderStage, 'reservation')
 assert.equal(getSalesChannelReviewItems([{ ...reservedCash, status: '취소' }], manager, approved).length, 0)
 assert.equal(getSalesChannelReviewItems([{ ...reservedCash, status: '상담 마감' }], manager, approved).length, 0)
 assert.equal(getSalesChannelReviewItems([{ ...reservedCash, lumpSumSourceId: 'other-owner' }], manager, approved).length, 0)
@@ -147,7 +148,6 @@ for (const changes of [
   { channels: [route(100000, { channel2: '' })] },
   { channels: [route(100000, { channel2: '웨딩업체연결(수수료지급)' })] },
   { channels: [route(1)], reservedAmount: 1 },
-  { reservedOrderCount: 0, reservedAmount: 0, tentativeOrderCount: 1, tentativeAmount: 100000 },
   { sourceHash: '' },
 ]) {
   assert.equal(getSalesChannelReviewItems([{ ...reservedCash, salesRawPeriods: { '2026-10': { ...booked, ...changes } } }], manager, approved).length, 0)
@@ -156,6 +156,33 @@ const combined = { ...booked, orderCount: 2, confirmedOrderCount: 1, confirmedAm
 const mixedSharedPath = { ...reservedCash, salesRawPeriods: { '2026-10': { ...combined, channels: [route(150000, { orderCount: 2 })] } } }
 assert.equal(getSalesChannelReviewItems([mixedSharedPath], manager, approved).length, 1)
 const mixedDifferentPaths = { ...reservedCash, salesRawPeriods: { '2026-10': { ...combined, channels: mixedRoutes } } }
-assert.equal(getSalesChannelReviewItems([mixedDifferentPaths], manager, approved).length, 0, 'Mixed stages need a path that can be attributed to reservations')
+const ambiguousReservation = getSalesChannelReviewItems([mixedDifferentPaths], manager, approved)
+assert.deepEqual(ambiguousReservation.map(item => [item.orderStage, item.status, item.unverifiedReason, item.channel1, item.channel2]),
+  [['reservation', 'unverified', 'pending-route-unclear', '', '']], 'A known mismatch with mixed stages does not imply a reservation path')
+
+const eligibleReservation = { ...mixedDifferentPaths, salesRawPeriods: { '2026-10': { ...combined,
+  eligibleReservedAmount: combined.reservedAmount, channels: mixedRoutes,
+} } }
+assert.equal(getSalesChannelReviewItems([eligibleReservation], manager, approved).length, 0,
+  'When the original totals verify all reserved orders matched, a mixed-period mismatch does not raise a reservation alert')
+
+const tentativeCash = { ...booked, reservedOrderCount: 0, reservedAmount: 0, tentativeOrderCount: 1, tentativeAmount: 100000 }
+const tentativeLead = { ...reservedCash, salesRawPeriods: { '2026-10': tentativeCash } }
+const tentativeReview = getSalesChannelReviewItems([tentativeLead], manager, approved)
+assert.deepEqual(tentativeReview.map(item => [item.orderStage, item.status, item.channel2]), [['tentative', 'mismatch', '신규오픈']])
+assert.equal(getSalesChannelReviewItems([tentativeLead], { ...manager, employeeNo: 'M2' }, approved).length, 0)
+assert.equal(getSalesChannelReviewItems([{ ...tentativeLead, status: '취소' }], admin, approved).length, 0)
+assert.equal(getSalesChannelReviewItems([{
+  ...tentativeLead, salesRawPeriods: { '2026-10': { ...tentativeCash, tentativeAmount: 1, channels: [route(1)] } },
+}], manager, approved).length, 0)
+
+const bothPending = { ...booked, orderCount: 2, tentativeOrderCount: 1, tentativeAmount: 50000,
+  channels: [route(150000, { orderCount: 2 })] }
+const bothPendingLead = { ...reservedCash, salesRawPeriods: { '2026-10': bothPending } }
+const bothReview = getSalesChannelReviewItems([bothPendingLead], manager, approved)
+assert.deepEqual(bothReview.map(item => [item.orderStage, item.status]), [['tentative-and-reservation', 'mismatch']])
+const pendingWithMultipleRoutes = { ...bothPendingLead, salesRawPeriods: { '2026-10': { ...bothPending, channels: mixedRoutes } } }
+assert.deepEqual(getSalesChannelReviewItems([pendingWithMultipleRoutes], manager, approved).map(item => [item.orderStage, item.status, item.channel2]),
+  [['tentative-and-reservation', 'unverified', '']])
 
 console.log('salesChannelReview: explicit subscription scope, real route mismatches, one-won exclusion, assigned staff, source-owner deduplication, safe dismissal keys and immutable originals passed')
