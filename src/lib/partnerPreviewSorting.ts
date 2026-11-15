@@ -36,19 +36,20 @@ export function nextPartnerSettlementSort(current: Readonly<PartnerSort<PartnerS
   return { key, direction }
 }
 
+const isClosedCustomer = (customer: PartnerPreviewCustomer) =>
+  customer.status === '상담 마감' || partnerCustomerStatus(customer) === '일정취소'
+
 /** Sort only the safe display projection; nullable dashes stay last in both directions. */
 export function sortPartnerCustomers(rows: readonly PartnerPreviewCustomer[], sort: Readonly<PartnerSort<PartnerCustomerSortKey>>): PartnerPreviewCustomer[] {
   return [...rows].sort((left, right) => {
-    const leftStatus = partnerCustomerStatus(left)
-    const rightStatus = partnerCustomerStatus(right)
-    const appointmentCancellationOrder = Number(leftStatus === '일정취소') - Number(rightStatus === '일정취소')
-    if (appointmentCancellationOrder) return appointmentCancellationOrder
+    const closedOrder = Number(isClosedCustomer(left)) - Number(isClosedCustomer(right))
+    if (closedOrder) return closedOrder
 
     switch (sort.key) {
       case 'label':
         return customerText.compare(left.label, right.label) * directionMultiplier(sort.direction)
       case 'status':
-        return customerText.compare(leftStatus, rightStatus) * directionMultiplier(sort.direction)
+        return customerText.compare(partnerCustomerStatus(left), partnerCustomerStatus(right)) * directionMultiplier(sort.direction)
       case 'expectedCommission':
         return compareNullable(left.expectedCommission, right.expectedCommission, sort.direction, (a, b) => a - b)
       default:
