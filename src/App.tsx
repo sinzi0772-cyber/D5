@@ -898,7 +898,7 @@ export default function App() {
             </span>)}</strong>{l.caseGroupId && <em className="case-badge">묶음 고객</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{isPartnerAppointmentType(l.appointmentType) && <em className="appointment-type">{partnerAppointmentLabel(l.appointmentType)}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${filteredModel.excludedRowIds.has(l.id) ? 'gray' : statusTone[l.status]}`} title={filteredModel.excludedRowIds.has(l.id) ? `원본 상태: ${l.status}` : undefined}><i/>{filteredModel.excludedRowIds.has(l.id) ? '집계 제외' : l.status}</span></td><td>
               {purchase ? <>
                 <small className="customer-sales-amount">판매금액 {formatWon(purchase.salesAmount)}</small>
-                <span className="customer-expected-commission">{formatWon(purchase.commission)}</span>
+                <span className="customer-expected-commission">예상금액 {formatWon(purchase.commission)}</span>
               </> : <span className="purchase-empty">—</span>}
               {(routeStatus === 'eligible' || routeStatus === 'mismatch') && <small className={'customer-sales-route ' + routeStatus}>
                 {routeStatus === 'mismatch' ? '판매경로 불일치' : '판매경로 일치'}
