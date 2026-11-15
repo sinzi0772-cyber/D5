@@ -104,8 +104,9 @@
 .partner-preview-portal .partner-preview-section-heading p { font-size: 12px; }
 .partner-preview-portal .partner-preview-table-scroll td { font-size: 13px; }
 @media screen {
+  .partner-preview-portal .partner-preview-customers .partner-preview-section-heading { margin-bottom: 14px; }
   .partner-preview-portal .partner-preview-table-scroll table { min-width: 720px; table-layout: fixed; }
-  .partner-preview-portal .partner-preview-table-scroll th { padding: 6px 9px; font-size: 12px; }
+  .partner-preview-portal .partner-preview-table-scroll th { padding: 9px; font-size: 12px; }
   .partner-preview-portal .partner-preview-table-scroll th[aria-sort]:not([aria-sort="none"]) { background: #e9f2f1; }
   .partner-preview-portal .partner-preview-table-scroll th:nth-child(1) { width: 20%; }
   .partner-preview-portal .partner-preview-table-scroll th:nth-child(2) { width: 14%; }
@@ -117,7 +118,7 @@
   .partner-preview-portal .partner-preview-table-scroll th:last-child .partner-preview-sort-button::after { order: -1; }
   .partner-preview-portal .partner-preview-table-scroll td {
     height: auto;
-    padding: 9px;
+    padding: 14px 9px;
     font-size: 14px;
     line-height: 1.45;
     font-variant-numeric: tabular-nums;
