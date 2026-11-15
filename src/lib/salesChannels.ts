@@ -2,6 +2,7 @@ import type { Lead, SalesChannelSummary } from '../types'
 import { isOneWonSaleAmount, isSalesCommissionChannelEligible } from './salesRaw'
 import type { SalesRawOrder } from './salesRaw'
 import type { SubscriptionRawItem } from './subscriptionRaw'
+import { isOwnSalesRoute } from './salesRouteCorrections'
 
 export type SalesChannelStatus = 'eligible' | 'mismatch' | 'unverified'
 export interface StoredSalesChannel extends SalesChannelSummary {
@@ -119,4 +120,15 @@ export function getStoredSalesChannels(lead: RouteLead): StoredSalesChannel[] {
     }
   }
   return result
+}
+
+/** Staff list warning for a known original path, including reservations. */
+export function hasStoredSalesChannelMismatch(lead: Lead): boolean {
+  return lead.status !== '취소' && getStoredSalesChannels(lead).some(route => {
+    if (route.status !== 'mismatch' || !route.period || !isOwnSalesRoute(lead, route.kind)) return false
+    const periods = route.kind === 'lumpSum' ? lead.salesRawPeriods : lead.subscriptionRawPeriods
+    return Boolean(periods?.[route.period]?.sourceHash)
+      && (route.orderCount > 0 || (route.itemCount ?? 0) > 0)
+      && (route.amount === null || route.amount > 1)
+  })
 }

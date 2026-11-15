@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { aggregateSalesChannels, aggregateSubscriptionChannels, getStoredSalesChannels, salesChannelStatusFor } from '../src/lib/salesChannels'
+import { aggregateSalesChannels, aggregateSubscriptionChannels, getStoredSalesChannels, hasStoredSalesChannelMismatch, salesChannelStatusFor } from '../src/lib/salesChannels'
 import type { SalesRawOrder } from '../src/lib/salesRaw'
 import type { SubscriptionRawItem } from '../src/lib/subscriptionRaw'
 import type { Lead } from '../src/types'
@@ -68,4 +68,27 @@ assert.deepEqual(getStoredSalesChannels({ purchaseType: '일시불', purchaseAmo
 assert.deepEqual(getStoredSalesChannels({ purchaseType: '미선택' }), [])
 assert.equal(JSON.stringify(lead), leadBefore)
 assert(!JSON.stringify(stored).includes('PRIVATE'))
+const pendingOrderLead = { ...lead, id: 'own-order', status: '관리중', partnerName: '구독 수수료 대상 외 업체',
+  salesRawPeriods: { '2026-10': { ...lead.salesRawPeriods['2026-10'],
+    confirmedOrderCount: 0, confirmedAmount: 0, reservedOrderCount: 1, reservedAmount: 30000,
+    channels: [{ channel1: '오픈', channel2: '신규오픈', orderCount: 1, amount: 30000 }],
+  } }, subscriptionRawPeriods: undefined,
+} as unknown as Lead
+assert(hasStoredSalesChannelMismatch(pendingOrderLead), 'A real reservation can have a known mismatched route before purchase completion')
+assert(!hasStoredSalesChannelMismatch({ ...pendingOrderLead, status: '취소' }))
+assert(!hasStoredSalesChannelMismatch({ ...pendingOrderLead, lumpSumSourceId: 'another-original' }))
+assert(!hasStoredSalesChannelMismatch({ ...pendingOrderLead, salesRawPeriods: undefined }), 'Manual amount alone cannot supply a route')
+const pendingPeriod = pendingOrderLead.salesRawPeriods!['2026-10']
+for (const channel of [
+  { channel1: '오픈', channel2: '', orderCount: 1, amount: 30000 },
+  { channel1: wedding, channel2: fair, orderCount: 1, amount: 30000 },
+  { channel1: '오픈', channel2: '신규오픈', orderCount: 1, amount: 1 },
+  { channel1: '오픈', channel2: '신규오픈', orderCount: 1, amount: -30000 },
+  { channel1: '오픈', channel2: '신규오픈', orderCount: 0, amount: 30000 },
+]) {
+  assert(!hasStoredSalesChannelMismatch({ ...pendingOrderLead, salesRawPeriods: { '2026-10': { ...pendingPeriod, channels: [channel] } } }))
+}
+const subscriptionMismatch = { ...lead.subscriptionRawPeriods['2026-10'], channels: [{ channel1: '오픈', channel2: '신규오픈', orderCount: 1, itemCount: 1, amount: null }] }
+assert(hasStoredSalesChannelMismatch({ ...pendingOrderLead, salesRawPeriods: undefined, subscriptionRawPeriods: { '2026-10': subscriptionMismatch } }),
+  'An observed subscription path is independent of partner commission eligibility and a blank benefit basis')
 console.log('salesChannels: actual route mixtures, signed amounts, subscription components, missing evidence, stale manual totals, safe stored metadata and immutable inputs passed')

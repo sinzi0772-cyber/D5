@@ -24,6 +24,7 @@ import { saveSalesRouteCorrection } from './lib/salesRouteCorrectionSave'
 import { canEditSalesRouteFor } from './lib/salesRouteCorrections'
 import { SalesChannelReviewModal } from './components/SalesChannelReviewModal'
 import { getSalesChannelReviewItems, groupSalesChannelReviewItems } from './lib/salesChannelReview'
+import { hasStoredSalesChannelMismatch } from './lib/salesChannels'
 import { SUBSCRIPTION_REVIEW_PARTNERS } from './lib/subscriptionPartners'
 import { DeliveryScheduleField } from './components/DeliveryScheduleField'
 import { PurchaseDates } from './components/PurchaseDates'
@@ -619,6 +620,7 @@ export default function App() {
     }
     return { ...model, commissions, rows: model.rows.sort((a, b) => value(a).localeCompare(value(b), 'ko', { numeric: true }) * (sort.direction === 'asc' ? 1 : -1)) }
   }, [intakeLeads, leads, query, statusFilter, partnerFilter, managerFilter, visitFilter, sort])
+  const salesRouteMismatchIds = useMemo(() => new Set(leads.filter(hasStoredSalesChannelMismatch).map(lead => lead.id)), [leads])
   const filtered = filteredModel.members
   const visibleRows = filteredModel.rows
   const caseCount = useMemo(() => caseBasisGroupsFor(metricLeads).length, [metricLeads])
@@ -891,12 +893,16 @@ export default function App() {
           <div className="table-wrap"><table><thead><tr><th><SortHeader label="고객" column="customerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="등록일" column="registeredAt" sort={sort} onSort={sortBy}/></th><th><SortHeader label="제휴업체" column="partnerName" sort={sort} onSort={sortBy}/></th><th><SortHeader label="담당 매니저" column="manager" sort={sort} onSort={sortBy}/></th><th><SortHeader label="방문 일정" column="visitDate" sort={sort} onSort={sortBy}/></th><th><SortHeader label="현재 상태" column="status" sort={sort} onSort={sortBy}/></th><th aria-sort={sort.key === 'commission' ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}><SortHeader label="예상 수수료" column="commission" sort={sort} onSort={sortBy}/></th><th><SortHeader label="관리 내용" column="management" sort={sort} onSort={sortBy}/></th><th/></tr></thead><tbody>{visibleRows.map(l => {
             const members = getVisiblePurchaseMembers(l, filtered)
             const commission = filteredModel.commissions.get(l.id)
+            const partner = canonicalPartnerName(l.partnerName)
+            const showRouteMismatch = l.status !== '취소' && members.some(member => salesRouteMismatchIds.has(member.id)
+              && canonicalPartnerName(member.partnerName) === partner
+              && (managerFilter === '전체 담당자' || (managerFilter === '미배정' ? !member.manager?.trim() : member.manager === managerFilter)))
             const displayedMembers = l.caseGroupId ? [l, ...members.filter(member => member.id !== l.id)] : [l]
             const customerLabels = customerCaseLabelsFor(displayedMembers).slice(0, 2)
             return <tr key={l.id} onClick={() => { setActive(l); setCreating(false); setOpenMemoOnDrawer(false) }}><td><div className="customer"><span>{customerDisplayName(l.customerName).slice(0,1)}</span><div><strong className="customer-labels">{customerLabels.map(customer => <span key={customer.id}>
               {customer.label}
               {customer.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
-            </span>)}</strong>{l.caseGroupId && <em className="case-badge">묶음 고객</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{isPartnerAppointmentType(l.appointmentType) && <em className="appointment-type">{partnerAppointmentLabel(l.appointmentType)}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${filteredModel.excludedRowIds.has(l.id) ? 'gray' : statusTone[l.status]}`} title={filteredModel.excludedRowIds.has(l.id) ? `원본 상태: ${l.status}` : undefined}><i/>{filteredModel.excludedRowIds.has(l.id) ? '집계 제외' : l.status}</span></td><td>{commission === undefined ? <span className="purchase-empty">—</span> : <span className="customer-expected-commission">{formatWon(commission)}</span>}</td><td><ManagementSummary lead={l} members={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]} onOpenCancellation={member=>{setActive(member);setCreating(false);setOpenMemoOnDrawer(true)}} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>
+            </span>)}</strong>{l.caseGroupId && <em className="case-badge">묶음 고객</em>}</div></div></td><td>{formatDate(l.registeredAt)}</td><td><div className="partner"><strong>{l.partnerName}</strong>{l.plannerName && <small>플래너 {l.plannerName}</small>}{isPartnerAppointmentType(l.appointmentType) && <em className="appointment-type">{partnerAppointmentLabel(l.appointmentType)}</em>}</div></td><td>{l.manager ? <span className="manager"><i>{l.manager.slice(-2,-1)}</i>{l.manager}</span> : <span className="unassigned">미배정</span>}</td><td><div className="date-cell">{formatDate(l.visitScheduledDate)}<small>{l.visitState}</small></div></td><td><span className={`badge ${filteredModel.excludedRowIds.has(l.id) ? 'gray' : statusTone[l.status]}`} title={filteredModel.excludedRowIds.has(l.id) ? `원본 상태: ${l.status}` : undefined}><i/>{filteredModel.excludedRowIds.has(l.id) ? '집계 제외' : l.status}</span></td><td>{commission === undefined ? <span className="purchase-empty">—</span> : <span className="customer-expected-commission">{formatWon(commission)}</span>}{showRouteMismatch && <small className="customer-sales-route-mismatch">판매경로 불일치</small>}</td><td><ManagementSummary lead={l} members={l.caseGroupId ? leads.filter(member => member.caseGroupId === l.caseGroupId) : [l]} onOpenCancellation={member=>{setActive(member);setCreating(false);setOpenMemoOnDrawer(true)}} onOpen={()=>{setActive(l);setCreating(false);setOpenMemoOnDrawer(true)}}/></td><td><button className="more"><MoreHorizontal size={18}/></button></td></tr>
           })}</tbody></table>{visibleRows.length === 0 && <div className="empty"><Search/><h3>검색 결과가 없습니다</h3><p>필터나 검색어를 바꿔보세요.</p></div>}</div>
           <div className="panel-foot"><span>{formatMonth(intakeMonth)} · 접수 {visibleRows.length}건 · 고객 {visibleRows.length}명</span><span><i className="privacy-dot"/>민감정보 최소 수집 적용</span></div>
         </div>
