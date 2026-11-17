@@ -12,10 +12,11 @@ export const normalizeLoginId = (value: string): string => value.replace(/[^A-Za
 /** Existing Firebase accounts use case-insensitive, lowercase local email identities. */
 export const loginEmailFor = (loginId: string): string => `${normalizeLoginId(loginId).toLowerCase()}@d5.local`
 
-/** Preserve the existing numeric same-ID shortcut. */
+/** Convert same-ID legacy passwords to the form the provider tries first. */
 export const firebasePasswordForLogin = (loginId: string, password: string): string => {
   const normalized = normalizeLoginId(loginId)
   if (/^\d+$/.test(normalized) && password === normalized) return `D5${normalized}`
+  if (alternateSameIdPasswordForLogin(normalized, password)) return normalized
   return password
 }
 

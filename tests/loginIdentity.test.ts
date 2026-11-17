@@ -66,7 +66,14 @@ const temporaryCases = [
 for (const [id, password, expected] of temporaryCases) {
   assert.equal(alternateSameIdPasswordForLogin(id, password), expected)
 }
-assert.equal(firebasePasswordForLogin('E00042', 'e00042'), 'e00042', 'Try the original password first')
+for (const id of ['e00042', 'E00042']) {
+  for (const password of ['e00042', 'E00042']) {
+    const firstAttempt = firebasePasswordForLogin(id, password)
+    assert.equal(firstAttempt, 'E00042', 'An exact same-ID password should try uppercase before sending a request')
+    assert.equal(alternateSameIdPasswordForLogin(id, firstAttempt), 'e00042', 'Legacy lowercase storage still has one retry')
+  }
+}
+assert.equal(firebasePasswordForLogin('E00042', 'e00043'), 'e00043', 'Other passwords retain their casing')
 
 for (const role of ['admin', 'store_manager', 'assistant_manager', 'manager']) {
   const profile = Object.freeze({ employeeNo: 'QA12345', role, approved: true })

@@ -1301,7 +1301,7 @@ function LoginScreen({accountError,onLoginStart}:{accountError:string;onLoginSta
       try {
         await signInWithEmailAndPassword(auth, email, firebasePassword)
       } catch (error) {
-        const alternate = alternateSameIdPasswordForLogin(normalizedId, password)
+        const alternate = alternateSameIdPasswordForLogin(normalizedId, firebasePassword)
         const code = loginFailureFor(error).code
         if (!alternate || (code !== 'auth/invalid-credential' && code !== 'auth/wrong-password')) throw error
         await signInWithEmailAndPassword(auth, email, alternate)
