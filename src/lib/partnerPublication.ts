@@ -225,6 +225,20 @@ export function buildPartnerPortalModel(publication: PartnerPublication): Omit<P
   }
 }
 
+function combinePartnerMonthModels(partnerName: string, intakeMonth: string, models: readonly PartnerPreviewModel[]): PartnerPreviewModel {
+  const customers = models.flatMap(model => model.customers)
+    .sort((a, b) => (b.registeredAt ?? '').localeCompare(a.registeredAt ?? ''))
+    .map((customer, index) => ({ ...customer, key: `customer-${index + 1}` }))
+  return {
+    partnerName, intakeMonth, customers,
+    customerCount: customers.length,
+    receiptCount: models.reduce((total, model) => total + model.receiptCount, 0),
+    completedCount: models.reduce((total, model) => total + model.completedCount, 0),
+    activeCount: models.reduce((total, model) => total + model.activeCount, 0),
+    ...summarizePartnerSettlements(customers),
+  }
+}
+
 /** Trusted publisher only. Build from complete cases, then expose only one tenant. */
 export function buildPartnerPublication(leads: readonly Lead[], partnerId: string, publishedAt: string): PartnerPublication {
   const identity = partnerIdentityFor(partnerId)
@@ -233,8 +247,13 @@ export function buildPartnerPublication(leads: readonly Lead[], partnerId: strin
   if (!validPublishedAt(publishedAt)) throw new RangeError('게시 시각은 올바른 ISO UTC 형식이어야 합니다.')
   const months: PartnerPreviewModel[] = []
   let totalCustomers = 0
-  for (const month of getPartnerPreviewMonths(leads, partnerName)) {
-    const model = buildPartnerPreview(leads, partnerName, month)
+  const sourcePartnerNames = identity.sourcePartnerNames ?? [partnerName]
+  const intakeMonths = [...new Set(sourcePartnerNames.flatMap(name => getPartnerPreviewMonths(leads, name)))].sort().reverse()
+  for (const month of intakeMonths) {
+    // Keep each company's selection and commission policy through projection.
+    const model = identity.sourcePartnerNames
+      ? combinePartnerMonthModels(partnerName, month, sourcePartnerNames.map(name => buildPartnerPreview(leads, name, month)))
+      : buildPartnerPreview(leads, partnerName, month)
     if (!model.customerCount) continue
     totalCustomers += model.customerCount
     if (months.length >= maxMonths || totalCustomers > MAX_PARTNER_PUBLICATION_CUSTOMERS) throw new RangeError('업체 공개 문서가 허용 크기를 초과합니다. 분할 게시가 필요합니다.')

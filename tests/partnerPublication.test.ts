@@ -100,6 +100,23 @@ assert.equal(cloudPublication.months.reduce((total, month) => total + month.cust
 assert.deepEqual(parsePartnerPublication(cloudPublication, cloud.partnerId), cloudPublication)
 assert.equal(parsePartnerPublication(cloudPublication, IWEDDING_PARTNER_ID), null)
 
+const sharedPartner = PARTNER_ACCOUNTS['wisewedding-weddingfriends']
+const wiseLead = lead('wise-own', { partnerName: '㈜와이즈웨딩', phoneLast4: '1111' })
+const friendsLead = lead('friends-own', { partnerName: '웨딩프렌즈', phoneLast4: '2222', registeredAt: '2026-09-24' })
+const combinedPublication = buildPartnerPublication([
+  wiseLead, friendsLead,
+  lead('wise-similar', { partnerName: '와이즈웨딩협력사', registeredAt: '2026-11-01', phoneLast4: '3333' }),
+  lead('unrelated', { partnerName: '(주)웨딩크라우드', phoneLast4: '4444' }),
+], sharedPartner.partnerId, publishedAt)
+assert.equal(combinedPublication.partnerName, '와이즈웨딩 · 웨딩프렌즈')
+assert.deepEqual(combinedPublication.months.map(month => month.intakeMonth), ['2026-09'])
+assert.deepEqual(combinedPublication.months[0].customers.map(({ key, label }) => [key, label]), [
+  ['customer-1', '김** / 2222'], ['customer-2', '김** / 1111'],
+])
+assert.equal(combinedPublication.months[0].completedExpectedCommission, expectedRebateFor(wiseLead) + expectedRebateFor(friendsLead))
+assert.deepEqual(parsePartnerPublication(combinedPublication, sharedPartner.partnerId), combinedPublication)
+assert.equal(parsePartnerPublication(combinedPublication, cloud.partnerId), null)
+
 assert.equal(parsePartnerPublication(publication, ini.partnerId), null)
 assert.equal(parsePartnerPublication({ ...iniPublication, months: publication.months }, ini.partnerId), null, 'Foreign monthly data cannot pass under the new account')
 assert.throws(() => buildPartnerPublication(rows, 'constructor', publishedAt), /승인된 업체 ID/)

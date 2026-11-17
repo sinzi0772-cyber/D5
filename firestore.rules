@@ -31,7 +31,8 @@ service cloud.firestore {
     function approvedPartnerName(partnerId, partnerName) {
       return (partnerId == 'iwedding' && partnerName == '(주)아이패밀리에스씨')
         || (partnerId == 'iniwedding' && partnerName == '(주) 아이니웨딩네트웍스')
-        || (partnerId == 'weddingcloud' && partnerName == '(주) 웨딩크라우드');
+        || (partnerId == 'weddingcloud' && partnerName == '(주) 웨딩크라우드')
+        || (partnerId == 'wisewedding-weddingfriends' && partnerName == '와이즈웨딩 · 웨딩프렌즈');
     }
 
     function isPartner() {

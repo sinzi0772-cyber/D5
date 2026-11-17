@@ -15,6 +15,8 @@ export function canonicalPartnerName(name: string): string {
   const key = exactCompanyKey(name)
   if (key === '아이웨딩' || key === '아이패밀리에스씨') return I_WEDDING_CANONICAL_PARTNER
   if (key === '웨딩크라우드') return '(주) 웨딩크라우드'
+  if (key === '와이즈웨딩') return '주식회사 와이즈웨딩'
+  if (key === '웨딩프렌즈') return '주식회사 웨딩프렌즈'
   const trimmed = name.trim()
   return trimmed === '(주)' ? trimmed : trimmed.replace(/^\(주\)\s*/, '(주) ')
 }
