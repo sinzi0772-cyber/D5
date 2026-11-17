@@ -22,6 +22,10 @@ export const PARTNER_ACCOUNTS: Readonly<Record<string, PartnerTenant>> = Object.
     partnerId: 'weddingcloud',
     partnerName: '(주) 웨딩크라우드',
   }),
+  itwedding: Object.freeze({
+    partnerId: 'itwedding',
+    partnerName: '(주) 아이티앤코',
+  }),
   'wisewedding-weddingfriends': Object.freeze({
     partnerId: 'wisewedding-weddingfriends',
     partnerName: '와이즈웨딩 · 웨딩프렌즈',

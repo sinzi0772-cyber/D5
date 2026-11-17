@@ -219,6 +219,8 @@ const cloudPartner = authFor('cloud-partner', 'ptest003@d5.local')
 const cloudProfile = { ...iniProfile, loginId: 'PTEST003', partnerId: 'weddingcloud', partnerName: '(주) 웨딩크라우드' }
 const sharedPartner = authFor('shared-partner', 'ptest004@d5.local')
 const sharedProfile = { ...iniProfile, loginId: 'PTEST004', partnerId: 'wisewedding-weddingfriends', partnerName: '와이즈웨딩 · 웨딩프렌즈' }
+const itPartner = authFor('it-partner', 'ptest005@d5.local')
+const itProfile = { ...iniProfile, loginId: 'PTEST005', partnerId: 'itwedding', partnerName: '(주) 아이티앤코' }
 const rosterAdmin = authFor('roster-admin', '12784@d5.local')
 const rosterProfile = { role: 'admin', employeeNo: '12784', active: true, approved: true }
 const profiles: [string, Data][] = [
@@ -232,6 +234,7 @@ const profiles: [string, Data][] = [
   ['profiles/ini-partner', iniProfile],
   ['profiles/cloud-partner', cloudProfile],
   ['profiles/shared-partner', sharedProfile],
+  ['profiles/it-partner', itProfile],
 ]
 const caseId = 'case-test'
 const now = '2026-10-13T03:00:00.000Z'
@@ -518,9 +521,17 @@ const iweddingView = { schemaVersion: 1, partnerId: 'iwedding', partnerName: '(�
 const iniView = { ...iweddingView, partnerId: 'iniwedding', partnerName: iniProfile.partnerName }
 const cloudView = { ...iweddingView, partnerId: 'weddingcloud', partnerName: cloudProfile.partnerName }
 const sharedView = { ...iweddingView, partnerId: sharedProfile.partnerId, partnerName: sharedProfile.partnerName }
+const itView = { ...iweddingView, partnerId: itProfile.partnerId, partnerName: itProfile.partnerName }
 const views = seed(['partnerViews/weddingcloud', cloudView], ['partnerViews/iwedding', iweddingView], ['partnerViews/iniwedding', iniView], ['partnerViews/other', { partnerId: 'other' }], ['referrals/owner', owner], [`caseGroups/${caseId}`, guard(['owner'])], ['usage/admin', {}], ['adminSources/source', {}])
 views.set(`partnerViews/${sharedView.partnerId}`, sharedView)
-for (const [auth, own, other] of [[partner, 'iwedding', 'iniwedding'], [iniPartner, 'iniwedding', 'iwedding'], [cloudPartner, 'weddingcloud', sharedView.partnerId], [sharedPartner, sharedView.partnerId, 'weddingcloud']] as const) {
+views.set(`partnerViews/${itView.partnerId}`, itView)
+for (const [auth, own, other] of [
+  [partner, 'iwedding', 'iniwedding'],
+  [iniPartner, 'iniwedding', 'iwedding'],
+  [cloudPartner, 'weddingcloud', sharedView.partnerId],
+  [sharedPartner, sharedView.partnerId, 'weddingcloud'],
+  [itPartner, itView.partnerId, 'weddingcloud'],
+] as const) {
   assert.equal(evaluate(views, views, `partnerViews/${own}`, 'get', auth).allowed, true)
   assert.equal(evaluate(views, views, `partnerViews/${own}`, 'list', auth).allowed, false, 'Partners cannot list, even for their own document')
   for (const path of [`partnerViews/${other}`, 'partnerViews/other', 'referrals/owner', `caseGroups/${caseId}`, 'usage/admin', 'adminSources/source']) {
@@ -534,7 +545,7 @@ for (const change of [{ partnerId: 'iwedding' }, { partnerName: iweddingView.par
   invalid.set('profiles/ini-partner', { ...iniProfile, ...change })
   assert.equal(evaluate(invalid, invalid, 'partnerViews/iniwedding', 'get', iniPartner).allowed, false, 'Invalid or not-ready profile cannot read publication')
 }
-for (const publication of [iweddingView, iniView, cloudView, sharedView]) {
+for (const publication of [iweddingView, iniView, cloudView, sharedView, itView]) {
   const path = `partnerViews/${publication.partnerId}`
   assertBatch('admin can publish a matching tenant view', seed(), [{ path, data: publication }], admin, true)
   assertBatch('partner cannot edit a tenant view', views, [{ path, data: publication }], iniPartner, false)

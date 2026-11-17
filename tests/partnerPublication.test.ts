@@ -100,6 +100,19 @@ assert.equal(cloudPublication.months.reduce((total, month) => total + month.cust
 assert.deepEqual(parsePartnerPublication(cloudPublication, cloud.partnerId), cloudPublication)
 assert.equal(parsePartnerPublication(cloudPublication, IWEDDING_PARTNER_ID), null)
 
+const itWedding = PARTNER_ACCOUNTS.itwedding
+const itWeddingLead = lead('it-wedding-legal', { partnerName: '(주)아이티앤코', phoneLast4: '5555' })
+const itWeddingPublication = buildPartnerPublication([
+  itWeddingLead,
+  lead('it-wedding-display', { partnerName: '아이티웨딩', phoneLast4: '6666' }),
+  lead('it-wedding-similar', { partnerName: '(주) 아이티앤코협력사', phoneLast4: '7777' }),
+], itWedding.partnerId, publishedAt)
+assert.equal(itWeddingPublication.partnerName, '(주) 아이티앤코')
+assert.deepEqual(itWeddingPublication.months[0].customers.map(customer => customer.label), ['김** / 5555'])
+assert.equal(itWeddingPublication.months[0].completedExpectedCommission, expectedRebateFor(itWeddingLead))
+assert.deepEqual(parsePartnerPublication(itWeddingPublication, itWedding.partnerId), itWeddingPublication)
+assert.equal(parsePartnerPublication(itWeddingPublication, cloud.partnerId), null)
+
 const sharedPartner = PARTNER_ACCOUNTS['wisewedding-weddingfriends']
 const wiseLead = lead('wise-own', { partnerName: '㈜와이즈웨딩', phoneLast4: '1111' })
 const friendsLead = lead('friends-own', { partnerName: '웨딩프렌즈', phoneLast4: '2222', registeredAt: '2026-09-24' })
