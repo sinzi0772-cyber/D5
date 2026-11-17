@@ -223,10 +223,30 @@ export function PartnerPreview({ model, presentation = 'preview' }: {
         </div>
         {customers.length > 0 ? <div className="partner-preview-table-scroll"><table aria-label="연결 고객 목록">
           <thead><tr>{customerColumns.map(column => <SortColumn key={column.key} label={column.label} direction={customerSort.key === column.key ? customerSort.direction : null} nextDirection={nextPartnerCustomerSort(customerSort, column.key).direction} onSort={() => setCustomerSort(current => nextPartnerCustomerSort(current, column.key))}/>)}</tr></thead>
-          <tbody>{customers.map(customer => <tr key={customer.key}><td className="partner-preview-customer-label">
-            {customer.label}
-            {customer.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
-          </td><td>{dateLabel(customer.registeredAt)}</td><td><span className={`partner-preview-status${customer.status === '구매완료' ? ' completed' : ''}`}>{partnerCustomerStatus(customer)}</span></td><td>{dateLabel(customer.deliveryScheduledDate)}</td><td>{customer.basisRequired ? '기준 고객 확인 필요' : customer.expectedSettlementMonth ? `${monthLabel(customer.expectedSettlementMonth)} 중순` : customer.status === '구매완료' ? '배송일 확인 필요' : '—'}</td><td className="partner-preview-customer-fee">{isPortal && customer.status === '취소' ? '—' : <>{customer.basisRequired ? '확인 필요' : customer.expectedCommission === null ? '—' : won(customer.expectedCommission)}<CustomerSalesChannels partnerName={model.partnerName} channels={customer.salesChannels} summaryOnly={isPortal}/></>}</td></tr>)}</tbody>
+          <tbody>{customers.map(customer => {
+            const showSchedule = !isPortal || customer.status !== '상담 마감'
+            let settlementLabel = '—'
+            if (showSchedule) {
+              if (customer.basisRequired) settlementLabel = '기준 고객 확인 필요'
+              else if (customer.expectedSettlementMonth) settlementLabel = monthLabel(customer.expectedSettlementMonth) + ' 중순'
+              else if (customer.status === '구매완료') settlementLabel = '배송일 확인 필요'
+            }
+
+            return <tr key={customer.key}>
+              <td className="partner-preview-customer-label">
+                {customer.label}
+                {customer.invitationCampaign ? <em className="invitation-campaign-badge">{NOVEMBER_INVITATION_LABEL}</em> : null}
+              </td>
+              <td>{dateLabel(customer.registeredAt)}</td>
+              <td><span className={"partner-preview-status" + (customer.status === '구매완료' ? ' completed' : '')}>{partnerCustomerStatus(customer)}</span></td>
+              <td>{showSchedule ? dateLabel(customer.deliveryScheduledDate) : '—'}</td>
+              <td>{settlementLabel}</td>
+              <td className="partner-preview-customer-fee">{isPortal && customer.status === '취소' ? '—' : <>
+                {customer.basisRequired ? '확인 필요' : customer.expectedCommission === null ? '—' : won(customer.expectedCommission)}
+                <CustomerSalesChannels partnerName={model.partnerName} channels={customer.salesChannels} summaryOnly={isPortal}/>
+              </>}</td>
+            </tr>
+          })}</tbody>
         </table></div> : <p className="partner-preview-empty">{isPortal ? '연결된 고객이 없습니다.' : '선택한 접수월에 연결된 고객이 없습니다.'}</p>}
       </section>
     </> : <p className="partner-preview-empty">업체를 선택해 주세요.</p>}
