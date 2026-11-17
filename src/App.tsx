@@ -51,7 +51,8 @@ import { buildCommissionSettlementMetrics, caseSaveDeliveryError } from './lib/c
 import { comparePurchaseAmounts, customerPurchaseSummaries, getVisiblePurchaseMembers, sortCustomerRows } from './lib/customerSorting'
 import { buildCustomerCaseList, customerCaseLabelsFor } from './lib/customerCaseList'
 import { buildSeptemberSyncPlan, canStartSeptemberSync, septemberExistingPatch } from './lib/septemberSync'
-import { accountAccessError, checkedPartnerIdentity, SHARED_ACCOUNT_EMPLOYEE_NO, SHARED_ACCOUNT_MESSAGE } from './lib/accountAccess'
+import { accountAccessError, checkedPartnerIdentity, hasApprovedPartnerAssignment, SHARED_ACCOUNT_EMPLOYEE_NO, SHARED_ACCOUNT_MESSAGE } from './lib/accountAccess'
+import { maybeReloadPartnerDeployment } from './lib/partnerDeploymentRefresh'
 import { alternateSameIdPasswordForLogin, firebasePasswordForLogin, loginEmailFor, loginIdInputMessage, normalizeLoginId } from './lib/loginIdentity'
 import { PARTNER_ACCOUNTS } from './lib/partnerIdentity'
 import { loginFailureFor } from './lib/loginError'
@@ -349,6 +350,7 @@ export default function App() {
       setAuthReady(false)
       const baseUser = appUserFromSession(firebaseUser)
       let denialMessage = ''
+      let reloading = false
       try {
         if (baseUser.loginId === SHARED_ACCOUNT_EMPLOYEE_NO) {
           denialMessage = SHARED_ACCOUNT_MESSAGE
@@ -362,7 +364,17 @@ export default function App() {
         const profile = profileSnapshot.exists() ? profileSnapshot.data() : undefined
         const accessError = accountAccessError(baseUser.loginId, profile)
           || (mode === 'resume' && profile?.role !== 'admin' ? '관리자 권한을 확인하지 못했습니다. 다시 로그인해주세요.' : null)
-        if (accessError) { denialMessage = accessError; throw new Error(accessError) }
+        if (accessError) {
+          if (mode === 'sign-in' && !profileSnapshot.metadata.fromCache && !profileSnapshot.metadata.hasPendingWrites
+            && hasApprovedPartnerAssignment(baseUser.loginId, profile)
+            && await maybeReloadPartnerDeployment(isCurrentSession)) {
+            reloading = true
+            return
+          }
+          if (!isCurrentSession()) return
+          denialMessage = accessError
+          throw new Error(accessError)
+        }
         setAuthError('')
         const partner = checkedPartnerIdentity(baseUser.loginId, profile)
         setCurrentUser({ ...baseUser, name: String(profile?.displayName || baseUser.name), role: String(profile?.role), mustChangePassword: Boolean(profile?.mustChangePassword), ...(partner ? { partnerId: partner.partnerId, partnerName: partner.partnerName } : {}) })
@@ -378,7 +390,7 @@ export default function App() {
         setCurrentUser(null)
         await signOut(firebaseAuth).catch(() => undefined)
       } finally {
-        if (active && currentRevision === revision) setAuthReady(true)
+        if (!reloading && active && currentRevision === revision) setAuthReady(true)
       }
     }
     const unsubscribe = onAuthStateChanged(firebaseAuth, firebaseUser => {

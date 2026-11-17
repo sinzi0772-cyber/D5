@@ -6,13 +6,20 @@ export const SHARED_ACCOUNT_MESSAGE = '사용할 수 없는 계정입니다. 본
 const approvedRoles = new Set(['admin', 'store_manager', 'assistant_manager', 'manager'])
 const inactiveStatuses = new Set(['inactive', 'disabled', 'suspended'])
 
+/** The signed-in user's approved assignment before comparing it with this build's registry. */
+export function hasApprovedPartnerAssignment(loginId: string, profile?: Record<string, unknown>): profile is Record<string, unknown> & { partnerId: string; partnerName: string } {
+  return !!profile && profile.role === 'partner' && profile.active === true && profile.approved === true
+    && profile.disabled !== true && !(typeof profile.status === 'string' && inactiveStatuses.has(profile.status))
+    && /^[A-Z0-9]{1,64}$/.test(loginId) && profile.loginId === loginId
+    && typeof profile.partnerId === 'string' && !!profile.partnerId
+    && typeof profile.partnerName === 'string' && !!profile.partnerName
+}
+
 /** Client validation only; Firestore rules must independently enforce tenant access. */
 export function checkedPartnerIdentity(loginId: string, profile?: Record<string, unknown>): PartnerIdentity | null {
-  if (!profile || profile.role !== 'partner' || profile.active !== true || profile.approved !== true
-    || profile.disabled === true || (typeof profile.status === 'string' && inactiveStatuses.has(profile.status))) return null
-  if (typeof profile.partnerId !== 'string') return null
+  if (!hasApprovedPartnerAssignment(loginId, profile)) return null
   const identity = partnerIdentityFor(profile.partnerId)
-  if (!identity || !/^[A-Z0-9]{1,64}$/.test(loginId) || profile.loginId !== loginId || profile.partnerName !== identity.partnerName) return null
+  if (!identity || profile.partnerName !== identity.partnerName) return null
   return { ...identity, loginId }
 }
 

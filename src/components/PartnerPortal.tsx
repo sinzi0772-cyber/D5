@@ -3,7 +3,8 @@ import { CircleHelp, Info, LogOut } from 'lucide-react'
 import { signOut } from 'firebase/auth'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { auth, db } from '../lib/firebase'
-import { checkedPartnerIdentity } from '../lib/accountAccess'
+import { checkedPartnerIdentity, hasApprovedPartnerAssignment } from '../lib/accountAccess'
+import { maybeReloadPartnerDeployment } from '../lib/partnerDeploymentRefresh'
 import { buildPartnerPortalModel, parsePartnerPublication, type PartnerPublication } from '../lib/partnerPublication'
 import { PartnerPreview } from './PartnerPreview'
 import { SettlementGuideModal } from './SettlementGuideModal'
@@ -23,6 +24,7 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
     const firestoreDb = db
     const firebaseAuth = auth
     let active = true
+    let profileRevision = 0
     let stopPublication: (() => void) | null = null
     const sameSession = () => active && firebaseAuth.currentUser?.uid === userId
     const clearPublication = (message: string) => {
@@ -31,14 +33,27 @@ export function PartnerPortal({ userId, loginId, partnerId }: { userId: string; 
     }
     const stopProfile = onSnapshot(doc(firestoreDb, 'profiles', userId), { includeMetadataChanges: true }, snapshot => {
       if (!sameSession()) return
+      const revision = ++profileRevision
       if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) {
         clearPublication('서버에서 업체 권한을 확인하는 중입니다.'); return
       }
       const profile = snapshot.exists() ? snapshot.data() : undefined
       const identity = checkedPartnerIdentity(loginId, profile)
       if (!identity || identity.partnerId !== partnerId || profile?.mustChangePassword) {
-        clearPublication('업체 계정 승인을 확인해 주세요.')
-        void signOut(firebaseAuth).catch(() => undefined)
+        const rejectProfile = () => {
+          clearPublication('업체 계정 승인을 확인해 주세요.')
+          void signOut(firebaseAuth).catch(() => undefined)
+        }
+        if (!identity && hasApprovedPartnerAssignment(loginId, profile)) {
+          clearPublication('')
+          setLoading(true)
+          const sameProfile = () => sameSession() && profileRevision === revision
+          void maybeReloadPartnerDeployment(sameProfile).then(reloaded => {
+            if (!reloaded && sameProfile()) rejectProfile()
+          })
+        } else {
+          rejectProfile()
+        }
         return
       }
       if (stopPublication) return
