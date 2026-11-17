@@ -1,7 +1,6 @@
 export interface PartnerTenant {
   readonly partnerId: string
   readonly partnerName: string
-  readonly sourcePartnerNames?: readonly string[]
 }
 
 export interface PartnerIdentity extends PartnerTenant {
@@ -26,10 +25,10 @@ export const PARTNER_ACCOUNTS: Readonly<Record<string, PartnerTenant>> = Object.
     partnerId: 'itwedding',
     partnerName: '(주) 아이티앤코',
   }),
+  // Retain the existing Firebase document ID for the WiseWedding account.
   'wisewedding-weddingfriends': Object.freeze({
     partnerId: 'wisewedding-weddingfriends',
-    partnerName: '와이즈웨딩 · 웨딩프렌즈',
-    sourcePartnerNames: Object.freeze(['주식회사 와이즈웨딩', '주식회사 웨딩프렌즈']),
+    partnerName: '주식회사 와이즈웨딩',
   }),
 })
 

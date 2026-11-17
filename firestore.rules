@@ -33,7 +33,7 @@ service cloud.firestore {
         || (partnerId == 'iniwedding' && partnerName == '(주) 아이니웨딩네트웍스')
         || (partnerId == 'weddingcloud' && partnerName == '(주) 웨딩크라우드')
         || (partnerId == 'itwedding' && partnerName == '(주) 아이티앤코')
-        || (partnerId == 'wisewedding-weddingfriends' && partnerName == '와이즈웨딩 · 웨딩프렌즈');
+        || (partnerId == 'wisewedding-weddingfriends' && partnerName == '주식회사 와이즈웨딩');
     }
 
     function isPartner() {
@@ -403,7 +403,8 @@ service cloud.firestore {
     }
     match /partnerViews/{partnerId} {
       allow get: if canManageAll()
-        || (isPartner() && myProfile().mustChangePassword == false && partnerId == myProfile().partnerId);
+        || (isPartner() && myProfile().mustChangePassword == false && partnerId == myProfile().partnerId
+          && (partnerId != 'wisewedding-weddingfriends' || resource.data.partnerName == myProfile().partnerName));
       allow list: if canManageAll();
       allow create, update: if canManageAll()
         && request.resource.data.keys().hasOnly(['schemaVersion', 'partnerId', 'partnerName', 'publishedAt', 'months'])
